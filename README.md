@@ -13,11 +13,12 @@ Build a game once; it plays pass-and-play, over Firebase, over anything.
 
 ```
 packages/
-  minigames_core/      # pure Dart: TurnGame, Match, GameTransport, LocalTransport, MatchController
-  minigames_test/      # shared conformance suite any GameTransport can run
-  minigame_tictactoe/  # reference game: pure-Dart logic + Flutter board widget
-  minigames_firebase/  # GameTransport backed by Firebase Realtime Database
-  example_app/         # demo catalog: main menu + local hot-seat; multiplayer seam ready
+  minigames_core/         # pure Dart: TurnGame, Match, GameTransport, LocalTransport, MatchController
+  minigames_test/         # shared conformance suite any GameTransport can run
+  minigame_tictactoe/     # reference game: logic + animated board
+  minigame_connect_four/  # connect four: gravity drops + animated board
+  minigames_firebase/     # GameTransport backed by Firebase Realtime Database
+  example_app/            # demo catalog: main menu + local hot-seat; multiplayer seam ready
 ```
 
 - `minigames_core` imports **nothing** — no Flutter, no Firebase, no Flame.
@@ -79,8 +80,9 @@ The demo is a **catalog**, not a host app. Multiplayer is not wired here:
 # unit / widget (run inside each package)
 (cd packages/minigames_core   && dart test)      # turn engine
 (cd packages/minigames_test   && dart test)      # transport conformance (LocalTransport)
-(cd packages/minigame_tictactoe && flutter test) # game logic
-(cd packages/example_app      && flutter test test/)  # widget smoke test
+(cd packages/minigame_tictactoe    && flutter test) # tic-tac-toe logic
+(cd packages/minigame_connect_four && flutter test) # connect four logic
+(cd packages/example_app           && flutter test test/)  # widget smoke
 ```
 
 Note: run `flutter test test/` for `example_app` — pointing at the whole package

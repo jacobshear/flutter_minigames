@@ -13,5 +13,6 @@ workspace:
   - packages/minigames_core
   - packages/minigames_test
   - packages/minigame_tictactoe
+  - packages/minigame_connect_four
   - packages/minigames_firebase
   - packages/example_app

@@ -18,6 +18,7 @@ dependencies:
   audioplayers: ^6.1.0
   minigames_core: ^0.1.0
   minigame_tictactoe: ^0.1.0
+  minigame_connect_four: ^0.1.0
   # Firebase transport — used by the integration test (and future networked mode).
   firebase_core: ^3.13.0
   firebase_database: ^11.3.4

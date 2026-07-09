@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../screens/connect_four_play_screen.dart';
 import '../screens/tictactoe_play_screen.dart';
 import '../theme/demo_theme.dart';
 
@@ -42,15 +43,14 @@ List<GameCatalogEntry> get gameCatalog => [
         icon: Icons.grid_3x3_rounded,
         builder: (_) => const TicTacToePlayScreen(),
       ),
-      // Placeholders — next games land here as packages ship.
-      const GameCatalogEntry(
+      GameCatalogEntry(
         id: 'connect_four',
         title: 'Connect four',
-        tagline: 'Gravity drops, cascade wins.',
-        players: '2 players',
+        tagline: 'Gravity drops, bounce, win glow.',
+        players: '2 players · hot seat',
         accent: DemoColors.teal,
         icon: Icons.view_column_rounded,
-        available: false,
+        builder: (_) => const ConnectFourPlayScreen(),
       ),
       const GameCatalogEntry(
         id: 'dots_and_boxes',
