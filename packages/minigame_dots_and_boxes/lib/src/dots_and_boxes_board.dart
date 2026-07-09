@@ -525,14 +525,14 @@ class _ResultPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.7), width: 2.5),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
+            color: color.withValues(alpha: 0.18),
+            blurRadius: 12,
             offset: const Offset(0, 4),
-            blurRadius: 0,
           ),
         ],
       ),
@@ -569,14 +569,14 @@ class _ScoreChip extends StatelessWidget {
         color: color.withValues(alpha: winner ? 0.28 : (active ? 0.18 : 0.10)),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: color.withValues(alpha: winner ? 0.95 : (active ? 0.7 : 0.35)),
-          width: emphasize ? 2.5 : 2,
+          color: color.withValues(alpha: winner ? 0.55 : (active ? 0.4 : 0.22)),
+          width: emphasize ? 1.6 : 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: winner ? 0.16 : 0.08),
-            offset: Offset(0, winner ? 4 : 3),
-            blurRadius: 0,
+            color: color.withValues(alpha: winner ? 0.22 : (active ? 0.12 : 0.05)),
+            blurRadius: winner ? 12 : 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
