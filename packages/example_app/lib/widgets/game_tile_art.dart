@@ -81,18 +81,32 @@ class _GameTileArtState extends State<GameTileArt>
 }
 
 // ---------------------------------------------------------------------------
-// Timeline
+// Timeline — no whole-tile opacity fade (that flashed the blue C4 board).
+//
+//   0 ────── actionEnd ── celebrateEnd ──────── 1
+//   | moves…          | hold win      | clear  |
+// Clear multiplies piece progress to 0 so the board empties in place.
 // ---------------------------------------------------------------------------
+
+const double _kActionEnd = 0.72;
+const double _kCelebrateEnd = 0.84;
+
+double _boardPresence(double t) {
+  if (t < _kCelebrateEnd) return 1;
+  return 1 -
+      Curves.easeInOutCubic.transform(
+        (t - _kCelebrateEnd) / (1 - _kCelebrateEnd),
+      );
+}
 
 double _beat(
   double t,
   int step,
   int moveCount, {
-  double actionEnd = 0.76,
   double drawShare = 0.62,
 }) {
-  if (t >= actionEnd) return 1;
-  final u = (t / actionEnd).clamp(0.0, 1.0);
+  if (t >= _kActionEnd) return 1;
+  final u = (t / _kActionEnd).clamp(0.0, 1.0);
   final pos = u * moveCount;
   final i = pos.floor().clamp(0, moveCount);
   if (step > i) return 0;
@@ -102,21 +116,16 @@ double _beat(
   return Curves.easeOutCubic.transform(local / drawShare);
 }
 
-double _celebrate(
-  double t, {
-  double actionEnd = 0.76,
-  double celebrateEnd = 0.90,
-}) {
-  if (t < actionEnd) return 0;
-  if (t >= celebrateEnd) return 1;
-  return Curves.easeOutCubic.transform(
-    (t - actionEnd) / (celebrateEnd - actionEnd),
-  );
+double _piece(double t, int step, int moveCount, {double drawShare = 0.62}) {
+  return _beat(t, step, moveCount, drawShare: drawShare) * _boardPresence(t);
 }
 
-double _loopOpacity(double t, {double fadeStart = 0.90}) {
-  if (t < fadeStart) return 1;
-  return 1 - Curves.easeInCubic.transform((t - fadeStart) / (1 - fadeStart));
+double _celebrate(double t) {
+  if (t < _kActionEnd) return 0;
+  final hold = Curves.easeOutCubic.transform(
+    ((t - _kActionEnd) / (_kCelebrateEnd - _kActionEnd)).clamp(0.0, 1.0),
+  );
+  return hold * _boardPresence(t);
 }
 
 T _pick<T>(int script, List<T> options) => options[script % options.length];
@@ -196,11 +205,6 @@ class _TicTacToeTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _tttScripts);
-    final opacity = _loopOpacity(t);
-    canvas.saveLayer(
-      Offset.zero & size,
-      Paint()..color = Colors.white.withValues(alpha: opacity),
-    );
 
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
@@ -243,8 +247,8 @@ class _TicTacToeTilePainter extends CustomPainter {
     }
 
     for (var i = 0; i < s.moves.length; i++) {
-      final p = _beat(t, i, s.moves.length);
-      if (p <= 0) continue;
+      final p = _piece(t, i, s.moves.length);
+      if (p <= 0.001) continue;
       final (col, row, isX) = s.moves[i];
       final c = Offset(
         board.left + (col + 0.5) * cell,
@@ -259,7 +263,7 @@ class _TicTacToeTilePainter extends CustomPainter {
 
     final winP = _celebrate(t);
     final line = s.winLine;
-    if (winP > 0 && line != null) {
+    if (winP > 0.001 && line != null) {
       final (c0, r0, c1, r1) = line;
       final a = Offset(
         board.left + (c0 + 0.5) * cell,
@@ -270,17 +274,16 @@ class _TicTacToeTilePainter extends CustomPainter {
         board.top + (r1 + 0.5) * cell,
       );
       final color = s.xWins ? DemoColors.coral : DemoColors.teal;
+      // Draw full line, scale alpha with winP (clears with presence).
       canvas.drawLine(
         a,
-        Offset.lerp(a, b, winP)!,
+        b,
         Paint()
-          ..color = color.withValues(alpha: 0.9)
-          ..strokeWidth = size.width * 0.05
+          ..color = color.withValues(alpha: 0.9 * winP)
+          ..strokeWidth = size.width * 0.05 * (0.5 + 0.5 * winP)
           ..strokeCap = StrokeCap.round,
       );
     }
-
-    canvas.restore();
   }
 
   void _drawX(
@@ -444,11 +447,6 @@ class _ConnectFourTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _c4Scripts);
-    final opacity = _loopOpacity(t);
-    canvas.saveLayer(
-      Offset.zero & size,
-      Paint()..color = Colors.white.withValues(alpha: opacity),
-    );
 
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
@@ -492,22 +490,28 @@ class _ConnectFourTilePainter extends CustomPainter {
       }
     }
 
+    final presence = _boardPresence(t);
     for (var i = 0; i < s.drops.length; i++) {
-      final p = _beat(t, i, s.drops.length, drawShare: 0.70);
-      if (p <= 0) continue;
+      final p = _piece(t, i, s.drops.length, drawShare: 0.70);
+      if (p <= 0.001) continue;
       final (col, landRow, color) = s.drops[i];
       final restY = frame.top + (landRow + 0.5) * cellH;
       final startY = frame.top - cellH * 0.75;
-      final fallT = Curves.easeInCubic.transform(p.clamp(0.0, 1.0));
-      var y = lerpDouble(startY, restY, fallT)!;
-      if (p > 0.82) {
+      // During clear, reverse the drop (discs rise out) instead of flashing.
+      final fallAmount = presence < 1
+          ? presence
+          : Curves.easeInCubic.transform(p.clamp(0.0, 1.0));
+      var y = lerpDouble(startY, restY, fallAmount)!;
+      if (presence >= 1 && p > 0.82) {
         final b = (p - 0.82) / 0.18;
         y -= math.sin(b * math.pi) * cellH * 0.07;
       }
       final c = Offset(frame.left + (col + 0.5) * cellW, y);
+      final radius = holeR * 0.92 * (presence < 1 ? presence.clamp(0.0, 1.0) : 1);
+      if (radius < 0.5) continue;
       canvas.drawCircle(
         c,
-        holeR * 0.92,
+        radius,
         Paint()
           ..shader = RadialGradient(
             center: const Alignment(-0.3, -0.35),
@@ -521,7 +525,7 @@ class _ConnectFourTilePainter extends CustomPainter {
 
     final winP = _celebrate(t);
     final line = s.winLine;
-    if (winP > 0 && line != null) {
+    if (winP > 0.001 && line != null) {
       final (c0, r0, c1, r1) = line;
       final a = Offset(
         frame.left + (c0 + 0.5) * cellW,
@@ -533,24 +537,13 @@ class _ConnectFourTilePainter extends CustomPainter {
       );
       canvas.drawLine(
         a,
-        Offset.lerp(a, b, winP)!,
+        b,
         Paint()
-          ..color = s.winColor.withValues(alpha: 0.9)
-          ..strokeWidth = size.width * 0.055
-          ..strokeCap = StrokeCap.round
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.02),
-      );
-      canvas.drawLine(
-        a,
-        Offset.lerp(a, b, winP)!,
-        Paint()
-          ..color = s.winColor
-          ..strokeWidth = size.width * 0.035
+          ..color = s.winColor.withValues(alpha: 0.9 * winP)
+          ..strokeWidth = size.width * 0.04 * winP
           ..strokeCap = StrokeCap.round,
       );
     }
-
-    canvas.restore();
   }
 
   @override
@@ -682,11 +675,6 @@ class _DotsBoxesTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _dabScripts);
-    final opacity = _loopOpacity(t);
-    canvas.saveLayer(
-      Offset.zero & size,
-      Paint()..color = Colors.white.withValues(alpha: opacity),
-    );
 
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
@@ -729,9 +717,10 @@ class _DotsBoxesTilePainter extends CustomPainter {
       }
     }
 
+    final presence = _boardPresence(t);
     for (var i = 0; i < s.edges.length; i++) {
-      final p = _beat(t, i, s.edges.length, drawShare: 0.58);
-      if (p <= 0) continue;
+      final p = _piece(t, i, s.edges.length, drawShare: 0.58);
+      if (p <= 0.001) continue;
       final (kind, er, ec, color) = s.edges[i];
       final Offset a;
       final Offset b;
@@ -742,9 +731,11 @@ class _DotsBoxesTilePainter extends CustomPainter {
         a = d(ec, er);
         b = d(ec, er + 1);
       }
+      // During clear, retract stroke back to start.
+      final end = Offset.lerp(a, b, p)!;
       canvas.drawLine(
         a,
-        Offset.lerp(a, b, p)!,
+        end,
         Paint()
           ..color = color
           ..strokeWidth = size.width * 0.045
@@ -753,21 +744,22 @@ class _DotsBoxesTilePainter extends CustomPainter {
     }
 
     for (final (br, bc, closeStep, owner) in s.fills) {
-      final p = _beat(t, closeStep, s.edges.length, drawShare: 0.58);
-      if (p < 0.9) continue;
-      final local = Curves.easeOutBack.transform(
-        ((p - 0.9) / 0.1).clamp(0.0, 1.0),
+      final p = _piece(t, closeStep, s.edges.length, drawShare: 0.58);
+      if (p < 0.85) continue;
+      final local = Curves.easeOutCubic.transform(
+        ((p - 0.85) / 0.15).clamp(0.0, 1.0),
       );
-      final cFill = math.max(local, _celebrate(t) * (p >= 1 ? 1.0 : local));
+      final cFill = local * presence;
+      if (cFill <= 0.001) continue;
       final cx = area.left + (bc + 0.5) * step;
       final cy = area.top + (br + 0.5) * step;
-      final side = (step - 6) * (0.2 + 0.8 * cFill.clamp(0.0, 1.0));
+      final side = (step - 6) * (0.2 + 0.8 * cFill);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromCenter(center: Offset(cx, cy), width: side, height: side),
           Radius.circular(size.width * 0.035),
         ),
-        Paint()..color = owner.withValues(alpha: 0.32 * cFill.clamp(0.0, 1.0)),
+        Paint()..color = owner.withValues(alpha: 0.32 * cFill),
       );
     }
 
@@ -782,7 +774,7 @@ class _DotsBoxesTilePainter extends CustomPainter {
     }
 
     final winP = _celebrate(t);
-    if (winP > 0) {
+    if (winP > 0.001) {
       canvas.drawCircle(
         Offset(size.width * 0.5, size.height * 0.12),
         size.width * 0.09 * winP,
@@ -791,8 +783,6 @@ class _DotsBoxesTilePainter extends CustomPainter {
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.045),
       );
     }
-
-    canvas.restore();
   }
 
   @override
