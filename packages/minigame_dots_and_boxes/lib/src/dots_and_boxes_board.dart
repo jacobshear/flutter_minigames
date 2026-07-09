@@ -434,33 +434,107 @@ class _StatusBanner extends StatelessWidget {
         );
       }
     } else if (outcome!.isDraw) {
-      center = Text('Dead heat', key: const ValueKey('draw'), style: textStyle);
+      final ink = Theme.of(context).colorScheme.onSurface;
+      center = _ResultPill(
+        key: const ValueKey('draw'),
+        color: ink,
+        child: Text(
+          'Dead heat',
+          style: textStyle?.copyWith(color: ink, fontSize: 18),
+        ),
+      );
     } else {
       final isP0 = state.playerIds.indexOf(outcome!.winnerId!) == 0;
       final color = isP0 ? p0 : p1;
-      center = Text(
-        'wins',
+      center = _ResultPill(
         key: const ValueKey('win'),
-        style: textStyle?.copyWith(color: color),
+        color: color,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _Dot(color: color, size: 16),
+            const SizedBox(width: 10),
+            Text(
+              isP0 ? 'P1 wins' : 'P2 wins',
+              style: textStyle?.copyWith(
+                color: color,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       );
     }
 
+    final winnerIsP0 =
+        outcome?.isWin == true && state.playerIds.indexOf(outcome!.winnerId!) == 0;
+    final winnerIsP1 =
+        outcome?.isWin == true && state.playerIds.indexOf(outcome!.winnerId!) == 1;
+
     return Row(
       children: [
-        _ScoreChip(label: 'P1', score: sa, color: p0, active: outcome == null && state.currentPlayerId == a),
+        _ScoreChip(
+          label: 'P1',
+          score: sa,
+          color: p0,
+          active: outcome == null && state.currentPlayerId == a,
+          winner: winnerIsP0,
+        ),
         Expanded(
-          child: SizedBox(
-            height: 40,
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 280),
-                child: center,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 280),
+            height: outcome != null ? 52 : 40,
+            alignment: Alignment.center,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              switchInCurve: Curves.easeOutBack,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
+                  child: child,
+                ),
               ),
+              child: center,
             ),
           ),
         ),
-        _ScoreChip(label: 'P2', score: sb, color: p1, active: outcome == null && state.currentPlayerId == b),
+        _ScoreChip(
+          label: 'P2',
+          score: sb,
+          color: p1,
+          active: outcome == null && state.currentPlayerId == b,
+          winner: winnerIsP1,
+        ),
       ],
+    );
+  }
+}
+
+class _ResultPill extends StatelessWidget {
+  final Color color;
+  final Widget child;
+
+  const _ResultPill({super.key, required this.color, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45), width: 1.6),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.22),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
     );
   }
 }
@@ -470,36 +544,51 @@ class _ScoreChip extends StatelessWidget {
   final int score;
   final Color color;
   final bool active;
+  final bool winner;
 
   const _ScoreChip({
     required this.label,
     required this.score,
     required this.color,
     required this.active,
+    this.winner = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final emphasize = active || winner;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: winner ? 14 : 12,
+        vertical: winner ? 10 : 8,
+      ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: active ? 0.18 : 0.08),
+        color: color.withValues(alpha: winner ? 0.28 : (active ? 0.18 : 0.08)),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: color.withValues(alpha: active ? 0.55 : 0.18),
-          width: active ? 1.6 : 1,
+          color: color.withValues(alpha: winner ? 0.85 : (active ? 0.55 : 0.18)),
+          width: emphasize ? 2 : 1,
         ),
+        boxShadow: winner
+            ? [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            label,
+            winner ? '$label · win' : label,
             style: TextStyle(
-              color: color.withValues(alpha: 0.85),
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
+              color: color.withValues(alpha: 0.9),
+              fontWeight: FontWeight.w700,
+              fontSize: winner ? 12 : 13,
             ),
           ),
           const SizedBox(width: 8),
@@ -511,11 +600,11 @@ class _ScoreChip extends StatelessWidget {
             ),
             child: Text(
               '$score',
-              key: ValueKey(score),
+              key: ValueKey('$score-$winner'),
               style: TextStyle(
                 color: color,
                 fontWeight: FontWeight.w800,
-                fontSize: 18,
+                fontSize: winner ? 20 : 18,
               ),
             ),
           ),

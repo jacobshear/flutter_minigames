@@ -333,39 +333,88 @@ class _StatusBanner extends StatelessWidget {
         ],
       );
     } else if (outcome!.isDraw) {
-      content = Text('Dead heat', key: const ValueKey('draw'), style: textStyle);
+      content = _ResultPill(
+        key: const ValueKey('draw'),
+        color: Theme.of(context).colorScheme.onSurface,
+        child: Text(
+          'Dead heat',
+          style: textStyle?.copyWith(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontSize: 20,
+          ),
+        ),
+      );
     } else {
       final isX = winnerIsX == true;
       final color = isX ? xColor : oColor;
-      content = Row(
+      content = _ResultPill(
         key: const ValueKey('win'),
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TicTacToeGlyph(isX: isX, color: color, size: 26),
-          const SizedBox(width: 10),
-          Text('wins', style: textStyle?.copyWith(color: color)),
-        ],
+        color: color,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TicTacToeGlyph(isX: isX, color: color, size: 28),
+            const SizedBox(width: 10),
+            Text(
+              isX ? 'X wins' : 'O wins',
+              style: textStyle?.copyWith(
+                color: color,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       );
     }
 
-    return SizedBox(
-      height: 40,
+    final isResult = outcome != null;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 280),
+      height: isResult ? 56 : 40,
+      alignment: Alignment.center,
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 360),
         switchInCurve: Curves.easeOutBack,
         switchOutCurve: Curves.easeIn,
         transitionBuilder: (child, animation) => FadeTransition(
           opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.35),
-              end: Offset.zero,
-            ).animate(animation),
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
             child: child,
           ),
         ),
         child: content,
       ),
+    );
+  }
+}
+
+/// Big coloured pill so the winner is obvious under confetti.
+class _ResultPill extends StatelessWidget {
+  final Color color;
+  final Widget child;
+
+  const _ResultPill({super.key, required this.color, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45), width: 1.6),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.22),
+            blurRadius: 18,
+            spreadRadius: 0,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
     );
   }
 }
