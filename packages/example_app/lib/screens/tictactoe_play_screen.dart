@@ -31,7 +31,7 @@ class _TicTacToePlayScreenState extends State<TicTacToePlayScreen> {
     oColor: DemoColors.teal,
     gridColor: const Color(0xD12E2A26),
     sounds: TicTacToeSounds(
-      onPlace: DemoSfx.instance.place,
+      onPlace: DemoSfx.instance.mark,
       onWin: DemoSfx.instance.win,
       onDraw: DemoSfx.instance.draw,
     ),

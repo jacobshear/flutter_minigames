@@ -2,7 +2,7 @@ name: minigame_connect_four
 description: >-
   Connect Four for flutter_minigames. Logic is a pure minigames_core TurnGame;
   ships a Flutter board widget with gravity-drop juice.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/jacobshear/flutter_minigames
 topics:
   - games

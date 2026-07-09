@@ -84,7 +84,10 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
 
     if (filled > _lastFilled) {
       if (style.haptics) HapticFeedback.lightImpact();
-      style.sounds.onPlace?.call();
+      // Fire place sound slightly into the stroke so it lands with the mark.
+      Future.delayed(const Duration(milliseconds: 70), () {
+        if (mounted) style.sounds.onPlace?.call();
+      });
     }
     if (filled < _lastFilled) {
       // New game — clear win effects.

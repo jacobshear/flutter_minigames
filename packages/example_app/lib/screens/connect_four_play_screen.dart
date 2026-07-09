@@ -30,10 +30,10 @@ class _ConnectFourPlayScreenState extends State<ConnectFourPlayScreen> {
     boardColor: const Color(0xFF2F5DA8),
     holeColor: const Color(0xFFF7F0E4),
     sounds: ConnectFourSounds(
-      onDrop: DemoSfx.instance.place,
+      onDrop: (rows) => DemoSfx.instance.drop(longDrop: rows >= 4),
       onWin: DemoSfx.instance.win,
       onDraw: DemoSfx.instance.draw,
-      onInvalid: DemoSfx.instance.draw, // soft thud for full column
+      onInvalid: DemoSfx.instance.invalid,
     ),
   );
 

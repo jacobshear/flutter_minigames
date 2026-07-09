@@ -10,14 +10,13 @@ import 'connect_four_style.dart';
 
 /// Animated Connect Four board wired to a [MatchController].
 ///
-/// Juice (all free for every host):
-/// - Column press dips; a translucent ghost disc previews the drop target
-/// - Discs fall with ease-in gravity + a soft bounce on impact
-/// - Landing haptics scale with drop height; win escalates further
-/// - Winning four pulse + glow line; losers dim; confetti burst
-/// - Living turn banner with a breathing disc
+/// Toy-quality juice:
+/// - Discs fall **behind** a punched plastic faceplate (path-difference holes)
+/// - Gravity ease-in + impact bounce; longer falls take longer
+/// - Column press + ghost disc in the top rail
+/// - Win pulse on the four, glow line, confetti, escalating haptics
 ///
-/// Brand (palette, sounds, confetti on/off) comes from [ConnectFourStyle].
+/// Brand comes from [ConnectFourStyle] (palette / sounds / confetti).
 class ConnectFourBoard extends StatefulWidget {
   final MatchController<ConnectFourState, ConnectFourMove> controller;
   final ConnectFourStyle style;
@@ -38,7 +37,7 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
 
   late final AnimationController _entrance = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 720),
+    duration: const Duration(milliseconds: 780),
   );
   late final AnimationController _winPulse = AnimationController(
     vsync: this,
@@ -46,10 +45,9 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
   )..repeat(reverse: true);
   late final AnimationController _confettiCtrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1600),
+    duration: const Duration(milliseconds: 1650),
   );
 
-  /// One controller per disc key (`"$col,$row"`) for drop animation.
   final Map<String, AnimationController> _dropCtrls = {};
   final Map<String, Animation<double>> _dropAnims = {};
 
@@ -70,7 +68,6 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
     _state = widget.controller.state;
     _lastFilled = _state?.filledCount ?? 0;
     _outcome = _state == null ? null : _game.outcome(_state!);
-    // Seed already-placed discs as fully landed (resume / hot restart).
     final s = _state;
     if (s != null) {
       for (var i = 0; i < s.cells.length; i++) {
@@ -97,27 +94,30 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
     super.dispose();
   }
 
+  int _dropDurationMs(int dropRows) =>
+      (260 + dropRows * 85).clamp(280, 780);
+
   void _ensureDropCtrl(String key, {required bool animate, int dropRows = 3}) {
     if (_dropCtrls.containsKey(key)) return;
-    final ms = animate ? (280 + dropRows * 70).clamp(280, 700) : 1;
+    final ms = animate ? _dropDurationMs(dropRows) : 1;
     final ctrl = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: ms),
     );
-    // Gravity ease-in then soft overshoot bounce.
+    // Gravity → impact squash → settle.
     final anim = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween(begin: 0.0, end: 1.06)
+        tween: Tween(begin: 0.0, end: 1.05)
             .chain(CurveTween(curve: Curves.easeInCubic)),
-        weight: 78,
+        weight: 80,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: 1.06, end: 0.97)
+        tween: Tween(begin: 1.05, end: 0.96)
             .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 12,
+        weight: 10,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: 0.97, end: 1.0)
+        tween: Tween(begin: 0.96, end: 1.0)
             .chain(CurveTween(curve: Curves.easeOutBack)),
         weight: 10,
       ),
@@ -141,27 +141,25 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
         state.lastRow != null) {
       final col = state.lastCol!;
       final row = state.lastRow!;
-      final key = '$col,$row';
-      // Drop distance from top of board (rows above the landing slot).
       final dropRows = ConnectFourState.rows - row;
-      _ensureDropCtrl(key, animate: true, dropRows: dropRows);
+      _ensureDropCtrl('$col,$row', animate: true, dropRows: dropRows);
 
+      final landMs = (_dropDurationMs(dropRows) * 0.80).round();
       if (style.haptics) {
-        HapticFeedback.lightImpact();
-        // Impact when the disc would land.
-        final landMs = (280 + dropRows * 70).clamp(280, 700) * 0.78;
-        Future.delayed(Duration(milliseconds: landMs.round()), () {
+        HapticFeedback.selectionClick();
+        Future.delayed(Duration(milliseconds: landMs), () {
           if (!mounted) return;
           HapticFeedback.mediumImpact();
-          style.sounds.onDrop?.call();
+          style.sounds.onDrop?.call(dropRows);
         });
       } else {
-        style.sounds.onDrop?.call();
+        Future.delayed(Duration(milliseconds: landMs), () {
+          if (mounted) style.sounds.onDrop?.call(dropRows);
+        });
       }
     }
 
     if (filled < _lastFilled) {
-      // New game — wipe animation state.
       for (final c in _dropCtrls.values) {
         c.dispose();
       }
@@ -192,31 +190,35 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
   }
 
   void _startWinEffects(ConnectFourState state) {
-    widget.style.sounds.onWin?.call();
-    if (widget.style.haptics) {
-      HapticFeedback.heavyImpact();
-      Future.delayed(const Duration(milliseconds: 90), () {
-        if (mounted) HapticFeedback.mediumImpact();
-      });
-    }
-    final line = _winLine;
-    if (line != null && line.isNotEmpty) {
-      // Midpoint of winning discs in board fraction coords (col 0 left, row 0 bottom).
-      var sumC = 0.0, sumR = 0.0;
-      for (final i in line) {
-        sumC += (i % ConnectFourState.cols + 0.5) / ConnectFourState.cols;
-        sumR += (i ~/ ConnectFourState.cols + 0.5) / ConnectFourState.rows;
+    // Let the landing disc settle before the celebration.
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      widget.style.sounds.onWin?.call();
+      if (widget.style.haptics) {
+        HapticFeedback.heavyImpact();
+        Future.delayed(const Duration(milliseconds: 90), () {
+          if (mounted) HapticFeedback.mediumImpact();
+        });
       }
-      // Flip Y: board paints row 0 at the bottom.
-      _confettiOrigin = Offset(
-        sumC / line.length,
-        1.0 - (sumR / line.length),
-      );
-    }
-    if (widget.style.confetti) {
-      _confetti = _spawnConfetti();
-      _confettiCtrl.forward(from: 0);
-    }
+      final line = _winLine;
+      if (line != null && line.isNotEmpty) {
+        var sumC = 0.0, sumR = 0.0;
+        for (final i in line) {
+          sumC += (i % ConnectFourState.cols + 0.5) / ConnectFourState.cols;
+          sumR += (i ~/ ConnectFourState.cols + 0.5) / ConnectFourState.rows;
+        }
+        _confettiOrigin = Offset(
+          sumC / line.length,
+          1.0 - (sumR / line.length),
+        );
+      }
+      if (widget.style.confetti) {
+        setState(() {
+          _confetti = _spawnConfetti();
+        });
+        _confettiCtrl.forward(from: 0);
+      }
+    });
   }
 
   List<_Confetto> _spawnConfetti() {
@@ -226,13 +228,14 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
       widget.style.resolveP1(scheme),
       const Color(0xFFF4B740),
       const Color(0xFFFFF3E0),
+      Colors.white,
     ];
-    return List<_Confetto>.generate(42, (i) {
-      final angle = -math.pi / 2 + (_rnd.nextDouble() - 0.5) * 2.8;
+    return List<_Confetto>.generate(48, (i) {
+      final angle = -math.pi / 2 + (_rnd.nextDouble() - 0.5) * 2.9;
       return _Confetto(
         angle: angle,
-        speed: 0.5 + _rnd.nextDouble() * 1.0,
-        size: 0.016 + _rnd.nextDouble() * 0.02,
+        speed: 0.48 + _rnd.nextDouble() * 1.05,
+        size: 0.014 + _rnd.nextDouble() * 0.022,
         color: palette[i % palette.length],
         spin: (_rnd.nextDouble() - 0.5) * 14,
         phase: _rnd.nextDouble() * math.pi,
@@ -281,18 +284,18 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
           p0: p0,
           p1: p1,
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
           child: AspectRatio(
-            // 7 cols × ~6.4 rows (ghost rail on top).
-            aspectRatio: 7 / 6.55,
+            aspectRatio: 7 / 6.7,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final w = constraints.maxWidth;
                 final cell = w / ConnectFourState.cols;
                 final boardH = cell * ConnectFourState.rows;
                 final topRail = constraints.maxHeight - boardH;
+                final pad = cell * 0.07;
 
                 return AnimatedBuilder(
                   animation: Listenable.merge([
@@ -302,20 +305,22 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
                     ..._dropCtrls.values,
                   ]),
                   builder: (context, _) {
+                    final enter = Curves.easeOutCubic.transform(
+                      _entrance.value,
+                    );
                     return Stack(
-                      // Drops start above the frame; never clip mid-flight.
                       clipBehavior: Clip.none,
                       children: [
-                        // Ghost / hover disc in the top rail.
+                        // Ghost disc in the top rail.
                         if (!gameOver && _hoverCol != null)
                           Positioned(
-                            left: _hoverCol! * cell,
-                            top: topRail * 0.12,
-                            width: cell,
-                            height: cell,
+                            left: _hoverCol! * cell + pad * 0.3,
+                            top: math.max(0.0, topRail * 0.08),
+                            width: cell - pad * 0.6,
+                            height: cell - pad * 0.6,
                             child: IgnorePointer(
                               child: Opacity(
-                                opacity: 0.38,
+                                opacity: 0.42,
                                 child: _Disc(
                                   color: state.isPlayer0Turn ? p0 : p1,
                                   progress: 1,
@@ -323,31 +328,24 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
                               ),
                             ),
                           ),
-                        // Plastic frame + holes + discs.
+                        // Board: back well → discs → punched face → hits.
                         Positioned(
                           left: 0,
                           right: 0,
                           bottom: 0,
                           height: boardH,
                           child: Transform.translate(
-                            offset: Offset(
-                              0,
-                              (1 - Curves.easeOutCubic.transform(
-                                    _entrance.value,
-                                  )) *
-                                  28,
-                            ),
+                            offset: Offset(0, (1 - enter) * 32),
                             child: Opacity(
-                              opacity: Curves.easeOut
-                                  .transform(_entrance.value)
-                                  .clamp(0.0, 1.0),
-                              child: _BoardFrame(
-                                boardColor: boardColor,
-                                holeColor: holeColor,
+                              opacity: enter.clamp(0.0, 1.0),
+                              child: _ToyBoard(
                                 cell: cell,
+                                pad: pad,
                                 state: state,
                                 p0: p0,
                                 p1: p1,
+                                boardColor: boardColor,
+                                holeColor: holeColor,
                                 winSet: winSet,
                                 gameOver: gameOver,
                                 winPulse: _winPulse.value,
@@ -359,20 +357,20 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
                             ),
                           ),
                         ),
-                        // Win line glow across the four.
+                        // Win line sits on top of the face (celebratory).
                         if (_winLine != null)
                           Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            height: boardH,
+                            left: pad,
+                            right: pad,
+                            bottom: pad,
+                            height: boardH - pad * 2,
                             child: IgnorePointer(
                               child: CustomPaint(
                                 painter: _WinLinePainter(
                                   line: _winLine!,
                                   color: winnerIsP0 == true ? p0 : p1,
                                   pulse: _winPulse.value,
-                                  cell: cell,
+                                  cell: (w - pad * 2) / ConnectFourState.cols,
                                 ),
                               ),
                             ),
@@ -385,8 +383,6 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
                                   confetti: _confetti,
                                   origin: Offset(
                                     _confettiOrigin.dx,
-                                    // Origin is relative to full widget;
-                                    // map board-local origin into full height.
                                     (topRail +
                                             _confettiOrigin.dy * boardH) /
                                         constraints.maxHeight,
@@ -408,6 +404,484 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
       ],
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Toy board: back well + discs (behind) + punched plastic face + hit columns
+// ---------------------------------------------------------------------------
+
+class _ToyBoard extends StatelessWidget {
+  final double cell;
+  final double pad;
+  final ConnectFourState state;
+  final Color p0;
+  final Color p1;
+  final Color boardColor;
+  final Color holeColor;
+  final Set<int> winSet;
+  final bool gameOver;
+  final double winPulse;
+  final Map<String, Animation<double>> dropAnims;
+  final int? hoverCol;
+  final ValueChanged<int?> onHover;
+  final ValueChanged<int> onTap;
+
+  const _ToyBoard({
+    required this.cell,
+    required this.pad,
+    required this.state,
+    required this.p0,
+    required this.p1,
+    required this.boardColor,
+    required this.holeColor,
+    required this.winSet,
+    required this.gameOver,
+    required this.winPulse,
+    required this.dropAnims,
+    required this.hoverCol,
+    required this.onHover,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = cell * 0.28;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: [
+          BoxShadow(
+            color: boardColor.withValues(alpha: 0.38),
+            blurRadius: 30,
+            offset: const Offset(0, 16),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      // Don't clip — falling discs start above the frame.
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // 1) Back well (visible through the punched holes).
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(radius),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.lerp(holeColor, Colors.black, 0.08)!,
+                    Color.lerp(holeColor, Colors.black, 0.16)!,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // 2) Discs — behind the faceplate so they fall "into" the toy.
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.all(pad),
+              child: CustomPaint(
+                painter: _DiscsPainter(
+                  state: state,
+                  p0: p0,
+                  p1: p1,
+                  winSet: winSet,
+                  gameOver: gameOver,
+                  winPulse: winPulse,
+                  dropAnims: dropAnims,
+                ),
+              ),
+            ),
+          ),
+          // 3) Plastic face with circular cutouts.
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _FaceplatePainter(
+                boardColor: boardColor,
+                pad: pad,
+                radius: radius,
+              ),
+            ),
+          ),
+          // 4) Column interaction layer.
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.all(pad),
+              child: Row(
+                children: [
+                  for (var col = 0; col < ConnectFourState.cols; col++)
+                    Expanded(
+                      child: _ColumnSensor(
+                        col: col,
+                        open: state.dropRow(col) != null && !gameOver,
+                        hovered: hoverCol == col,
+                        onHoverEnter: () => onHover(col),
+                        onHoverExit: () {
+                          if (hoverCol == col) onHover(null);
+                        },
+                        onTap: () => onTap(col),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Renders every disc in absolute board coordinates (row 0 = bottom).
+class _DiscsPainter extends CustomPainter {
+  final ConnectFourState state;
+  final Color p0;
+  final Color p1;
+  final Set<int> winSet;
+  final bool gameOver;
+  final double winPulse;
+  final Map<String, Animation<double>> dropAnims;
+
+  _DiscsPainter({
+    required this.state,
+    required this.p0,
+    required this.p1,
+    required this.winSet,
+    required this.gameOver,
+    required this.winPulse,
+    required this.dropAnims,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cellW = size.width / ConnectFourState.cols;
+    final cellH = size.height / ConnectFourState.rows;
+    final discR = math.min(cellW, cellH) * 0.42;
+
+    for (var col = 0; col < ConnectFourState.cols; col++) {
+      for (var row = 0; row < ConnectFourState.rows; row++) {
+        final index = row * ConnectFourState.cols + col;
+        final owner = state.cells[index];
+        if (owner == null) continue;
+
+        final key = '$col,$row';
+        final t = dropAnims[key]?.value ?? 1.0;
+        final isP0 = state.playerIds.indexOf(owner) == 0;
+        final color = isP0 ? p0 : p1;
+        final isWin = winSet.contains(index);
+        final dimmed = gameOver && !isWin;
+
+        // visualRow: 0 at top of canvas.
+        final visualRow = ConnectFourState.rows - 1 - row;
+        final restY = (visualRow + 0.5) * cellH;
+        // Start above the board so the fall is visible through several holes.
+        final startY = -cellH * (0.6 + (ConnectFourState.rows - row) * 0.85);
+        // [t] already encodes gravity + bounce overshoot (0 → 1.05 → 0.96 → 1).
+        final drawY = startY + (restY - startY) * t;
+
+        final cx = (col + 0.5) * cellW;
+        final scale = t > 1
+            ? 1.0 + (t - 1) * 0.1
+            : 0.9 + 0.1 * t.clamp(0.0, 1.0);
+
+        canvas.save();
+        canvas.translate(cx, drawY);
+        canvas.scale(scale);
+        final discColor = dimmed
+            ? Color.lerp(color, const Color(0xFFF7F0E4), 0.55)!
+                .withValues(alpha: 0.45)
+            : color;
+        _paintDisc(
+          canvas,
+          discR,
+          discColor,
+          winGlow: isWin ? 0.28 + 0.4 * winPulse : 0,
+        );
+        canvas.restore();
+      }
+    }
+  }
+
+  void _paintDisc(Canvas canvas, double r, Color color, {required double winGlow}) {
+    final c = Offset.zero;
+    if (winGlow > 0) {
+      canvas.drawCircle(
+        c,
+        r * 1.2,
+        Paint()
+          ..color = color.withValues(alpha: winGlow)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.5),
+      );
+    }
+    final rect = Rect.fromCircle(center: c, radius: r);
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.35, -0.4),
+          radius: 0.95,
+          colors: [
+            Color.lerp(color, Colors.white, 0.42)!,
+            color,
+            Color.lerp(color, Colors.black, 0.22)!,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(rect),
+    );
+    canvas.drawCircle(
+      c,
+      r * 0.78,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.06
+        ..color = Colors.white.withValues(alpha: 0.2),
+    );
+    canvas.drawCircle(
+      c.translate(-r * 0.12, -r * 0.15),
+      r * 0.42,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.45, -0.55),
+          radius: 0.55,
+          colors: [
+            Colors.white.withValues(alpha: 0.55),
+            Colors.white.withValues(alpha: 0.0),
+          ],
+        ).createShader(Rect.fromCircle(center: c, radius: r)),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_DiscsPainter old) => true; // driven by drop anims
+}
+
+/// Plastic face with circular holes punched out so discs show through.
+class _FaceplatePainter extends CustomPainter {
+  final Color boardColor;
+  final double pad;
+  final double radius;
+
+  _FaceplatePainter({
+    required this.boardColor,
+    required this.pad,
+    required this.radius,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final outer = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final facePath = Path()..addRRect(outer);
+
+    final inner = Rect.fromLTWH(
+      pad,
+      pad,
+      size.width - pad * 2,
+      size.height - pad * 2,
+    );
+    final cellW = inner.width / ConnectFourState.cols;
+    final cellH = inner.height / ConnectFourState.rows;
+    // Hole slightly smaller than disc so pieces sit "inside" the toy.
+    final holeR = math.min(cellW, cellH) * 0.40;
+
+    final holes = Path();
+    for (var col = 0; col < ConnectFourState.cols; col++) {
+      for (var visualRow = 0; visualRow < ConnectFourState.rows; visualRow++) {
+        final cx = inner.left + (col + 0.5) * cellW;
+        final cy = inner.top + (visualRow + 0.5) * cellH;
+        holes.addOval(Rect.fromCircle(center: Offset(cx, cy), radius: holeR));
+      }
+    }
+
+    final punched = Path.combine(PathOperation.difference, facePath, holes);
+
+    // Plastic body gradient.
+    final bodyPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color.lerp(boardColor, Colors.white, 0.16)!,
+          boardColor,
+          Color.lerp(boardColor, Colors.black, 0.2)!,
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(Offset.zero & size);
+    canvas.drawPath(punched, bodyPaint);
+
+    // Soft bevel highlight along top edge of face.
+    canvas.drawPath(
+      punched,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..color = Colors.white.withValues(alpha: 0.18),
+    );
+
+    // Hole rims — recessed plastic lip around every cutout.
+    for (var col = 0; col < ConnectFourState.cols; col++) {
+      for (var visualRow = 0; visualRow < ConnectFourState.rows; visualRow++) {
+        final cx = inner.left + (col + 0.5) * cellW;
+        final cy = inner.top + (visualRow + 0.5) * cellH;
+        final c = Offset(cx, cy);
+        // Inner shadow ring.
+        canvas.drawCircle(
+          c,
+          holeR,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = holeR * 0.14
+            ..color = Colors.black.withValues(alpha: 0.28),
+        );
+        // Tiny top lip highlight.
+        canvas.drawArc(
+          Rect.fromCircle(center: c, radius: holeR * 0.96),
+          -math.pi * 0.85,
+          math.pi * 0.55,
+          false,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = holeR * 0.07
+            ..color = Colors.white.withValues(alpha: 0.22)
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FaceplatePainter old) =>
+      old.boardColor != boardColor || old.pad != pad;
+}
+
+class _ColumnSensor extends StatefulWidget {
+  final int col;
+  final bool open;
+  final bool hovered;
+  final VoidCallback onHoverEnter;
+  final VoidCallback onHoverExit;
+  final VoidCallback onTap;
+
+  const _ColumnSensor({
+    required this.col,
+    required this.open,
+    required this.hovered,
+    required this.onHoverEnter,
+    required this.onHoverExit,
+    required this.onTap,
+  });
+
+  @override
+  State<_ColumnSensor> createState() => _ColumnSensorState();
+}
+
+class _ColumnSensorState extends State<_ColumnSensor> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final open = widget.open;
+    return MouseRegion(
+      onEnter: open ? (_) => widget.onHoverEnter() : null,
+      onExit: open
+          ? (_) {
+              widget.onHoverExit();
+              setState(() => _pressed = false);
+            }
+          : null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: open
+            ? (_) {
+                setState(() => _pressed = true);
+                widget.onHoverEnter();
+              }
+            : null,
+        onTapUp: open ? (_) => setState(() => _pressed = false) : null,
+        onTapCancel: open
+            ? () {
+                setState(() => _pressed = false);
+                widget.onHoverExit();
+              }
+            : null,
+        onTap: open ? widget.onTap : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: (_pressed || widget.hovered) && open
+                ? Colors.white.withValues(alpha: 0.1)
+                : Colors.transparent,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Small disc widgets (banner / ghost)
+// ---------------------------------------------------------------------------
+
+class _Disc extends StatelessWidget {
+  final Color color;
+  final double progress;
+
+  const _Disc({
+    required this.color,
+    required this.progress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _SingleDiscPainter(color: color, progress: progress),
+    );
+  }
+}
+
+class _SingleDiscPainter extends CustomPainter {
+  final Color color;
+  final double progress;
+
+  _SingleDiscPainter({required this.color, required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0) return;
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.shortestSide * 0.46 * progress.clamp(0.15, 1.0);
+    final rect = Rect.fromCircle(center: c, radius: r);
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.35, -0.4),
+          radius: 0.95,
+          colors: [
+            Color.lerp(color, Colors.white, 0.42)!,
+            color,
+            Color.lerp(color, Colors.black, 0.22)!,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SingleDiscPainter old) =>
+      old.color != color || old.progress != progress;
 }
 
 // ---------------------------------------------------------------------------
@@ -519,11 +993,7 @@ class _BreathingDiscState extends State<_BreathingDisc>
         final t = Curves.easeInOut.transform(_c.value);
         return Transform.scale(
           scale: 0.92 + 0.1 * t,
-          child: _MiniDisc(
-            color: widget.color,
-            size: 22,
-            glow: 0.35 * t,
-          ),
+          child: _MiniDisc(color: widget.color, size: 22, glow: 0.35 * t),
         );
       },
     );
@@ -577,373 +1047,7 @@ class _MiniDisc extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Board frame (plastic shell + interactive columns)
-// ---------------------------------------------------------------------------
-
-class _BoardFrame extends StatelessWidget {
-  final Color boardColor;
-  final Color holeColor;
-  final double cell;
-  final ConnectFourState state;
-  final Color p0;
-  final Color p1;
-  final Set<int> winSet;
-  final bool gameOver;
-  final double winPulse;
-  final Map<String, Animation<double>> dropAnims;
-  final int? hoverCol;
-  final ValueChanged<int?> onHover;
-  final ValueChanged<int> onTap;
-
-  const _BoardFrame({
-    required this.boardColor,
-    required this.holeColor,
-    required this.cell,
-    required this.state,
-    required this.p0,
-    required this.p1,
-    required this.winSet,
-    required this.gameOver,
-    required this.winPulse,
-    required this.dropAnims,
-    required this.hoverCol,
-    required this.onHover,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final pad = cell * 0.08;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(cell * 0.28),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.lerp(boardColor, Colors.white, 0.12)!,
-            boardColor,
-            Color.lerp(boardColor, Colors.black, 0.18)!,
-          ],
-          stops: const [0.0, 0.45, 1.0],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: boardColor.withValues(alpha: 0.35),
-            blurRadius: 28,
-            offset: const Offset(0, 14),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(pad),
-        // Discs animate in from above the frame — don't clip the drop.
-        child: Row(
-          children: [
-            for (var col = 0; col < ConnectFourState.cols; col++)
-              Expanded(
-                child: _ColumnHitTarget(
-                  col: col,
-                  cell: cell,
-                  pad: pad,
-                  state: state,
-                  p0: p0,
-                  p1: p1,
-                  holeColor: holeColor,
-                  boardColor: boardColor,
-                  winSet: winSet,
-                  gameOver: gameOver,
-                  winPulse: winPulse,
-                  dropAnims: dropAnims,
-                  hovered: hoverCol == col,
-                  onHoverEnter: () => onHover(col),
-                  onHoverExit: () {
-                    if (hoverCol == col) onHover(null);
-                  },
-                  onTap: () => onTap(col),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ColumnHitTarget extends StatefulWidget {
-  final int col;
-  final double cell;
-  final double pad;
-  final ConnectFourState state;
-  final Color p0;
-  final Color p1;
-  final Color holeColor;
-  final Color boardColor;
-  final Set<int> winSet;
-  final bool gameOver;
-  final double winPulse;
-  final Map<String, Animation<double>> dropAnims;
-  final bool hovered;
-  final VoidCallback onHoverEnter;
-  final VoidCallback onHoverExit;
-  final VoidCallback onTap;
-
-  const _ColumnHitTarget({
-    required this.col,
-    required this.cell,
-    required this.pad,
-    required this.state,
-    required this.p0,
-    required this.p1,
-    required this.holeColor,
-    required this.boardColor,
-    required this.winSet,
-    required this.gameOver,
-    required this.winPulse,
-    required this.dropAnims,
-    required this.hovered,
-    required this.onHoverEnter,
-    required this.onHoverExit,
-    required this.onTap,
-  });
-
-  @override
-  State<_ColumnHitTarget> createState() => _ColumnHitTargetState();
-}
-
-class _ColumnHitTargetState extends State<_ColumnHitTarget> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final open = widget.state.dropRow(widget.col) != null && !widget.gameOver;
-
-    return MouseRegion(
-      onEnter: open ? (_) => widget.onHoverEnter() : null,
-      onExit: open
-          ? (_) {
-              widget.onHoverExit();
-              setState(() => _pressed = false);
-            }
-          : null,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: open
-            ? (_) {
-                setState(() => _pressed = true);
-                widget.onHoverEnter();
-              }
-            : null,
-        onTapUp: open ? (_) => setState(() => _pressed = false) : null,
-        onTapCancel: open
-            ? () {
-                setState(() => _pressed = false);
-                widget.onHoverExit();
-              }
-            : null,
-        onTap: open ? widget.onTap : null,
-        child: AnimatedScale(
-          scale: _pressed ? 0.96 : 1,
-          duration: const Duration(milliseconds: 100),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              if ((_pressed || widget.hovered) && open)
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(widget.cell * 0.2),
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
-                ),
-              Column(
-                children: [
-                  // Top row is visual top = game row (rows-1).
-                  for (var visualRow = 0;
-                      visualRow < ConnectFourState.rows;
-                      visualRow++)
-                    Expanded(
-                      child: _buildSlot(
-                        gameRow: ConnectFourState.rows - 1 - visualRow,
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSlot({required int gameRow}) {
-    final index = gameRow * ConnectFourState.cols + widget.col;
-    final owner = widget.state.cells[index];
-    final key = '${widget.col},$gameRow';
-    final dropT = widget.dropAnims[key]?.value ?? (owner == null ? 0.0 : 1.0);
-    final isWin = widget.winSet.contains(index);
-    final dimmed = widget.gameOver && !isWin && owner != null;
-
-    Color? discColor;
-    if (owner != null) {
-      final isP0 = widget.state.playerIds.indexOf(owner) == 0;
-      discColor = isP0 ? widget.p0 : widget.p1;
-    }
-
-    return Padding(
-      padding: EdgeInsets.all(widget.cell * 0.06),
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 340),
-        opacity: dimmed ? 0.28 : 1,
-        child: Stack(
-          fit: StackFit.expand,
-          clipBehavior: Clip.none,
-          children: [
-            // Hole well (recessed).
-            DecoratedBox(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: widget.holeColor,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.28),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
-                    spreadRadius: -1,
-                  ),
-                ],
-              ),
-            ),
-            // Disc (animated Y from above the slot).
-            if (discColor != null)
-              Transform.translate(
-                offset: Offset(
-                  0,
-                  // Start above the full board so long drops feel real.
-                  -widget.cell *
-                      (ConnectFourState.rows - gameRow) *
-                      (1 - dropT.clamp(0.0, 1.2)),
-                ),
-                child: Transform.scale(
-                  scale: dropT > 1
-                      ? 1.0 + (dropT - 1) * 0.04
-                      : 0.92 + 0.08 * dropT.clamp(0.0, 1.0),
-                  child: _Disc(
-                    color: discColor,
-                    progress: dropT.clamp(0.0, 1.0),
-                    winGlow: isWin ? 0.25 + 0.35 * widget.winPulse : 0,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Disc extends StatelessWidget {
-  final Color color;
-  final double progress;
-  final double winGlow;
-
-  const _Disc({
-    required this.color,
-    required this.progress,
-    this.winGlow = 0,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _DiscPainter(
-        color: color,
-        progress: progress,
-        winGlow: winGlow,
-      ),
-    );
-  }
-}
-
-class _DiscPainter extends CustomPainter {
-  final Color color;
-  final double progress;
-  final double winGlow;
-
-  _DiscPainter({
-    required this.color,
-    required this.progress,
-    required this.winGlow,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (progress <= 0) return;
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.shortestSide * 0.46 * progress.clamp(0.15, 1.0);
-
-    if (winGlow > 0) {
-      canvas.drawCircle(
-        c,
-        r * 1.15,
-        Paint()
-          ..color = color.withValues(alpha: winGlow)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.45),
-      );
-    }
-
-    final rect = Rect.fromCircle(center: c, radius: r);
-    final base = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.35, -0.4),
-        radius: 0.95,
-        colors: [
-          Color.lerp(color, Colors.white, 0.42)!,
-          color,
-          Color.lerp(color, Colors.black, 0.22)!,
-        ],
-        stops: const [0.0, 0.55, 1.0],
-      ).createShader(rect);
-    canvas.drawCircle(c, r, base);
-
-    // Inner rim for plastic depth.
-    canvas.drawCircle(
-      c,
-      r * 0.78,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.06
-        ..color = Colors.white.withValues(alpha: 0.18),
-    );
-
-    // Specular highlight.
-    final hi = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.45, -0.55),
-        radius: 0.55,
-        colors: [
-          Colors.white.withValues(alpha: 0.55),
-          Colors.white.withValues(alpha: 0.0),
-        ],
-      ).createShader(Rect.fromCircle(center: c, radius: r));
-    canvas.drawCircle(c.translate(-r * 0.12, -r * 0.15), r * 0.42, hi);
-  }
-
-  @override
-  bool shouldRepaint(_DiscPainter old) =>
-      old.color != color ||
-      old.progress != progress ||
-      old.winGlow != winGlow;
-}
-
-// ---------------------------------------------------------------------------
-// Win line
+// Win line + confetti
 // ---------------------------------------------------------------------------
 
 class _WinLinePainter extends CustomPainter {
@@ -971,30 +1075,31 @@ class _WinLinePainter extends CustomPainter {
     if (line.length < 2) return;
     final a = _center(line.first);
     final b = _center(line.last);
-    final alpha = 0.45 + 0.35 * pulse;
+    final alpha = 0.5 + 0.35 * pulse;
 
-    final glow = Paint()
-      ..color = color.withValues(alpha: alpha * 0.55)
-      ..strokeWidth = cell * 0.22
-      ..strokeCap = StrokeCap.round
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, cell * 0.08);
-    final stroke = Paint()
-      ..color = color.withValues(alpha: alpha)
-      ..strokeWidth = cell * 0.1
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawLine(a, b, glow);
-    canvas.drawLine(a, b, stroke);
+    canvas.drawLine(
+      a,
+      b,
+      Paint()
+        ..color = color.withValues(alpha: alpha * 0.55)
+        ..strokeWidth = cell * 0.22
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, cell * 0.08),
+    );
+    canvas.drawLine(
+      a,
+      b,
+      Paint()
+        ..color = color.withValues(alpha: alpha)
+        ..strokeWidth = cell * 0.1
+        ..strokeCap = StrokeCap.round,
+    );
   }
 
   @override
   bool shouldRepaint(_WinLinePainter old) =>
       old.pulse != pulse || old.line != line || old.color != color;
 }
-
-// ---------------------------------------------------------------------------
-// Confetti
-// ---------------------------------------------------------------------------
 
 class _Confetto {
   final double angle;
@@ -1018,7 +1123,7 @@ class _Confetto {
 
 class _ConfettiPainter extends CustomPainter {
   final List<_Confetto> confetti;
-  final Offset origin; // fractional 0..1 of the full paint area
+  final Offset origin;
   final double t;
   final double boardSize;
 
