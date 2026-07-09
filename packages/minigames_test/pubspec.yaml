@@ -1,0 +1,21 @@
+name: minigames_test
+description: >-
+  Shared conformance test suite for flutter_minigames. Run it against any
+  GameTransport implementation to prove it behaves correctly with
+  MatchController — the same assertions LocalTransport passes.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+
+environment:
+  sdk: ^3.6.0
+
+resolution: workspace
+
+# This is a test-support package (like flutter_test): `test` is a real
+# dependency here, but consumers only ever depend on it under dev_dependencies.
+dependencies:
+  minigames_core: ^0.1.0
+  test: ^1.25.0
+
+dev_dependencies:
+  lints: ^6.0.0

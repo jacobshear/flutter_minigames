@@ -1,0 +1,7 @@
+# Workspace-wide analyzer settings. Individual packages layer their own
+# lint rule sets (lints / flutter_lints) via their own analysis_options.yaml.
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "**/build/**"

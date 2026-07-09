@@ -1,0 +1,17 @@
+name: flutter_minigames
+publish_to: none
+description: >-
+  Monorepo for flutter_minigames — a transport-agnostic library of async
+  turn-based mini-games for Flutter, plus a standalone test harness.
+
+environment:
+  sdk: ^3.6.0
+
+# Dart pub workspaces (Dart 3.6+): one lockfile, one .dart_tool, fast analysis.
+# Melos sits on top of this for lifecycle/publishing when we get there.
+workspace:
+  - packages/minigames_core
+  - packages/minigames_test
+  - packages/minigame_tictactoe
+  - packages/minigames_firebase
+  - packages/example_app
