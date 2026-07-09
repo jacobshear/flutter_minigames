@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -128,17 +130,21 @@ class _GameCard extends StatefulWidget {
 class _GameCardState extends State<_GameCard>
     with SingleTickerProviderStateMixin {
   bool _pressed = false;
-  late final AnimationController _breathe = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2800),
-  )..repeat(reverse: true);
 
-  // Slight phase offset per card so they don't breathe in lockstep.
-  late final double _phase = (widget.entry.id.hashCode % 100) / 100;
+  // Loop 0→1 only (no reverse). Phase is applied via sin so motion is
+  // continuous — never a modulo wrap that jumps.
+  late final AnimationController _float = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3200),
+  )..repeat();
+
+  /// Radians offset so cards don't bob in sync.
+  late final double _phase =
+      (widget.entry.id.hashCode.abs() % 628) / 100; // ~0..6.28
 
   @override
   void dispose() {
-    _breathe.dispose();
+    _float.dispose();
     super.dispose();
   }
 
@@ -158,19 +164,18 @@ class _GameCardState extends State<_GameCard>
     final accent = entry.accent;
 
     return AnimatedBuilder(
-      animation: _breathe,
+      animation: _float,
       builder: (context, child) {
-        final raw = (_breathe.value + _phase) % 1.0;
-        final b = Curves.easeInOut.transform(raw);
-        // Very subtle idle lift — alive, not bouncy.
-        final lift = enabled ? (1 - b) * 1.5 : 0.0;
-        final glow = enabled ? 0.04 + 0.05 * b : 0.0;
+        // Smooth sine bob: continuous, no reverse-edge pops.
+        final wave = math.sin(_float.value * math.pi * 2 + _phase);
+        // wave is -1..1 → lift 0..~2.4px up (negative Y is up).
+        final lift = enabled && !_pressed ? wave * 1.2 : 0.0;
+        final glow = enabled ? 0.045 + 0.035 * ((wave + 1) / 2) : 0.0;
 
         return Transform.translate(
-          offset: Offset(0, _pressed ? 2 : -lift),
-          child: AnimatedScale(
+          offset: Offset(0, _pressed ? 1.5 : -lift),
+          child: Transform.scale(
             scale: _pressed ? 0.985 : 1,
-            duration: const Duration(milliseconds: 120),
             child: GestureDetector(
               onTapDown:
                   enabled ? (_) => setState(() => _pressed = true) : null,
@@ -186,8 +191,8 @@ class _GameCardState extends State<_GameCard>
                   border: Border.all(
                     color: Color.lerp(
                       DemoColors.border,
-                      accent.withValues(alpha: 0.35),
-                      glow * 2,
+                      accent.withValues(alpha: 0.32),
+                      glow * 2.2,
                     )!,
                     width: 1.4,
                   ),
@@ -195,12 +200,14 @@ class _GameCardState extends State<_GameCard>
                     BoxShadow(
                       color: DemoColors.ink.withValues(alpha: 0.07),
                       blurRadius: 20,
-                      offset: Offset(0, 10 + lift),
+                      // Keep shadow stable — animating offset every frame
+                      // reads as jitter. Only the tile moves.
+                      offset: const Offset(0, 10),
                       spreadRadius: -2,
                     ),
                     BoxShadow(
                       color: accent.withValues(alpha: glow),
-                      blurRadius: 22,
+                      blurRadius: 18,
                       offset: const Offset(0, 6),
                     ),
                   ],
@@ -270,10 +277,11 @@ class _IconBadge extends StatefulWidget {
 
 class _IconBadgeState extends State<_IconBadge>
     with SingleTickerProviderStateMixin {
+  // Continuous loop + sine (same pattern as cards) so glow never snaps.
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 2400),
-  )..repeat(reverse: true);
+    duration: const Duration(milliseconds: 2600),
+  )..repeat();
 
   @override
   void dispose() {
@@ -286,7 +294,7 @@ class _IconBadgeState extends State<_IconBadge>
     return AnimatedBuilder(
       animation: _c,
       builder: (context, child) {
-        final t = Curves.easeInOut.transform(_c.value);
+        final t = (math.sin(_c.value * math.pi * 2) + 1) / 2; // smooth 0..1
         return Container(
           width: 60,
           height: 60,
@@ -295,15 +303,15 @@ class _IconBadgeState extends State<_IconBadge>
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Color.lerp(widget.accent, Colors.white, 0.18 + 0.08 * t)!,
+                Color.lerp(widget.accent, Colors.white, 0.16 + 0.1 * t)!,
                 widget.accent,
               ],
             ),
             borderRadius: BorderRadius.circular(18),
             boxShadow: [
               BoxShadow(
-                color: widget.accent.withValues(alpha: 0.28 + 0.12 * t),
-                blurRadius: 12 + 6 * t,
+                color: widget.accent.withValues(alpha: 0.26 + 0.12 * t),
+                blurRadius: 12 + 5 * t,
                 offset: const Offset(0, 5),
               ),
             ],
