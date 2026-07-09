@@ -71,7 +71,10 @@ class _GameGrid extends StatelessWidget {
         childAspectRatio: 0.78,
       ),
       delegate: SliverChildBuilderDelegate(
-        (context, i) => _LauncherTile(entry: games[i]),
+        (context, i) => _LauncherTile(
+          entry: games[i],
+          phase: i / games.length,
+        ),
         childCount: games.length,
       ),
     );
@@ -80,7 +83,8 @@ class _GameGrid extends StatelessWidget {
 
 class _LauncherTile extends StatefulWidget {
   final GameCatalogEntry entry;
-  const _LauncherTile({required this.entry});
+  final double phase;
+  const _LauncherTile({required this.entry, this.phase = 0});
 
   @override
   State<_LauncherTile> createState() => _LauncherTileState();
@@ -137,7 +141,10 @@ class _LauncherTileState extends State<_LauncherTile> {
                     borderRadius: BorderRadius.circular(22),
                     child: Opacity(
                       opacity: enabled ? 1 : 0.45,
-                      child: GameTileArt(kind: entry.art),
+                      child: GameTileArt(
+                        kind: entry.art,
+                        phase: widget.phase,
+                      ),
                     ),
                   ),
                 ),
