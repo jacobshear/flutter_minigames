@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
@@ -7,12 +8,9 @@ import '../theme/demo_theme.dart';
 /// Which miniature to paint on a launcher tile.
 enum GameTileKind { ticTacToe, connectFour, dotsAndBoxes }
 
-/// Colorful toy diorama that **plays itself** in a short loop — a silent
-/// miniature match, GamePigeon-style identity with a bit of life.
+/// Colorful toy diorama that plays a complete short match on a smooth loop.
 class GameTileArt extends StatefulWidget {
   final GameTileKind kind;
-
-  /// Phase offset so neighboring tiles don't animate in lockstep.
   final double phase;
 
   const GameTileArt({
@@ -29,10 +27,11 @@ class _GameTileArtState extends State<GameTileArt>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
+    // Long enough that each move reads; loop fade handles the seam.
     duration: switch (widget.kind) {
-      GameTileKind.ticTacToe => const Duration(milliseconds: 4800),
-      GameTileKind.connectFour => const Duration(milliseconds: 5200),
-      GameTileKind.dotsAndBoxes => const Duration(milliseconds: 5000),
+      GameTileKind.ticTacToe => const Duration(milliseconds: 5600),
+      GameTileKind.connectFour => const Duration(milliseconds: 7000),
+      GameTileKind.dotsAndBoxes => const Duration(milliseconds: 7800),
     },
   )..repeat();
 
@@ -47,7 +46,6 @@ class _GameTileArtState extends State<GameTileArt>
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
-        // Phase shifts the loop without Timers (tests + dispose-safe).
         final t = (_c.value + widget.phase) % 1.0;
         return CustomPaint(
           painter: switch (widget.kind) {
@@ -62,40 +60,76 @@ class _GameTileArtState extends State<GameTileArt>
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Shared timeline — even beats, long settle, soft loop fade.
 // ---------------------------------------------------------------------------
 
-double _stepProgress(double t, int step, int totalSteps, {double hold = 0.12}) {
-  // Divide the loop into [totalSteps] beats; each mark draws over most of
-  // its beat, then holds. Remainder of the loop is a brief idle before reset.
-  final active = 1.0 - hold;
-  final segment = active / totalSteps;
-  final start = step * segment;
-  final end = start + segment * 0.72;
-  if (t < start) return 0;
-  if (t >= end) return 1;
-  return Curves.easeOutCubic.transform((t - start) / (end - start));
+/// Progress of [step] given global loop time [t].
+///
+/// Layout of the loop:
+///   0 ──────── actionEnd ── celebrateEnd ── 1
+///   |  moves…            |  hold win     | fade |
+double _beat(
+  double t,
+  int step,
+  int moveCount, {
+  double actionEnd = 0.76,
+  double drawShare = 0.62,
+}) {
+  // During celebrate + fade, every move is fully painted.
+  if (t >= actionEnd) return 1;
+  final u = (t / actionEnd).clamp(0.0, 1.0);
+  final pos = u * moveCount;
+  final i = pos.floor().clamp(0, moveCount);
+  if (step > i) return 0;
+  if (step < i) return 1;
+  final local = pos - i;
+  if (local >= drawShare) return 1;
+  return Curves.easeOutCubic.transform(local / drawShare);
+}
+
+/// 0→1 over the celebrate window (after last move).
+double _celebrate(
+  double t, {
+  double actionEnd = 0.76,
+  double celebrateEnd = 0.90,
+}) {
+  if (t < actionEnd) return 0;
+  if (t >= celebrateEnd) return 1;
+  return Curves.easeOutCubic.transform(
+    (t - actionEnd) / (celebrateEnd - actionEnd),
+  );
+}
+
+/// Softly fades everything out before the loop wraps (prevents hard reset pop).
+double _loopOpacity(double t, {double fadeStart = 0.90}) {
+  if (t < fadeStart) return 1;
+  return 1 - Curves.easeInCubic.transform((t - fadeStart) / (1 - fadeStart));
 }
 
 // ---------------------------------------------------------------------------
-// Tic-tac-toe: X/O appear in turn, then a win line, then clear.
+// Tic-tac-toe — complete short game, X wins top row.
 // ---------------------------------------------------------------------------
 
 class _TicTacToeTilePainter extends CustomPainter {
   final double t;
   _TicTacToeTilePainter({required this.t});
 
-  // Sequence: X(0,0), O(1,1), X(2,0), O(0,2), X(1,0) wins top row.
   static const _moves = <(int col, int row, bool isX)>[
     (0, 0, true),
     (1, 1, false),
     (2, 0, true),
     (0, 2, false),
-    (1, 0, true),
+    (1, 0, true), // X wins top
   ];
 
   @override
   void paint(Canvas canvas, Size size) {
+    final opacity = _loopOpacity(t);
+    canvas.saveLayer(
+      Offset.zero & size,
+      Paint()..color = Colors.white.withValues(alpha: opacity),
+    );
+
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
       Radius.circular(size.width * 0.22),
@@ -137,7 +171,7 @@ class _TicTacToeTilePainter extends CustomPainter {
     }
 
     for (var i = 0; i < _moves.length; i++) {
-      final p = _stepProgress(t, i, _moves.length + 1);
+      final p = _beat(t, i, _moves.length);
       if (p <= 0) continue;
       final (col, row, isX) = _moves[i];
       final c = Offset(
@@ -151,22 +185,22 @@ class _TicTacToeTilePainter extends CustomPainter {
       }
     }
 
-    // Win line across top row after last X lands.
-    final winP = _stepProgress(t, _moves.length, _moves.length + 1, hold: 0.18);
+    final winP = _celebrate(t);
     if (winP > 0) {
       final y = board.top + 0.5 * cell;
-      final a = Offset(board.left + 0.2 * cell, y);
-      final b = Offset(board.right - 0.2 * cell, y);
-      final end = Offset.lerp(a, b, winP)!;
+      final a = Offset(board.left + 0.18 * cell, y);
+      final b = Offset(board.right - 0.18 * cell, y);
       canvas.drawLine(
         a,
-        end,
+        Offset.lerp(a, b, winP)!,
         Paint()
-          ..color = DemoColors.coral.withValues(alpha: 0.85)
+          ..color = DemoColors.coral.withValues(alpha: 0.9)
           ..strokeWidth = size.width * 0.05
           ..strokeCap = StrokeCap.round,
       );
     }
+
+    canvas.restore();
   }
 
   void _drawX(
@@ -181,7 +215,6 @@ class _TicTacToeTilePainter extends CustomPainter {
       ..color = color
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round;
-    // First diagonal, then second.
     final p1 = (p * 2).clamp(0.0, 1.0);
     final p2 = ((p - 0.5) * 2).clamp(0.0, 1.0);
     final a0 = c + Offset(-s, -s);
@@ -220,26 +253,32 @@ class _TicTacToeTilePainter extends CustomPainter {
 }
 
 // ---------------------------------------------------------------------------
-// Connect four: discs drop into columns in sequence.
+// Connect four — full short game, coral vertical win in center column.
 // ---------------------------------------------------------------------------
 
 class _ConnectFourTilePainter extends CustomPainter {
   final double t;
   _ConnectFourTilePainter({required this.t});
 
-  // (col, landRow from top visual 0..3, color) in drop order.
+  // landRow: 0 = top visual, 3 = bottom. Coral stacks col 2 for the win.
   static const _drops = <(int col, int landRow, Color color)>[
-    (1, 3, DemoColors.coral),
-    (2, 3, DemoColors.gold),
-    (1, 2, DemoColors.coral),
-    (3, 3, DemoColors.gold),
+    (2, 3, DemoColors.coral), // C bottom
+    (1, 3, DemoColors.gold),
     (2, 2, DemoColors.coral),
-    (2, 1, DemoColors.gold),
-    (1, 1, DemoColors.coral),
+    (0, 3, DemoColors.gold),
+    (2, 1, DemoColors.coral),
+    (3, 3, DemoColors.gold),
+    (2, 0, DemoColors.coral), // C vertical four — win
   ];
 
   @override
   void paint(Canvas canvas, Size size) {
+    final opacity = _loopOpacity(t);
+    canvas.saveLayer(
+      Offset.zero & size,
+      Paint()..color = Colors.white.withValues(alpha: opacity),
+    );
+
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
       Radius.circular(size.width * 0.22),
@@ -272,7 +311,6 @@ class _ConnectFourTilePainter extends CustomPainter {
     final cellH = frame.height / rows;
     final holeR = math.min(cellW, cellH) * 0.32;
 
-    // Holes first.
     for (var col = 0; col < cols; col++) {
       for (var row = 0; row < rows; row++) {
         final c = Offset(
@@ -283,24 +321,23 @@ class _ConnectFourTilePainter extends CustomPainter {
       }
     }
 
-    // Discs with drop animation per step.
     for (var i = 0; i < _drops.length; i++) {
-      final p = _stepProgress(t, i, _drops.length, hold: 0.1);
+      final p = _beat(t, i, _drops.length, drawShare: 0.70);
       if (p <= 0) continue;
       final (col, landRow, color) = _drops[i];
       final restY = frame.top + (landRow + 0.5) * cellH;
-      final startY = frame.top - cellH * 0.6;
-      // Ease-in fall with tiny bounce at end.
-      final fall = Curves.easeInCubic.transform(p.clamp(0.0, 1.0));
-      final bounce = p > 0.85
-          ? math.sin((p - 0.85) / 0.15 * math.pi) * cellH * 0.06
-          : 0.0;
-      final y = startY + (restY - startY) * fall - bounce;
+      final startY = frame.top - cellH * 0.75;
+      // Gravity ease-in; soft bounce only in the last 18% of the beat.
+      final fallT = Curves.easeInCubic.transform(p.clamp(0.0, 1.0));
+      var y = lerpDouble(startY, restY, fallT)!;
+      if (p > 0.82) {
+        final b = (p - 0.82) / 0.18;
+        y -= math.sin(b * math.pi) * cellH * 0.07;
+      }
       final c = Offset(frame.left + (col + 0.5) * cellW, y);
-      final appear = p.clamp(0.0, 1.0);
       canvas.drawCircle(
         c,
-        holeR * 0.92 * (0.85 + 0.15 * appear),
+        holeR * 0.92,
         Paint()
           ..shader = RadialGradient(
             center: const Alignment(-0.3, -0.35),
@@ -312,30 +349,32 @@ class _ConnectFourTilePainter extends CustomPainter {
       );
     }
 
-    // Re-draw blue faceplate strips between holes so falling discs feel
-    // "behind" plastic (simple: draw horizontal bars between rows).
-    final face = Paint()..color = const Color(0xFF1E5AAD);
-    for (var row = 0; row <= rows; row++) {
-      final y = frame.top + row * cellH;
-      canvas.drawRect(
-        Rect.fromLTWH(frame.left, y - holeR * 0.15, frame.width, holeR * 0.3),
-        face,
+    // Win line down center column during celebrate.
+    final winP = _celebrate(t);
+    if (winP > 0) {
+      final x = frame.left + (2 + 0.5) * cellW;
+      final a = Offset(x, frame.top + 0.35 * cellH);
+      final b = Offset(x, frame.bottom - 0.35 * cellH);
+      canvas.drawLine(
+        a,
+        Offset.lerp(a, b, winP)!,
+        Paint()
+          ..color = DemoColors.coral.withValues(alpha: 0.9)
+          ..strokeWidth = size.width * 0.055
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.02),
+      );
+      canvas.drawLine(
+        a,
+        Offset.lerp(a, b, winP)!,
+        Paint()
+          ..color = DemoColors.coral
+          ..strokeWidth = size.width * 0.035
+          ..strokeCap = StrokeCap.round,
       );
     }
-    // Side rails.
-    canvas.drawRect(
-      Rect.fromLTWH(frame.left, frame.top, holeR * 0.25, frame.height),
-      face,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(
-        frame.right - holeR * 0.25,
-        frame.top,
-        holeR * 0.25,
-        frame.height,
-      ),
-      face,
-    );
+
+    canvas.restore();
   }
 
   @override
@@ -343,25 +382,38 @@ class _ConnectFourTilePainter extends CustomPainter {
 }
 
 // ---------------------------------------------------------------------------
-// Dots & boxes: edges claim one by one, box fills when closed.
+// Dots & boxes — full 2×2 board, all boxes claimed, coral wins 3–1.
 // ---------------------------------------------------------------------------
 
 class _DotsBoxesTilePainter extends CustomPainter {
   final double t;
   _DotsBoxesTilePainter({required this.t});
 
-  // Edges of the top-left box + one more edge, then a second box starts.
-  // 0 top, 1 left, 2 right, 3 bottom of box (0,0); 4 top of box to the right.
-  static const _edgeColors = [
-    DemoColors.coral,
-    DemoColors.teal,
-    DemoColors.coral,
-    DemoColors.teal, // closes first box → coral win tint
-    DemoColors.coral,
+  /// Full 2×2 board (12 edges). Teal takes box (0,0); coral takes the other
+  /// three (3–1). ('h'|'v', row, col, color).
+  static const _play = <(String kind, int r, int c, Color color)>[
+    ('h', 0, 0, DemoColors.coral),
+    ('v', 0, 0, DemoColors.teal),
+    ('v', 0, 1, DemoColors.coral),
+    ('h', 1, 0, DemoColors.teal), // closes box00 → teal
+    ('h', 0, 1, DemoColors.coral),
+    ('v', 0, 2, DemoColors.teal),
+    ('v', 1, 0, DemoColors.coral),
+    ('v', 1, 2, DemoColors.teal),
+    ('h', 1, 1, DemoColors.coral), // closes box01 → coral
+    ('h', 2, 0, DemoColors.coral),
+    ('h', 2, 1, DemoColors.coral),
+    ('v', 1, 1, DemoColors.coral), // closes box10 + box11 → coral
   ];
 
   @override
   void paint(Canvas canvas, Size size) {
+    final opacity = _loopOpacity(t);
+    canvas.saveLayer(
+      Offset.zero & size,
+      Paint()..color = Colors.white.withValues(alpha: opacity),
+    );
+
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
       Radius.circular(size.width * 0.22),
@@ -386,76 +438,92 @@ class _DotsBoxesTilePainter extends CustomPainter {
     const n = 3;
     final step = area.width / (n - 1);
 
-    Offset dot(int x, int y) =>
-        Offset(area.left + x * step, area.top + y * step);
+    Offset d(int x, int y) => Offset(area.left + x * step, area.top + y * step);
 
-    // Free edge guides.
     final free = Paint()
       ..color = DemoColors.ink.withValues(alpha: 0.12)
-      ..strokeWidth = size.width * 0.03
+      ..strokeWidth = size.width * 0.028
       ..strokeCap = StrokeCap.round;
     for (var y = 0; y < n; y++) {
       for (var x = 0; x < n - 1; x++) {
-        canvas.drawLine(dot(x, y), dot(x + 1, y), free);
+        canvas.drawLine(d(x, y), d(x + 1, y), free);
       }
     }
     for (var y = 0; y < n - 1; y++) {
       for (var x = 0; x < n; x++) {
-        canvas.drawLine(dot(x, y), dot(x, y + 1), free);
+        canvas.drawLine(d(x, y), d(x, y + 1), free);
       }
     }
 
-    final edges = <(Offset a, Offset b)>[
-      (dot(0, 0), dot(1, 0)), // top
-      (dot(0, 0), dot(0, 1)), // left
-      (dot(1, 0), dot(1, 1)), // right
-      (dot(0, 1), dot(1, 1)), // bottom — closes box
-      (dot(1, 0), dot(2, 0)), // next edge
-    ];
-
-    for (var i = 0; i < edges.length; i++) {
-      final p = _stepProgress(t, i, edges.length + 1, hold: 0.14);
+    for (var i = 0; i < _play.length; i++) {
+      final p = _beat(t, i, _play.length, drawShare: 0.58);
       if (p <= 0) continue;
-      final (a, b) = edges[i];
-      final end = Offset.lerp(a, b, p)!;
+      final (kind, er, ec, color) = _play[i];
+      final Offset a;
+      final Offset b;
+      if (kind == 'h') {
+        a = d(ec, er);
+        b = d(ec + 1, er);
+      } else {
+        a = d(ec, er);
+        b = d(ec, er + 1);
+      }
       canvas.drawLine(
         a,
-        end,
+        Offset.lerp(a, b, p)!,
         Paint()
-          ..color = _edgeColors[i]
+          ..color = color
           ..strokeWidth = size.width * 0.045
           ..strokeCap = StrokeCap.round,
       );
     }
 
-    // Box fill after bottom edge (index 3) completes.
-    final boxP = _stepProgress(t, 3, edges.length + 1, hold: 0.14);
-    if (boxP > 0.85) {
-      final fill = Curves.easeOutBack.transform(
-        ((boxP - 0.85) / 0.15).clamp(0.0, 1.0),
+    void maybeFill(int br, int bc, int closeStep, Color owner) {
+      final p = _beat(t, closeStep, _play.length, drawShare: 0.58);
+      if (p < 0.9) return;
+      final local = Curves.easeOutBack.transform(
+        ((p - 0.9) / 0.1).clamp(0.0, 1.0),
       );
+      final cFill = math.max(local, _celebrate(t) * (p >= 1 ? 1.0 : local));
+      final cx = area.left + (bc + 0.5) * step;
+      final cy = area.top + (br + 0.5) * step;
+      final side = (step - 6) * (0.2 + 0.8 * cFill.clamp(0.0, 1.0));
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(area.left + step / 2, area.top + step / 2),
-            width: (step - 6) * fill,
-            height: (step - 6) * fill,
-          ),
-          Radius.circular(size.width * 0.04),
+          Rect.fromCenter(center: Offset(cx, cy), width: side, height: side),
+          Radius.circular(size.width * 0.035),
         ),
-        Paint()..color = DemoColors.teal.withValues(alpha: 0.28 * fill),
+        Paint()..color = owner.withValues(alpha: 0.32 * cFill.clamp(0.0, 1.0)),
       );
     }
+
+    maybeFill(0, 0, 3, DemoColors.teal);
+    maybeFill(0, 1, 8, DemoColors.coral);
+    maybeFill(1, 0, 11, DemoColors.coral);
+    maybeFill(1, 1, 11, DemoColors.coral);
 
     for (var y = 0; y < n; y++) {
       for (var x = 0; x < n; x++) {
         canvas.drawCircle(
-          dot(x, y),
-          size.width * 0.04,
+          d(x, y),
+          size.width * 0.038,
           Paint()..color = DemoColors.ink,
         );
       }
     }
+
+    final winP = _celebrate(t);
+    if (winP > 0) {
+      canvas.drawCircle(
+        Offset(size.width * 0.5, size.height * 0.12),
+        size.width * 0.09 * winP,
+        Paint()
+          ..color = DemoColors.coral.withValues(alpha: 0.4 * winP)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.045),
+      );
+    }
+
+    canvas.restore();
   }
 
   @override
