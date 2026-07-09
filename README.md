@@ -18,8 +18,9 @@ packages/
   minigame_tictactoe/     # reference game: logic + animated board
   minigame_connect_four/    # connect four: gravity drops + animated board
   minigame_dots_and_boxes/   # dots and boxes: edges, box chains, extra turns
-  minigames_firebase/       # GameTransport backed by Firebase Realtime Database
-  example_app/              # demo catalog: main menu + local hot-seat; multiplayer seam ready
+  minigame_reversi/           # reversi/othello: flips, passes, scores
+  minigames_firebase/        # GameTransport backed by Firebase Realtime Database
+  example_app/               # GP-style launcher + local hot-seat; multiplayer seam ready
 ```
 
 - `minigames_core` imports **nothing** — no Flutter, no Firebase, no Flame.

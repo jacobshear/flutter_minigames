@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../theme/demo_theme.dart';
 
 /// Which miniature to paint on a launcher tile.
-enum GameTileKind { ticTacToe, connectFour, dotsAndBoxes }
+enum GameTileKind { ticTacToe, connectFour, dotsAndBoxes, reversi }
 
 /// Colorful toy diorama that plays complete short matches on a smooth loop,
 /// picking a **new random script** each cycle.
@@ -34,6 +34,7 @@ class _GameTileArtState extends State<GameTileArt>
       GameTileKind.ticTacToe => const Duration(milliseconds: 5600),
       GameTileKind.connectFour => const Duration(milliseconds: 7000),
       GameTileKind.dotsAndBoxes => const Duration(milliseconds: 7800),
+      GameTileKind.reversi => const Duration(milliseconds: 6400),
     },
   )..repeat();
 
@@ -73,6 +74,8 @@ class _GameTileArtState extends State<GameTileArt>
               _ConnectFourTilePainter(t: t, script: _script),
             GameTileKind.dotsAndBoxes =>
               _DotsBoxesTilePainter(t: t, script: _script),
+            GameTileKind.reversi =>
+              _ReversiTilePainter(t: t, script: _script),
           },
         );
       },
@@ -789,5 +792,180 @@ class _DotsBoxesTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DotsBoxesTilePainter old) =>
+      old.t != t || old.script != script;
+}
+
+// ---------------------------------------------------------------------------
+// Reversi tile — mini green board, place + flip loop
+// ---------------------------------------------------------------------------
+
+class _RevScript {
+  /// Sequence of placements as (row, col) on a 4×4 center crop of logic,
+  /// dark starts. We paint a 6×6 visual grid with opening + a few flips.
+  final List<(int r, int c, bool dark)> places;
+  final bool darkWins;
+
+  const _RevScript(this.places, {this.darkWins = true});
+}
+
+const _revScripts = <_RevScript>[
+  _RevScript([
+    (1, 0, true),
+    (0, 0, false),
+    (0, 1, true),
+    (0, 2, false),
+    (2, 0, true),
+    (3, 0, false),
+    (1, 2, true),
+  ]),
+  _RevScript([
+    (0, 1, true),
+    (0, 0, false),
+    (1, 0, true),
+    (2, 0, false),
+    (0, 2, true),
+    (0, 3, false),
+    (2, 2, true),
+  ], darkWins: false),
+  _RevScript([
+    (2, 1, true),
+    (1, 0, false),
+    (0, 1, true),
+    (3, 1, false),
+    (1, 2, true),
+    (2, 3, false),
+    (3, 2, true),
+  ]),
+];
+
+class _ReversiTilePainter extends CustomPainter {
+  final double t;
+  final int script;
+  _ReversiTilePainter({required this.t, required this.script});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _revScripts);
+    final r = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.width * 0.22),
+    );
+    canvas.drawRRect(
+      r,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF3D9B5C), Color(0xFF2D8A4E)],
+        ).createShader(Offset.zero & size),
+    );
+
+    const n = 4;
+    final pad = size.width * 0.16;
+    final board = Rect.fromLTWH(
+      pad,
+      pad,
+      size.width - pad * 2,
+      size.height - pad * 2,
+    );
+    final cell = board.width / n;
+    final grid = Paint()
+      ..color = Colors.black.withValues(alpha: 0.2)
+      ..strokeWidth = 1;
+
+    for (var i = 0; i <= n; i++) {
+      final o = i * cell;
+      canvas.drawLine(
+        Offset(board.left + o, board.top),
+        Offset(board.left + o, board.bottom),
+        grid,
+      );
+      canvas.drawLine(
+        Offset(board.left, board.top + o),
+        Offset(board.right, board.top + o),
+        grid,
+      );
+    }
+
+    // Opening four (center of 4×4 → cells 1,1 1,2 2,1 2,2).
+    final discs = <(int r, int c, bool dark)>[
+      (1, 1, false),
+      (1, 2, true),
+      (2, 1, true),
+      (2, 2, false),
+    ];
+
+    // Apply places over time; simple: each place just sets that cell dark/light
+    // and flips adjacent opponent in one direction for visual flip (not full rules).
+    final boardState = List.generate(n, (_) => List<bool?>.filled(n, null));
+    for (final (r0, c0, dark) in discs) {
+      boardState[r0][c0] = dark;
+    }
+
+    // Progressive: show opening always, then layer places.
+    for (var i = 0; i < s.places.length; i++) {
+      final p = _piece(t, i, s.places.length, drawShare: 0.55);
+      if (p <= 0) continue;
+      final (pr, pc, dark) = s.places[i];
+      if (p > 0.5) boardState[pr][pc] = dark;
+      // Soft flip neighbors for juice.
+      if (p > 0.7) {
+        for (final (dr, dc) in const [(0, 1), (1, 0), (0, -1), (-1, 0)]) {
+          final nr = pr + dr;
+          final nc = pc + dc;
+          if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
+          final cur = boardState[nr][nc];
+          if (cur != null && cur != dark) boardState[nr][nc] = dark;
+        }
+      }
+    }
+
+    final presence = _boardPresence(t);
+    for (var row = 0; row < n; row++) {
+      for (var col = 0; col < n; col++) {
+        final dark = boardState[row][col];
+        if (dark == null) continue;
+        final c = Offset(
+          board.left + (col + 0.5) * cell,
+          board.top + (row + 0.5) * cell,
+        );
+        final rad = cell * 0.34 * presence.clamp(0.05, 1.0);
+        if (rad < 0.5) continue;
+        final color = dark ? DemoColors.ink : const Color(0xFFF5F5F7);
+        canvas.drawCircle(
+          c,
+          rad,
+          Paint()
+            ..shader = RadialGradient(
+              center: const Alignment(-0.3, -0.35),
+              colors: [
+                Color.lerp(color, Colors.white, 0.3)!,
+                color,
+              ],
+            ).createShader(Rect.fromCircle(center: c, radius: rad)),
+        );
+      }
+    }
+
+    // Opening discs always visible during play (re-assert base if cleared early).
+    if (presence > 0.05 && t < _kActionEnd) {
+      // already painted via boardState which includes opening
+    }
+
+    final winP = _celebrate(t);
+    if (winP > 0.001) {
+      final color = s.darkWins ? DemoColors.ink : const Color(0xFFF5F5F7);
+      canvas.drawCircle(
+        Offset(size.width * 0.5, size.height * 0.12),
+        size.width * 0.08 * winP,
+        Paint()
+          ..color = color.withValues(alpha: 0.45 * winP)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.04),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ReversiTilePainter old) =>
       old.t != t || old.script != script;
 }

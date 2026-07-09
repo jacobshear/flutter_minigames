@@ -2,15 +2,17 @@ import 'package:example_app/main.dart';
 import 'package:example_app/screens/connect_four_play_screen.dart';
 import 'package:example_app/screens/dots_and_boxes_play_screen.dart';
 import 'package:example_app/screens/home_menu_screen.dart';
+import 'package:example_app/screens/reversi_play_screen.dart';
 import 'package:example_app/screens/tictactoe_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:minigame_connect_four/minigame_connect_four.dart';
 import 'package:minigame_dots_and_boxes/minigame_dots_and_boxes.dart';
+import 'package:minigame_reversi/minigame_reversi.dart';
 import 'package:minigame_tictactoe/minigame_tictactoe.dart';
 
 void main() {
-  testWidgets('launcher grid lists all three games', (tester) async {
+  testWidgets('launcher grid lists all games', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 932));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -23,6 +25,7 @@ void main() {
     expect(find.text('Tic-Tac-Toe'), findsOneWidget);
     expect(find.text('4 in a Row'), findsOneWidget);
     expect(find.text('Dots & Boxes'), findsOneWidget);
+    expect(find.text('Reversi'), findsOneWidget);
   });
 
   testWidgets('opens tic-tac-toe', (tester) async {
@@ -71,5 +74,21 @@ void main() {
 
     expect(find.byType(DotsAndBoxesPlayScreen), findsOneWidget);
     expect(find.byType(DotsAndBoxesBoard), findsOneWidget);
+  });
+
+  testWidgets('opens reversi', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const ExampleApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.text('Reversi'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.byType(ReversiPlayScreen), findsOneWidget);
+    expect(find.byType(ReversiBoard), findsOneWidget);
   });
 }

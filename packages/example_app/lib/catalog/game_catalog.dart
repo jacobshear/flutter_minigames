@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/connect_four_play_screen.dart';
 import '../screens/dots_and_boxes_play_screen.dart';
+import '../screens/reversi_play_screen.dart';
 import '../screens/tictactoe_play_screen.dart';
 import '../widgets/game_tile_art.dart';
 
@@ -43,5 +44,11 @@ List<GameCatalogEntry> get gameCatalog => [
         title: 'Dots & Boxes',
         art: GameTileKind.dotsAndBoxes,
         builder: (_) => const DotsAndBoxesPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'reversi',
+        title: 'Reversi',
+        art: GameTileKind.reversi,
+        builder: (_) => const ReversiPlayScreen(),
       ),
     ];

@@ -15,5 +15,6 @@ workspace:
   - packages/minigame_tictactoe
   - packages/minigame_connect_four
   - packages/minigame_dots_and_boxes
+  - packages/minigame_reversi
   - packages/minigames_firebase
   - packages/example_app
