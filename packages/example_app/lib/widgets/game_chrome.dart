@@ -1,137 +1,31 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/demo_theme.dart';
 
-/// Living backdrop: slow gradient drift + floating soft blooms.
-class GameBackdrop extends StatefulWidget {
+/// Neutral light surface for launcher + play shells.
+/// Intentionally static — ambient motion belongs inside games, not chrome.
+/// Safe for embedding as a chat sheet later (no full-bleed brand spectacle).
+class GameBackdrop extends StatelessWidget {
   final Widget child;
   final Color bloom;
 
   const GameBackdrop({
     super.key,
     required this.child,
-    this.bloom = DemoColors.coral,
-  });
-
-  @override
-  State<GameBackdrop> createState() => _GameBackdropState();
-}
-
-class _GameBackdropState extends State<GameBackdrop>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 14),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, child) {
-        final t = _c.value;
-        // Slow sine — background only, deliberately subtle.
-        final wave = math.sin(t * math.pi * 2);
-        final wave2 = math.cos(t * math.pi * 2);
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment(-0.85 + wave * 0.08, -1),
-              end: Alignment(0.85 + wave2 * 0.06, 1),
-              colors: [
-                DemoColors.paperTop,
-                Color.lerp(
-                  const Color(0xFFFFF0D8),
-                  widget.bloom.withValues(alpha: 0.10),
-                  0.32 + wave * 0.05,
-                )!,
-                DemoColors.paperBottom,
-              ],
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                top: -90 + wave * 6,
-                right: -50 + wave2 * 8,
-                child: _LivingBlob(
-                  color: widget.bloom.withValues(alpha: 0.14),
-                  size: 260,
-                  pulse: 0.96 + 0.04 * ((wave + 1) / 2),
-                ),
-              ),
-              Positioned(
-                bottom: 20 - wave * 7,
-                left: -80 + wave * 5,
-                child: _LivingBlob(
-                  color: DemoColors.teal.withValues(alpha: 0.10),
-                  size: 240,
-                  pulse: 0.97 + 0.03 * ((wave2 + 1) / 2),
-                ),
-              ),
-              Positioned(
-                top: 200 + wave2 * 8,
-                left: 30 + wave * 10,
-                child: _LivingBlob(
-                  color: DemoColors.gold.withValues(alpha: 0.09),
-                  size: 140,
-                  pulse: 0.95 + 0.05 * ((wave + 1) / 2),
-                ),
-              ),
-              child!,
-            ],
-          ),
-        );
-      },
-      child: widget.child,
-    );
-  }
-}
-
-class _LivingBlob extends StatelessWidget {
-  final Color color;
-  final double size;
-  final double pulse;
-
-  const _LivingBlob({
-    required this.color,
-    required this.size,
-    required this.pulse,
+    this.bloom = DemoColors.blue,
   });
 
   @override
   Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Transform.scale(
-        scale: pulse,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                color,
-                color.withValues(alpha: 0),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return ColoredBox(
+      color: DemoColors.surface,
+      child: child,
     );
   }
 }
 
-/// Soft card with gentle depth — no harsh ink stamp border.
+/// Soft white panel around a board (optional; prefer full-bleed boards).
 class GamePanel extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -142,35 +36,27 @@ class GamePanel extends StatelessWidget {
   const GamePanel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(18),
+    this.padding = const EdgeInsets.all(16),
     this.color,
-    this.radius = 28,
+    this.radius = 20,
     this.accentBorder,
   });
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = accentBorder ?? DemoColors.border;
     return Container(
       padding: padding,
       decoration: BoxDecoration(
         color: color ?? DemoColors.card,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: borderColor, width: 1.5),
-        boxShadow: gameShadow(
-          dy: 14,
-          blur: 28,
-          alpha: 0.09,
-          accent: accentBorder,
-          accentAlpha: accentBorder != null ? 0.08 : 0,
-        ),
+        boxShadow: gameShadow(),
       ),
       child: child,
     );
   }
 }
 
-/// Soft pressable CTA (static chrome; press feedback only).
+/// Compact primary action (New game).
 class GameButton extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
@@ -182,8 +68,8 @@ class GameButton extends StatefulWidget {
     super.key,
     required this.label,
     required this.onTap,
-    this.color = DemoColors.ink,
-    this.foreground = DemoColors.card,
+    this.color = DemoColors.blue,
+    this.foreground = Colors.white,
     this.icon,
   });
 
@@ -203,50 +89,24 @@ class _GameButtonState extends State<GameButton> {
       onTap: widget.onTap,
       child: AnimatedScale(
         scale: _pressed ? 0.97 : 1,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
+        duration: const Duration(milliseconds: 100),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 15),
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color.lerp(widget.color, Colors.white, 0.12)!,
-                widget.color,
-                Color.lerp(widget.color, Colors.black, 0.06)!,
-              ],
-            ),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.28),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: widget.color.withValues(alpha: 0.28),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-                spreadRadius: -2,
-              ),
-              BoxShadow(
-                color: DemoColors.ink.withValues(alpha: 0.08),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
-              ),
-            ],
+            color: widget.color,
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (widget.icon != null) ...[
-                Icon(widget.icon, color: widget.foreground, size: 20),
-                const SizedBox(width: 8),
+                Icon(widget.icon, color: widget.foreground, size: 18),
+                const SizedBox(width: 6),
               ],
               Text(
                 widget.label,
                 style: gameDisplay(
-                  size: 17,
+                  size: 16,
                   weight: FontWeight.w700,
                   color: widget.foreground,
                 ),
@@ -259,7 +119,7 @@ class _GameButtonState extends State<GameButton> {
   }
 }
 
-/// Soft pill badge (static — motion is reserved for the backdrop).
+/// Small system-style capsule.
 class GameBadge extends StatelessWidget {
   final String label;
   final Color color;
@@ -268,44 +128,27 @@ class GameBadge extends StatelessWidget {
   const GameBadge({
     super.key,
     required this.label,
-    this.color = DemoColors.gold,
+    this.color = DemoColors.card,
     this.foreground,
   });
 
   @override
   Widget build(BuildContext context) {
-    final fg = foreground ?? DemoColors.ink;
+    final fg = foreground ?? DemoColors.secondaryLabel;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: color.withValues(alpha: 0.4),
-          width: 1.3,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
       ),
       child: Text(
-        label.toUpperCase(),
-        style: gameDisplay(
-          size: 11,
-          weight: FontWeight.w700,
-          color: fg,
-          letterSpacing: 0.9,
-        ),
+        label,
+        style: gameBody(size: 12, weight: FontWeight.w700, color: fg),
       ),
     );
   }
 }
 
-/// Soft circular back control.
 class GameBackButton extends StatefulWidget {
   final VoidCallback onBack;
 
@@ -330,24 +173,25 @@ class _GameBackButtonState extends State<GameBackButton> {
       },
       child: AnimatedScale(
         scale: _pressed ? 0.94 : 1,
-        duration: const Duration(milliseconds: 100),
+        duration: const Duration(milliseconds: 90),
         child: Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: DemoColors.card.withValues(alpha: 0.92),
+          width: 40,
+          height: 40,
+          decoration: const BoxDecoration(
+            color: DemoColors.card,
             shape: BoxShape.circle,
-            border: Border.all(color: DemoColors.border, width: 1.4),
-            boxShadow: gameShadow(dy: 6, blur: 14, alpha: 0.08),
           ),
-          child: const Icon(Icons.arrow_back_rounded, color: DemoColors.ink),
+          child: const Icon(
+            Icons.chevron_left_rounded,
+            color: DemoColors.ink,
+            size: 28,
+          ),
         ),
       ),
     );
   }
 }
 
-/// Title + soft subtitle chip.
 class GameScreenHeader extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -357,7 +201,7 @@ class GameScreenHeader extends StatelessWidget {
     super.key,
     required this.title,
     required this.subtitle,
-    this.accent = DemoColors.coral,
+    this.accent = DemoColors.blue,
   });
 
   @override
@@ -367,34 +211,19 @@ class GameScreenHeader extends StatelessWidget {
         Text(
           title,
           textAlign: TextAlign.center,
-          style: gameDisplay(size: 32, weight: FontWeight.w700),
+          style: gameDisplay(size: 20, weight: FontWeight.w800),
         ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: accent.withValues(alpha: 0.28),
-              width: 1.2,
-            ),
-          ),
-          child: Text(
-            subtitle,
-            style: gameBody(
-              size: 13,
-              weight: FontWeight.w700,
-              color: DemoColors.ink.withValues(alpha: 0.62),
-            ),
-          ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          textAlign: TextAlign.center,
+          style: gameBody(size: 13, weight: FontWeight.w600),
         ),
       ],
     );
   }
 }
 
-/// Shared top row: back + badge.
 class GameTopBar extends StatelessWidget {
   final VoidCallback onBack;
   final String badge;
@@ -411,7 +240,7 @@ class GameTopBar extends StatelessWidget {
       children: [
         GameBackButton(onBack: onBack),
         const Spacer(),
-        GameBadge(label: badge, color: DemoColors.gold),
+        GameBadge(label: badge),
       ],
     );
   }

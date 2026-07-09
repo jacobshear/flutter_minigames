@@ -70,10 +70,11 @@ flutter pub get                        # resolves the whole workspace
 cd packages/example_app && flutter run # main menu → pick a game (local hot-seat)
 ```
 
-The demo is a **catalog**, not a host app. Multiplayer is not wired here:
-`example_app/lib/multiplayer/play_session.dart` exposes `TransportFactory` /
-`PlaySession.networked(...)` so the host app or any other host can inject a real
-`GameTransport` later without rewriting game screens.
+The demo is a **full-screen GamePigeon-style launcher** (static illustrated
+grid, quiet iOS-light chrome). Production hosts (e.g. the host app chat sheet) embed
+the same catalog + play screens; multiplayer injects via
+`example_app/lib/multiplayer/play_session.dart`
+(`PlaySession.networked(yourTransport)`).
 
 ## Test
 

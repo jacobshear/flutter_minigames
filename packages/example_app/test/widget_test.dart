@@ -10,7 +10,7 @@ import 'package:minigame_dots_and_boxes/minigame_dots_and_boxes.dart';
 import 'package:minigame_tictactoe/minigame_tictactoe.dart';
 
 void main() {
-  testWidgets('main menu lists all three games', (tester) async {
+  testWidgets('launcher grid lists all three games', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 932));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -19,11 +19,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byType(HomeMenuScreen), findsOneWidget);
-    expect(find.text('Mini games'), findsOneWidget);
-    expect(find.text('Tic-tac-toe'), findsOneWidget);
-    expect(find.text('Connect four'), findsOneWidget);
-    expect(find.text('Dots and boxes'), findsOneWidget);
-    expect(find.text('Coming soon'), findsNothing);
+    expect(find.text('Games'), findsOneWidget);
+    expect(find.text('Tic-Tac-Toe'), findsOneWidget);
+    expect(find.text('4 in a Row'), findsOneWidget);
+    expect(find.text('Dots & Boxes'), findsOneWidget);
   });
 
   testWidgets('opens tic-tac-toe', (tester) async {
@@ -34,7 +33,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.text('Tic-tac-toe'));
+    await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
 
@@ -50,7 +49,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.text('Connect four'));
+    await tester.tap(find.text('4 in a Row'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
 
@@ -66,7 +65,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.text('Dots and boxes'));
+    await tester.tap(find.text('Dots & Boxes'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
 

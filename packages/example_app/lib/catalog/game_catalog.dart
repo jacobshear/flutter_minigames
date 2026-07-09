@@ -3,63 +3,45 @@ import 'package:flutter/material.dart';
 import '../screens/connect_four_play_screen.dart';
 import '../screens/dots_and_boxes_play_screen.dart';
 import '../screens/tictactoe_play_screen.dart';
-import '../theme/demo_theme.dart';
+import '../widgets/game_tile_art.dart';
 
-/// One entry on the main menu. Add a package → add a row here. That's the loop.
+/// One launcher tile. Add a package → add a row. Designed so a host can also
+/// render this catalog inside a chat sheet (same entries, constrained height).
 class GameCatalogEntry {
   final String id;
   final String title;
-  final String tagline;
-  final String players;
-  final Color accent;
-  final IconData icon;
-
-  /// When false, the card shows "Coming soon" and does not navigate.
+  final GameTileKind art;
   final bool available;
-
-  /// Builds the play screen. Only required when [available] is true.
   final WidgetBuilder? builder;
 
   const GameCatalogEntry({
     required this.id,
     required this.title,
-    required this.tagline,
-    required this.players,
-    required this.accent,
-    required this.icon,
+    required this.art,
     this.available = true,
     this.builder,
   });
 }
 
-/// All games the demo knows about. Local-only today; multiplayer hooks live
-/// under `lib/multiplayer/` so entries stay mode-agnostic.
+/// Games shown on the launcher. Local hot-seat builders today; multiplayer
+/// hosts swap [PlaySession] inside each play screen later.
 List<GameCatalogEntry> get gameCatalog => [
       GameCatalogEntry(
         id: 'tictactoe',
-        title: 'Tic-tac-toe',
-        tagline: 'Ink marks, win-line glow, confetti.',
-        players: '2 players · hot seat',
-        accent: DemoColors.coral,
-        icon: Icons.grid_3x3_rounded,
+        title: 'Tic-Tac-Toe',
+        art: GameTileKind.ticTacToe,
         builder: (_) => const TicTacToePlayScreen(),
       ),
       GameCatalogEntry(
         id: 'connect_four',
-        title: 'Connect four',
-        tagline: 'Gravity drops, bounce, win glow.',
-        players: '2 players · hot seat',
-        accent: DemoColors.teal,
-        icon: Icons.view_column_rounded,
+        title: '4 in a Row',
+        art: GameTileKind.connectFour,
         builder: (_) => const ConnectFourPlayScreen(),
       ),
       GameCatalogEntry(
         id: 'dots_and_boxes',
-        title: 'Dots and boxes',
-        tagline: 'Claim edges, chain boxes, go again.',
-        players: '2 players · hot seat',
-        accent: const Color(0xFFF4B740),
-        icon: Icons.apps_rounded,
+        title: 'Dots & Boxes',
+        art: GameTileKind.dotsAndBoxes,
         builder: (_) => const DotsAndBoxesPlayScreen(),
       ),
     ];

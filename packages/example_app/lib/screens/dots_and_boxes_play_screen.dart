@@ -8,7 +8,7 @@ import '../multiplayer/play_session.dart';
 import '../theme/demo_theme.dart';
 import '../widgets/game_chrome.dart';
 
-/// Local hot-seat Dots and Boxes via [PlaySession].
+/// Hot-seat Dots and Boxes with thin shell chrome.
 class DotsAndBoxesPlayScreen extends StatefulWidget {
   final PlaySession? session;
 
@@ -28,7 +28,7 @@ class _DotsAndBoxesPlayScreenState extends State<DotsAndBoxesPlayScreen> {
     player0Color: DemoColors.coral,
     player1Color: DemoColors.teal,
     boardColor: DemoColors.card,
-    freeEdgeColor: DemoColors.ink.withValues(alpha: 0.14),
+    freeEdgeColor: DemoColors.ink.withValues(alpha: 0.12),
     dotColor: DemoColors.ink,
     sounds: DotsAndBoxesSounds(
       onClaim: DemoSfx.instance.mark,
@@ -72,51 +72,44 @@ class _DotsAndBoxesPlayScreenState extends State<DotsAndBoxesPlayScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     return Scaffold(
-      body: GameBackdrop(
-        bloom: DemoColors.gold,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                const SizedBox(height: 6),
-                GameTopBar(onBack: () => Navigator.of(context).maybePop()),
-                const SizedBox(height: 12),
-                GameScreenHeader(
-                  title: 'Dots & boxes',
-                  subtitle: _session.hotSeat
-                      ? 'Hot seat · claim an edge'
-                      : 'Networked match',
-                  accent: DemoColors.gold,
-                ),
-                const Spacer(),
-                if (controller == null)
-                  const CircularProgressIndicator()
-                else
-                  GamePanel(
-                    padding: const EdgeInsets.fromLTRB(14, 16, 14, 18),
-                    child: DotsAndBoxesBoard(
-                      key: ValueKey(_round),
-                      controller: controller,
-                      style: _boardStyle,
-                    ),
+      backgroundColor: DemoColors.surface,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Column(
+            children: [
+              const SizedBox(height: 4),
+              GameTopBar(onBack: () => Navigator.of(context).maybePop()),
+              const SizedBox(height: 8),
+              GameScreenHeader(
+                title: 'Dots & Boxes',
+                subtitle: _session.hotSeat ? 'Pass and play' : 'Online',
+              ),
+              const Spacer(),
+              if (controller == null)
+                const CircularProgressIndicator()
+              else
+                GamePanel(
+                  padding: const EdgeInsets.fromLTRB(12, 14, 12, 16),
+                  child: DotsAndBoxesBoard(
+                    key: ValueKey(_round),
+                    controller: controller,
+                    style: _boardStyle,
                   ),
-                const Spacer(),
-                GameButton(
-                  label: 'New game',
-                  icon: Icons.refresh_rounded,
-                  color: DemoColors.gold,
-                  foreground: DemoColors.ink,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    DemoSfx.instance.newGame();
-                    setState(() => _round++);
-                    _startNewGame();
-                  },
                 ),
-                const SizedBox(height: 22),
-              ],
-            ),
+              const Spacer(),
+              GameButton(
+                label: 'New game',
+                color: DemoColors.blue,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  DemoSfx.instance.newGame();
+                  setState(() => _round++);
+                  _startNewGame();
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
           ),
         ),
       ),

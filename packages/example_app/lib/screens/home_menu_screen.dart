@@ -3,10 +3,14 @@ import 'package:flutter/services.dart';
 
 import '../catalog/game_catalog.dart';
 import '../theme/demo_theme.dart';
-import '../widgets/game_chrome.dart';
+import '../widgets/game_tile_art.dart';
 
-/// Root of the demo: pick a mini-game, play it locally (hot seat).
-/// Tiles are static; ambient motion lives only in [GameBackdrop].
+/// Full-screen GamePigeon-style launcher: static grid of illustrated tiles.
+///
+/// This is a faithful *standalone* interpretation of the GP game picker so you
+/// can feel the product alone. The same [gameCatalog] is what a host (the host app
+/// chat sheet, other apps) should embed later — white surface, dense tiles,
+/// no ambient chrome.
 class HomeMenuScreen extends StatelessWidget {
   const HomeMenuScreen({super.key});
 
@@ -15,62 +19,74 @@ class HomeMenuScreen extends StatelessWidget {
     final games = gameCatalog;
 
     return Scaffold(
-      body: GameBackdrop(
-        bloom: DemoColors.coral,
-        child: SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const GameBadge(
-                        label: 'Arcade demo',
-                        color: DemoColors.teal,
-                        foreground: Colors.white,
+      backgroundColor: DemoColors.surface,
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                child: Row(
+                  children: [
+                    Text(
+                      'Games',
+                      style: gameDisplay(size: 28, weight: FontWeight.w800),
+                    ),
+                    const Spacer(),
+                    Text(
+                      'Local',
+                      style: gameBody(
+                        size: 13,
+                        weight: FontWeight.w700,
+                        color: DemoColors.secondaryLabel,
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Mini games',
-                        style: gameDisplay(size: 40, weight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Hot-seat play. Same transport a multiplayer host '
-                        'will plug in later.',
-                        style: gameBody(size: 15),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 36),
-                sliver: SliverList.separated(
-                  itemCount: games.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 14),
-                  itemBuilder: (context, i) => _GameCard(entry: games[i]),
-                ),
-              ),
-            ],
-          ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+              sliver: _GameGrid(games: games),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _GameCard extends StatefulWidget {
-  final GameCatalogEntry entry;
-  const _GameCard({required this.entry});
+class _GameGrid extends StatelessWidget {
+  final List<GameCatalogEntry> games;
+  const _GameGrid({required this.games});
 
   @override
-  State<_GameCard> createState() => _GameCardState();
+  Widget build(BuildContext context) {
+    return SliverGrid(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 12,
+        // Tile + caption.
+        childAspectRatio: 0.78,
+      ),
+      delegate: SliverChildBuilderDelegate(
+        (context, i) => _LauncherTile(entry: games[i]),
+        childCount: games.length,
+      ),
+    );
+  }
 }
 
-class _GameCardState extends State<_GameCard> {
+class _LauncherTile extends StatefulWidget {
+  final GameCatalogEntry entry;
+  const _LauncherTile({required this.entry});
+
+  @override
+  State<_LauncherTile> createState() => _LauncherTileState();
+}
+
+class _LauncherTileState extends State<_LauncherTile> {
   bool _pressed = false;
 
   void _open() {
@@ -78,7 +94,12 @@ class _GameCardState extends State<_GameCard> {
     if (!entry.available || entry.builder == null) return;
     HapticFeedback.selectionClick();
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: entry.builder!),
+      MaterialPageRoute<void>(
+        builder: entry.builder!,
+        // Full-screen for the standalone demo. A chat host would use a sheet
+        // route / embedded navigator instead — same builder.
+        fullscreenDialog: false,
+      ),
     );
   }
 
@@ -86,7 +107,6 @@ class _GameCardState extends State<_GameCard> {
   Widget build(BuildContext context) {
     final entry = widget.entry;
     final enabled = entry.available;
-    final accent = entry.accent;
 
     return GestureDetector(
       onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
@@ -94,105 +114,49 @@ class _GameCardState extends State<_GameCard> {
       onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
       onTap: enabled ? _open : null,
       child: AnimatedScale(
-        scale: _pressed ? 0.985 : 1,
-        duration: const Duration(milliseconds: 110),
+        scale: _pressed ? 0.94 : 1,
+        duration: const Duration(milliseconds: 90),
         curve: Curves.easeOut,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
-          decoration: BoxDecoration(
-            color: DemoColors.card,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: DemoColors.border, width: 1.4),
-            boxShadow: gameShadow(dy: 10, blur: 20, alpha: 0.08),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color.lerp(accent, Colors.white, 0.2)!,
-                      accent,
+        child: Column(
+          children: [
+            Expanded(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: accent.withValues(alpha: 0.28),
-                      blurRadius: 12,
-                      offset: const Offset(0, 5),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Opacity(
+                      opacity: enabled ? 1 : 0.45,
+                      child: GameTileArt(kind: entry.art),
                     ),
-                  ],
-                ),
-                child: Icon(entry.icon, color: Colors.white, size: 28),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.title,
-                      style: gameDisplay(size: 20, weight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(entry.tagline, style: gameBody(size: 13)),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: accent.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: accent.withValues(alpha: 0.28),
-                          width: 1.1,
-                        ),
-                      ),
-                      child: Text(
-                        enabled ? entry.players : 'Coming soon',
-                        style: gameBody(
-                          size: 11,
-                          weight: FontWeight.w800,
-                          color: accent,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: enabled
-                      ? accent.withValues(alpha: 0.14)
-                      : DemoColors.ink.withValues(alpha: 0.06),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: enabled
-                        ? accent.withValues(alpha: 0.35)
-                        : DemoColors.ink.withValues(alpha: 0.12),
-                    width: 1.3,
                   ),
                 ),
-                child: Icon(
-                  enabled ? Icons.play_arrow_rounded : Icons.schedule_rounded,
-                  color: enabled
-                      ? accent
-                      : DemoColors.ink.withValues(alpha: 0.35),
-                  size: 22,
-                ),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              entry.title,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: gameBody(
+                size: 12,
+                weight: FontWeight.w700,
+                color: DemoColors.ink,
+                height: 1.15,
+              ),
+            ),
+          ],
         ),
       ),
     );

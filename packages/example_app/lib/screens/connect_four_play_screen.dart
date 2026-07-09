@@ -8,7 +8,7 @@ import '../multiplayer/play_session.dart';
 import '../theme/demo_theme.dart';
 import '../widgets/game_chrome.dart';
 
-/// Local hot-seat Connect Four via [PlaySession].
+/// Hot-seat Connect Four with thin shell chrome.
 class ConnectFourPlayScreen extends StatefulWidget {
   final PlaySession? session;
 
@@ -28,7 +28,7 @@ class _ConnectFourPlayScreenState extends State<ConnectFourPlayScreen> {
     player0Color: DemoColors.coral,
     player1Color: DemoColors.gold,
     boardColor: const Color(0xFF2B6BCB),
-    holeColor: const Color(0xFFFFF6E8),
+    holeColor: const Color(0xFFF2F2F7),
     sounds: ConnectFourSounds(
       onDrop: (rows) => DemoSfx.instance.drop(longDrop: rows >= 4),
       onWin: DemoSfx.instance.win,
@@ -70,51 +70,44 @@ class _ConnectFourPlayScreenState extends State<ConnectFourPlayScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     return Scaffold(
-      body: GameBackdrop(
-        bloom: DemoColors.teal,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                const SizedBox(height: 6),
-                GameTopBar(onBack: () => Navigator.of(context).maybePop()),
-                const SizedBox(height: 12),
-                GameScreenHeader(
-                  title: 'Connect four',
-                  subtitle: _session.hotSeat
-                      ? 'Hot seat · tap a column'
-                      : 'Networked match',
-                  accent: DemoColors.teal,
-                ),
-                const Spacer(),
-                if (controller == null)
-                  const CircularProgressIndicator()
-                else
-                  GamePanel(
-                    padding: const EdgeInsets.fromLTRB(12, 18, 12, 20),
-                    child: ConnectFourBoard(
-                      key: ValueKey(_round),
-                      controller: controller,
-                      style: _boardStyle,
-                    ),
+      backgroundColor: DemoColors.surface,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Column(
+            children: [
+              const SizedBox(height: 4),
+              GameTopBar(onBack: () => Navigator.of(context).maybePop()),
+              const SizedBox(height: 8),
+              GameScreenHeader(
+                title: '4 in a Row',
+                subtitle: _session.hotSeat ? 'Pass and play' : 'Online',
+              ),
+              const Spacer(),
+              if (controller == null)
+                const CircularProgressIndicator()
+              else
+                GamePanel(
+                  padding: const EdgeInsets.fromLTRB(10, 14, 10, 16),
+                  child: ConnectFourBoard(
+                    key: ValueKey(_round),
+                    controller: controller,
+                    style: _boardStyle,
                   ),
-                const Spacer(),
-                GameButton(
-                  label: 'New game',
-                  icon: Icons.refresh_rounded,
-                  color: DemoColors.teal,
-                  foreground: Colors.white,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    DemoSfx.instance.newGame();
-                    setState(() => _round++);
-                    _startNewGame();
-                  },
                 ),
-                const SizedBox(height: 22),
-              ],
-            ),
+              const Spacer(),
+              GameButton(
+                label: 'New game',
+                color: DemoColors.blue,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  DemoSfx.instance.newGame();
+                  setState(() => _round++);
+                  _startNewGame();
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
           ),
         ),
       ),

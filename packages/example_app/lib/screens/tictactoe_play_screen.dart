@@ -8,7 +8,8 @@ import '../multiplayer/play_session.dart';
 import '../theme/demo_theme.dart';
 import '../widgets/game_chrome.dart';
 
-/// Local hot-seat tic-tac-toe via [PlaySession].
+/// Hot-seat tic-tac-toe. Thin shell — board is the product.
+/// Swap [PlaySession] for multiplayer without changing this layout.
 class TicTacToePlayScreen extends StatefulWidget {
   final PlaySession? session;
 
@@ -27,7 +28,7 @@ class _TicTacToePlayScreenState extends State<TicTacToePlayScreen> {
   late final TicTacToeStyle _boardStyle = TicTacToeStyle(
     xColor: DemoColors.coral,
     oColor: DemoColors.teal,
-    gridColor: const Color(0xD11F2430),
+    gridColor: DemoColors.ink.withValues(alpha: 0.75),
     sounds: TicTacToeSounds(
       onPlace: DemoSfx.instance.mark,
       onWin: DemoSfx.instance.win,
@@ -68,51 +69,43 @@ class _TicTacToePlayScreenState extends State<TicTacToePlayScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     return Scaffold(
-      body: GameBackdrop(
-        bloom: DemoColors.coral,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Column(
-              children: [
-                const SizedBox(height: 6),
-                GameTopBar(onBack: () => Navigator.of(context).maybePop()),
-                const SizedBox(height: 14),
-                GameScreenHeader(
-                  title: 'Tic-tac-toe',
-                  subtitle: _session.hotSeat
-                      ? 'Hot seat · pass the device'
-                      : 'Networked match',
-                  accent: DemoColors.coral,
-                ),
-                const Spacer(),
-                if (controller == null)
-                  const CircularProgressIndicator()
-                else
-                  GamePanel(
-                    padding: const EdgeInsets.fromLTRB(18, 22, 18, 26),
-                    child: TicTacToeBoard(
-                      key: ValueKey(_round),
-                      controller: controller,
-                      style: _boardStyle,
-                    ),
+      backgroundColor: DemoColors.surface,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              const SizedBox(height: 4),
+              GameTopBar(onBack: () => Navigator.of(context).maybePop()),
+              const SizedBox(height: 8),
+              GameScreenHeader(
+                title: 'Tic-Tac-Toe',
+                subtitle: _session.hotSeat ? 'Pass and play' : 'Online',
+              ),
+              const Spacer(),
+              if (controller == null)
+                const CircularProgressIndicator()
+              else
+                GamePanel(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 22),
+                  child: TicTacToeBoard(
+                    key: ValueKey(_round),
+                    controller: controller,
+                    style: _boardStyle,
                   ),
-                const Spacer(),
-                GameButton(
-                  label: 'New game',
-                  icon: Icons.refresh_rounded,
-                  color: DemoColors.coral,
-                  foreground: Colors.white,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    DemoSfx.instance.newGame();
-                    setState(() => _round++);
-                    _startNewGame();
-                  },
                 ),
-                const SizedBox(height: 22),
-              ],
-            ),
+              const Spacer(),
+              GameButton(
+                label: 'New game',
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  DemoSfx.instance.newGame();
+                  setState(() => _round++);
+                  _startNewGame();
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
           ),
         ),
       ),

@@ -6,14 +6,13 @@ import 'theme/demo_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Fail-soft: tests / platforms without audio still boot.
   await DemoSfx.instance.init();
   runApp(const ExampleApp());
 }
 
-/// Standalone catalog of flutter_minigames — local hot-seat play for every
-/// shipped game, with a [PlaySession] / [TransportFactory] seam ready for
-/// multiplayer hosts (the host app, third parties) later.
+/// Standalone full-screen demo of the minigames launcher (GamePigeon-style
+/// grid). Hosts (the host app chat sheet, other apps) re-use [gameCatalog],
+/// [PlaySession], and the same play screens — without this MaterialApp shell.
 class ExampleApp extends StatelessWidget {
   const ExampleApp({super.key});
 
