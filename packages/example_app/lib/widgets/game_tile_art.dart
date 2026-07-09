@@ -497,17 +497,19 @@ class _ConnectFourTilePainter extends CustomPainter {
       final (col, landRow, color) = s.drops[i];
       final restY = frame.top + (landRow + 0.5) * cellH;
       final startY = frame.top - cellH * 0.75;
-      // During clear, reverse the drop (discs rise out) instead of flashing.
-      final fallAmount = presence < 1
-          ? presence
-          : Curves.easeInCubic.transform(p.clamp(0.0, 1.0));
-      var y = lerpDouble(startY, restY, fallAmount)!;
+      // Drop only while placing; clear shrinks discs in place (no reverse rise).
+      final fallT = Curves.easeInCubic.transform(
+        (presence < 1 ? 1.0 : p).clamp(0.0, 1.0),
+      );
+      var y = lerpDouble(startY, restY, fallT)!;
       if (presence >= 1 && p > 0.82) {
         final b = (p - 0.82) / 0.18;
         y -= math.sin(b * math.pi) * cellH * 0.07;
       }
+      // On clear, pin to rest slot and scale out.
+      if (presence < 1) y = restY;
       final c = Offset(frame.left + (col + 0.5) * cellW, y);
-      final radius = holeR * 0.92 * (presence < 1 ? presence.clamp(0.0, 1.0) : 1);
+      final radius = holeR * 0.92 * p.clamp(0.0, 1.0);
       if (radius < 0.5) continue;
       canvas.drawCircle(
         c,
