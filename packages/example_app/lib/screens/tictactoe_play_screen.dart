@@ -1,0 +1,272 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:minigame_tictactoe/minigame_tictactoe.dart';
+import 'package:minigames_core/minigames_core.dart';
+
+import '../audio/demo_sfx.dart';
+import '../multiplayer/play_session.dart';
+import '../theme/demo_theme.dart';
+
+/// Local hot-seat tic-tac-toe, routed through [PlaySession] so a networked
+/// transport can replace [LocalTransport] without rewriting this screen.
+class TicTacToePlayScreen extends StatefulWidget {
+  /// Optional override for tests / multiplayer experiments.
+  final PlaySession? session;
+
+  const TicTacToePlayScreen({super.key, this.session});
+
+  @override
+  State<TicTacToePlayScreen> createState() => _TicTacToePlayScreenState();
+}
+
+class _TicTacToePlayScreenState extends State<TicTacToePlayScreen> {
+  late final PlaySession _session;
+  final TicTacToeGame _game = const TicTacToeGame();
+  MatchController<TicTacToeState, TicTacToeMove>? _controller;
+  int _round = 0;
+
+  late final TicTacToeStyle _boardStyle = TicTacToeStyle(
+    xColor: DemoColors.coral,
+    oColor: DemoColors.teal,
+    gridColor: const Color(0xD12E2A26),
+    sounds: TicTacToeSounds(
+      onPlace: DemoSfx.instance.place,
+      onWin: DemoSfx.instance.win,
+      onDraw: DemoSfx.instance.draw,
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _session = widget.session ?? PlaySession.localHotSeat();
+    _startNewGame();
+  }
+
+  Future<void> _startNewGame() async {
+    await _controller?.dispose();
+    final controller =
+        await MatchController.create<TicTacToeState, TicTacToeMove>(
+      game: _game,
+      transport: _session.transport,
+      matchId: 'local-ttt-$_round',
+      playerIds: const ['p1', 'p2'],
+      localPlayerId: 'p1',
+      hotSeat: _session.hotSeat,
+      seed: _round,
+    );
+    if (mounted) setState(() => _controller = controller);
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _session.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    return Scaffold(
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [DemoColors.paperTop, DemoColors.paperBottom],
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0, -0.15),
+                    radius: 0.9,
+                    colors: [
+                      DemoColors.coral.withValues(alpha: 0.10),
+                      DemoColors.coral.withValues(alpha: 0.0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 4),
+                    _TopBar(
+                      onBack: () => Navigator.of(context).maybePop(),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Tic · Tac · Toe',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.fraunces(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w700,
+                        color: DemoColors.ink,
+                        height: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _session.hotSeat
+                          ? 'Hot seat · pass the device'
+                          : 'Networked match',
+                      style: GoogleFonts.fraunces(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: DemoColors.ink.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (controller == null)
+                      const CircularProgressIndicator()
+                    else
+                      _BoardCard(
+                        child: TicTacToeBoard(
+                          key: ValueKey(_round),
+                          controller: controller,
+                          style: _boardStyle,
+                        ),
+                      ),
+                    const Spacer(),
+                    _NewGameButton(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        DemoSfx.instance.newGame();
+                        setState(() => _round++);
+                        _startNewGame();
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  final VoidCallback onBack;
+  const _TopBar({required this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            onBack();
+          },
+          icon: const Icon(Icons.arrow_back_rounded),
+          color: DemoColors.ink,
+        ),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: DemoColors.ink.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            'Local',
+            style: GoogleFonts.fraunces(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: DemoColors.ink.withValues(alpha: 0.55),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BoardCard extends StatelessWidget {
+  final Widget child;
+  const _BoardCard({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),
+      decoration: BoxDecoration(
+        color: DemoColors.card,
+        borderRadius: BorderRadius.circular(34),
+        boxShadow: [
+          BoxShadow(
+            color: DemoColors.ink.withValues(alpha: 0.10),
+            blurRadius: 40,
+            offset: const Offset(0, 18),
+          ),
+          BoxShadow(
+            color: DemoColors.ink.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _NewGameButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _NewGameButton({required this.onTap});
+
+  @override
+  State<_NewGameButton> createState() => _NewGameButtonState();
+}
+
+class _NewGameButtonState extends State<_NewGameButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.96 : 1,
+        duration: const Duration(milliseconds: 110),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 15),
+          decoration: BoxDecoration(
+            color: DemoColors.ink,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: DemoColors.ink.withValues(alpha: 0.22),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Text(
+            'New game',
+            style: GoogleFonts.fraunces(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: DemoColors.paperTop,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

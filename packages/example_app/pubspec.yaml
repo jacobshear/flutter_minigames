@@ -1,7 +1,7 @@
 name: example_app
 description: >-
-  Standalone test harness for flutter_minigames. Plays each game hot-seat via
-  the in-memory LocalTransport — no backend required.
+  Standalone demo catalog for flutter_minigames. Main menu of every game,
+  local hot-seat play via LocalTransport. Multiplayer seam ready for hosts.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -15,9 +15,10 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   google_fonts: ^6.2.1
+  audioplayers: ^6.1.0
   minigames_core: ^0.1.0
   minigame_tictactoe: ^0.1.0
-  # Firebase transport — used by the integration test (and a future networked mode).
+  # Firebase transport — used by the integration test (and future networked mode).
   firebase_core: ^3.13.0
   firebase_database: ^11.3.4
   minigames_firebase: ^0.1.0
@@ -32,3 +33,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sfx/

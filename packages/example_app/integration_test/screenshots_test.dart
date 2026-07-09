@@ -29,6 +29,11 @@ void main() {
     await tester.pumpWidget(const ExampleApp());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
+
+    // Main menu → open tic-tac-toe.
+    await tester.tap(find.text('Tic-tac-toe'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     await binding.convertFlutterSurfaceToImage();
 
     await play(tester, 1000); // grid entrance
@@ -40,14 +45,15 @@ void main() {
     await play(tester, 640);
     await tester.tapAt(cell(tester, 1)); // X
     await play(tester, 640);
+    await tester.tapAt(cell(tester, 5)); // O
+    await play(tester, 640);
     await binding.takeScreenshot('02_midgame');
 
-    await tester.tapAt(cell(tester, 8)); // O
-    await play(tester, 640);
-    await tester.tapAt(cell(tester, 2)); // X wins the top row
-    await play(tester, 340);
+    await tester.tapAt(cell(tester, 2)); // X wins top row
+    await play(tester, 420); // mid confetti / win line
     await binding.takeScreenshot('03_win_burst');
-    await play(tester, 1150);
+
+    await play(tester, 1200); // settled
     await binding.takeScreenshot('04_win_settled');
   });
 }

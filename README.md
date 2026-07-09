@@ -17,7 +17,7 @@ packages/
   minigames_test/      # shared conformance suite any GameTransport can run
   minigame_tictactoe/  # reference game: pure-Dart logic + Flutter board widget
   minigames_firebase/  # GameTransport backed by Firebase Realtime Database
-  example_app/         # standalone harness — plays games hot-seat via LocalTransport
+  example_app/         # demo catalog: main menu + local hot-seat; multiplayer seam ready
 ```
 
 - `minigames_core` imports **nothing** — no Flutter, no Firebase, no Flame.
@@ -65,8 +65,13 @@ No cross-device deterministic physics required.
 
 ```bash
 flutter pub get                        # resolves the whole workspace
-cd packages/example_app && flutter run # or: -d chrome / -d macos
+cd packages/example_app && flutter run # main menu → pick a game (local hot-seat)
 ```
+
+The demo is a **catalog**, not a host app. Multiplayer is not wired here:
+`example_app/lib/multiplayer/play_session.dart` exposes `TransportFactory` /
+`PlaySession.networked(...)` so the host app or any other host can inject a real
+`GameTransport` later without rewriting game screens.
 
 ## Test
 
@@ -105,7 +110,8 @@ uses a well-formed placeholder so no real project is needed for emulator runs.)
 1. In a new `minigame_<name>` package, implement `TurnGame<YourState, YourMove>`.
 2. Write a widget that takes a `MatchController<YourState, YourMove>`, renders
    `stateStream`, and calls `submitMove` on input.
-3. Add it to `example_app` to play it hot-seat.
+3. Add a row to `example_app/lib/catalog/game_catalog.dart` and a play screen
+   that uses `PlaySession.localHotSeat()`.
 
 That's the entire loop — everything hard (turns, sync, resume) lives in core.
 

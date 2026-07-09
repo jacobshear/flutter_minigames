@@ -14,8 +14,9 @@ import 'tic_tac_toe_style.dart';
 /// All the "juice" lives here so every host gets it for free: the grid draws
 /// itself on load, marks stroke in with a squash, pressing an empty cell shows
 /// a ghost of your mark, and a win draws the winning line, pops the winning
-/// cells, dims the rest, bursts confetti, and escalates haptics. Colours come
-/// from [TicTacToeStyle] / the ambient [ColorScheme]; the motion is universal.
+/// cells, dims the rest, bursts confetti, escalates haptics, and fires optional
+/// [TicTacToeStyle.sounds]. Colours come from [TicTacToeStyle] / the ambient
+/// [ColorScheme]; the motion is universal.
 class TicTacToeBoard extends StatefulWidget {
   final MatchController<TicTacToeState, TicTacToeMove> controller;
   final TicTacToeStyle style;
@@ -81,8 +82,9 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
     final outcome = _game.outcome(state);
     final style = widget.style;
 
-    if (filled > _lastFilled && style.haptics) {
-      HapticFeedback.lightImpact();
+    if (filled > _lastFilled) {
+      if (style.haptics) HapticFeedback.lightImpact();
+      style.sounds.onPlace?.call();
     }
     if (filled < _lastFilled) {
       // New game — clear win effects.
@@ -95,8 +97,10 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
       if (outcome.isWin) {
         _winLine = _findWinLine(state);
         _startWinEffects(state);
-      } else if (style.haptics) {
-        HapticFeedback.mediumImpact();
+      } else {
+        // Draw.
+        if (style.haptics) HapticFeedback.mediumImpact();
+        style.sounds.onDraw?.call();
       }
     }
     if (outcome == null) _winLine = null;
@@ -121,6 +125,7 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
   }
 
   void _startWinEffects(TicTacToeState state) {
+    widget.style.sounds.onWin?.call();
     if (widget.style.haptics) {
       HapticFeedback.heavyImpact();
       Future.delayed(const Duration(milliseconds: 90), () {
