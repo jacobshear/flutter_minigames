@@ -8,7 +8,8 @@ import '../theme/demo_theme.dart';
 /// Which miniature to paint on a launcher tile.
 enum GameTileKind { ticTacToe, connectFour, dotsAndBoxes }
 
-/// Colorful toy diorama that plays a complete short match on a smooth loop.
+/// Colorful toy diorama that plays complete short matches on a smooth loop,
+/// picking a **new random script** each cycle.
 class GameTileArt extends StatefulWidget {
   final GameTileKind kind;
   final double phase;
@@ -25,9 +26,10 @@ class GameTileArt extends StatefulWidget {
 
 class _GameTileArtState extends State<GameTileArt>
     with SingleTickerProviderStateMixin {
+  final _rng = math.Random();
+
   late final AnimationController _c = AnimationController(
     vsync: this,
-    // Long enough that each move reads; loop fade handles the seam.
     duration: switch (widget.kind) {
       GameTileKind.ticTacToe => const Duration(milliseconds: 5600),
       GameTileKind.connectFour => const Duration(milliseconds: 7000),
@@ -35,10 +37,25 @@ class _GameTileArtState extends State<GameTileArt>
     },
   )..repeat();
 
+  late int _script = _rng.nextInt(1 << 20);
+  double _lastT = 0;
+
   @override
   void dispose() {
     _c.dispose();
     super.dispose();
+  }
+
+  void _maybeReshuffle(double t) {
+    if (t + 0.25 < _lastT) {
+      // Avoid immediate repeat of the same script.
+      var next = _rng.nextInt(1 << 20);
+      while (next == _script) {
+        next = _rng.nextInt(1 << 20);
+      }
+      _script = next;
+    }
+    _lastT = t;
   }
 
   @override
@@ -47,11 +64,15 @@ class _GameTileArtState extends State<GameTileArt>
       animation: _c,
       builder: (context, _) {
         final t = (_c.value + widget.phase) % 1.0;
+        _maybeReshuffle(t);
         return CustomPaint(
           painter: switch (widget.kind) {
-            GameTileKind.ticTacToe => _TicTacToeTilePainter(t: t),
-            GameTileKind.connectFour => _ConnectFourTilePainter(t: t),
-            GameTileKind.dotsAndBoxes => _DotsBoxesTilePainter(t: t),
+            GameTileKind.ticTacToe =>
+              _TicTacToeTilePainter(t: t, script: _script),
+            GameTileKind.connectFour =>
+              _ConnectFourTilePainter(t: t, script: _script),
+            GameTileKind.dotsAndBoxes =>
+              _DotsBoxesTilePainter(t: t, script: _script),
           },
         );
       },
@@ -60,14 +81,9 @@ class _GameTileArtState extends State<GameTileArt>
 }
 
 // ---------------------------------------------------------------------------
-// Shared timeline — even beats, long settle, soft loop fade.
+// Timeline
 // ---------------------------------------------------------------------------
 
-/// Progress of [step] given global loop time [t].
-///
-/// Layout of the loop:
-///   0 ──────── actionEnd ── celebrateEnd ── 1
-///   |  moves…            |  hold win     | fade |
 double _beat(
   double t,
   int step,
@@ -75,7 +91,6 @@ double _beat(
   double actionEnd = 0.76,
   double drawShare = 0.62,
 }) {
-  // During celebrate + fade, every move is fully painted.
   if (t >= actionEnd) return 1;
   final u = (t / actionEnd).clamp(0.0, 1.0);
   final pos = u * moveCount;
@@ -87,7 +102,6 @@ double _beat(
   return Curves.easeOutCubic.transform(local / drawShare);
 }
 
-/// 0→1 over the celebrate window (after last move).
 double _celebrate(
   double t, {
   double actionEnd = 0.76,
@@ -100,30 +114,88 @@ double _celebrate(
   );
 }
 
-/// Softly fades everything out before the loop wraps (prevents hard reset pop).
 double _loopOpacity(double t, {double fadeStart = 0.90}) {
   if (t < fadeStart) return 1;
   return 1 - Curves.easeInCubic.transform((t - fadeStart) / (1 - fadeStart));
 }
 
+T _pick<T>(int script, List<T> options) => options[script % options.length];
+
 // ---------------------------------------------------------------------------
-// Tic-tac-toe — complete short game, X wins top row.
+// Tic-tac-toe
 // ---------------------------------------------------------------------------
+
+class _TttScript {
+  final List<(int col, int row, bool isX)> moves;
+  final (int c0, int r0, int c1, int r1)? winLine;
+  final bool xWins;
+
+  const _TttScript(this.moves, {this.winLine, this.xWins = true});
+}
+
+const _tttScripts = <_TttScript>[
+  _TttScript(
+    [(0, 0, true), (1, 1, false), (2, 0, true), (0, 2, false), (1, 0, true)],
+    winLine: (0, 0, 2, 0),
+  ),
+  _TttScript(
+    [(0, 0, true), (0, 1, false), (1, 1, true), (0, 2, false), (2, 2, true)],
+    winLine: (0, 0, 2, 2),
+  ),
+  _TttScript(
+    [(0, 0, true), (1, 0, false), (0, 1, true), (1, 1, false), (0, 2, true)],
+    winLine: (0, 0, 0, 2),
+  ),
+  _TttScript(
+    [(2, 0, true), (0, 0, false), (2, 1, true), (1, 1, false), (2, 2, true)],
+    winLine: (2, 0, 2, 2),
+  ),
+  _TttScript(
+    [
+      (0, 0, true),
+      (0, 1, false),
+      (2, 2, true),
+      (1, 1, false),
+      (2, 0, true),
+      (2, 1, false),
+    ],
+    winLine: (0, 1, 2, 1),
+    xWins: false,
+  ),
+  _TttScript(
+    [
+      (0, 0, true),
+      (2, 0, false),
+      (1, 0, true),
+      (1, 1, false),
+      (0, 1, true),
+      (0, 2, false),
+    ],
+    winLine: (2, 0, 0, 2),
+    xWins: false,
+  ),
+  // Draw
+  _TttScript([
+    (0, 0, true),
+    (1, 1, false),
+    (2, 2, true),
+    (0, 1, false),
+    (2, 1, true),
+    (2, 0, false),
+    (0, 2, true),
+    (1, 2, false),
+    (1, 0, true),
+  ]),
+];
 
 class _TicTacToeTilePainter extends CustomPainter {
   final double t;
-  _TicTacToeTilePainter({required this.t});
-
-  static const _moves = <(int col, int row, bool isX)>[
-    (0, 0, true),
-    (1, 1, false),
-    (2, 0, true),
-    (0, 2, false),
-    (1, 0, true), // X wins top
-  ];
+  final int script;
+  _TicTacToeTilePainter({required this.t, required this.script});
 
   @override
   void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _tttScripts);
     final opacity = _loopOpacity(t);
     canvas.saveLayer(
       Offset.zero & size,
@@ -170,10 +242,10 @@ class _TicTacToeTilePainter extends CustomPainter {
       );
     }
 
-    for (var i = 0; i < _moves.length; i++) {
-      final p = _beat(t, i, _moves.length);
+    for (var i = 0; i < s.moves.length; i++) {
+      final p = _beat(t, i, s.moves.length);
       if (p <= 0) continue;
-      final (col, row, isX) = _moves[i];
+      final (col, row, isX) = s.moves[i];
       final c = Offset(
         board.left + (col + 0.5) * cell,
         board.top + (row + 0.5) * cell,
@@ -186,15 +258,23 @@ class _TicTacToeTilePainter extends CustomPainter {
     }
 
     final winP = _celebrate(t);
-    if (winP > 0) {
-      final y = board.top + 0.5 * cell;
-      final a = Offset(board.left + 0.18 * cell, y);
-      final b = Offset(board.right - 0.18 * cell, y);
+    final line = s.winLine;
+    if (winP > 0 && line != null) {
+      final (c0, r0, c1, r1) = line;
+      final a = Offset(
+        board.left + (c0 + 0.5) * cell,
+        board.top + (r0 + 0.5) * cell,
+      );
+      final b = Offset(
+        board.left + (c1 + 0.5) * cell,
+        board.top + (r1 + 0.5) * cell,
+      );
+      final color = s.xWins ? DemoColors.coral : DemoColors.teal;
       canvas.drawLine(
         a,
         Offset.lerp(a, b, winP)!,
         Paint()
-          ..color = DemoColors.coral.withValues(alpha: 0.9)
+          ..color = color.withValues(alpha: 0.9)
           ..strokeWidth = size.width * 0.05
           ..strokeCap = StrokeCap.round,
       );
@@ -249,30 +329,121 @@ class _TicTacToeTilePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TicTacToeTilePainter old) => old.t != t;
+  bool shouldRepaint(_TicTacToeTilePainter old) =>
+      old.t != t || old.script != script;
 }
 
 // ---------------------------------------------------------------------------
-// Connect four — full short game, coral vertical win in center column.
+// Connect four
 // ---------------------------------------------------------------------------
+
+class _C4Script {
+  final List<(int col, int landRow, Color color)> drops;
+  final (int c0, int r0, int c1, int r1)? winLine;
+  final Color winColor;
+
+  const _C4Script(
+    this.drops, {
+    this.winLine,
+    this.winColor = DemoColors.coral,
+  });
+}
+
+const _c4Scripts = <_C4Script>[
+  // Coral vertical col 2
+  _C4Script(
+    [
+      (2, 3, DemoColors.coral),
+      (1, 3, DemoColors.gold),
+      (2, 2, DemoColors.coral),
+      (0, 3, DemoColors.gold),
+      (2, 1, DemoColors.coral),
+      (3, 3, DemoColors.gold),
+      (2, 0, DemoColors.coral),
+    ],
+    winLine: (2, 0, 2, 3),
+  ),
+  // Gold vertical col 1
+  _C4Script(
+    [
+      (2, 3, DemoColors.coral),
+      (1, 3, DemoColors.gold),
+      (3, 3, DemoColors.coral),
+      (1, 2, DemoColors.gold),
+      (4, 3, DemoColors.coral),
+      (1, 1, DemoColors.gold),
+      (0, 3, DemoColors.coral),
+      (1, 0, DemoColors.gold),
+    ],
+    winLine: (1, 0, 1, 3),
+    winColor: DemoColors.gold,
+  ),
+  // Coral horizontal bottom 0–3
+  _C4Script(
+    [
+      (0, 3, DemoColors.coral),
+      (4, 3, DemoColors.gold),
+      (1, 3, DemoColors.coral),
+      (4, 2, DemoColors.gold),
+      (2, 3, DemoColors.coral),
+      (4, 1, DemoColors.gold),
+      (3, 3, DemoColors.coral),
+    ],
+    winLine: (0, 3, 3, 3),
+  ),
+  // Gold horizontal bottom 1–4
+  _C4Script(
+    [
+      (0, 3, DemoColors.coral),
+      (1, 3, DemoColors.gold),
+      (0, 2, DemoColors.coral),
+      (2, 3, DemoColors.gold),
+      (0, 1, DemoColors.coral),
+      (3, 3, DemoColors.gold),
+      (0, 0, DemoColors.coral),
+      (4, 3, DemoColors.gold),
+    ],
+    winLine: (1, 3, 4, 3),
+    winColor: DemoColors.gold,
+  ),
+  // Coral vertical col 0
+  _C4Script(
+    [
+      (0, 3, DemoColors.coral),
+      (2, 3, DemoColors.gold),
+      (0, 2, DemoColors.coral),
+      (3, 3, DemoColors.gold),
+      (0, 1, DemoColors.coral),
+      (1, 3, DemoColors.gold),
+      (0, 0, DemoColors.coral),
+    ],
+    winLine: (0, 0, 0, 3),
+  ),
+  // Gold vertical col 3
+  _C4Script(
+    [
+      (1, 3, DemoColors.coral),
+      (3, 3, DemoColors.gold),
+      (2, 3, DemoColors.coral),
+      (3, 2, DemoColors.gold),
+      (0, 3, DemoColors.coral),
+      (3, 1, DemoColors.gold),
+      (4, 3, DemoColors.coral),
+      (3, 0, DemoColors.gold),
+    ],
+    winLine: (3, 0, 3, 3),
+    winColor: DemoColors.gold,
+  ),
+];
 
 class _ConnectFourTilePainter extends CustomPainter {
   final double t;
-  _ConnectFourTilePainter({required this.t});
-
-  // landRow: 0 = top visual, 3 = bottom. Coral stacks col 2 for the win.
-  static const _drops = <(int col, int landRow, Color color)>[
-    (2, 3, DemoColors.coral), // C bottom
-    (1, 3, DemoColors.gold),
-    (2, 2, DemoColors.coral),
-    (0, 3, DemoColors.gold),
-    (2, 1, DemoColors.coral),
-    (3, 3, DemoColors.gold),
-    (2, 0, DemoColors.coral), // C vertical four — win
-  ];
+  final int script;
+  _ConnectFourTilePainter({required this.t, required this.script});
 
   @override
   void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _c4Scripts);
     final opacity = _loopOpacity(t);
     canvas.saveLayer(
       Offset.zero & size,
@@ -321,13 +492,12 @@ class _ConnectFourTilePainter extends CustomPainter {
       }
     }
 
-    for (var i = 0; i < _drops.length; i++) {
-      final p = _beat(t, i, _drops.length, drawShare: 0.70);
+    for (var i = 0; i < s.drops.length; i++) {
+      final p = _beat(t, i, s.drops.length, drawShare: 0.70);
       if (p <= 0) continue;
-      final (col, landRow, color) = _drops[i];
+      final (col, landRow, color) = s.drops[i];
       final restY = frame.top + (landRow + 0.5) * cellH;
       final startY = frame.top - cellH * 0.75;
-      // Gravity ease-in; soft bounce only in the last 18% of the beat.
       final fallT = Curves.easeInCubic.transform(p.clamp(0.0, 1.0));
       var y = lerpDouble(startY, restY, fallT)!;
       if (p > 0.82) {
@@ -349,17 +519,23 @@ class _ConnectFourTilePainter extends CustomPainter {
       );
     }
 
-    // Win line down center column during celebrate.
     final winP = _celebrate(t);
-    if (winP > 0) {
-      final x = frame.left + (2 + 0.5) * cellW;
-      final a = Offset(x, frame.top + 0.35 * cellH);
-      final b = Offset(x, frame.bottom - 0.35 * cellH);
+    final line = s.winLine;
+    if (winP > 0 && line != null) {
+      final (c0, r0, c1, r1) = line;
+      final a = Offset(
+        frame.left + (c0 + 0.5) * cellW,
+        frame.top + (r0 + 0.5) * cellH,
+      );
+      final b = Offset(
+        frame.left + (c1 + 0.5) * cellW,
+        frame.top + (r1 + 0.5) * cellH,
+      );
       canvas.drawLine(
         a,
         Offset.lerp(a, b, winP)!,
         Paint()
-          ..color = DemoColors.coral.withValues(alpha: 0.9)
+          ..color = s.winColor.withValues(alpha: 0.9)
           ..strokeWidth = size.width * 0.055
           ..strokeCap = StrokeCap.round
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.02),
@@ -368,7 +544,7 @@ class _ConnectFourTilePainter extends CustomPainter {
         a,
         Offset.lerp(a, b, winP)!,
         Paint()
-          ..color = DemoColors.coral
+          ..color = s.winColor
           ..strokeWidth = size.width * 0.035
           ..strokeCap = StrokeCap.round,
       );
@@ -378,36 +554,134 @@ class _ConnectFourTilePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ConnectFourTilePainter old) => old.t != t;
+  bool shouldRepaint(_ConnectFourTilePainter old) =>
+      old.t != t || old.script != script;
 }
 
 // ---------------------------------------------------------------------------
-// Dots & boxes — full 2×2 board, all boxes claimed, coral wins 3–1.
+// Dots & boxes — full 2×2 (12 edges), several outcomes
 // ---------------------------------------------------------------------------
+
+class _DabScript {
+  final List<(String kind, int r, int c, Color color)> edges;
+  /// (boxRow, boxCol, closeStep, owner)
+  final List<(int br, int bc, int closeStep, Color owner)> fills;
+  final Color winColor;
+
+  const _DabScript({
+    required this.edges,
+    required this.fills,
+    required this.winColor,
+  });
+}
+
+const _dabScripts = <_DabScript>[
+  // Coral 3 – teal 1
+  _DabScript(
+    edges: [
+      ('h', 0, 0, DemoColors.coral),
+      ('v', 0, 0, DemoColors.teal),
+      ('v', 0, 1, DemoColors.coral),
+      ('h', 1, 0, DemoColors.teal), // teal box00
+      ('h', 0, 1, DemoColors.coral),
+      ('v', 0, 2, DemoColors.teal),
+      ('v', 1, 0, DemoColors.coral),
+      ('v', 1, 2, DemoColors.teal),
+      ('h', 1, 1, DemoColors.coral), // coral box01
+      ('h', 2, 0, DemoColors.coral),
+      ('h', 2, 1, DemoColors.coral),
+      ('v', 1, 1, DemoColors.coral), // coral box10+11
+    ],
+    fills: [
+      (0, 0, 3, DemoColors.teal),
+      (0, 1, 8, DemoColors.coral),
+      (1, 0, 11, DemoColors.coral),
+      (1, 1, 11, DemoColors.coral),
+    ],
+    winColor: DemoColors.coral,
+  ),
+  // Teal 3 – coral 1 (mirror colors)
+  _DabScript(
+    edges: [
+      ('h', 0, 0, DemoColors.teal),
+      ('v', 0, 0, DemoColors.coral),
+      ('v', 0, 1, DemoColors.teal),
+      ('h', 1, 0, DemoColors.coral), // coral box00
+      ('h', 0, 1, DemoColors.teal),
+      ('v', 0, 2, DemoColors.coral),
+      ('v', 1, 0, DemoColors.teal),
+      ('v', 1, 2, DemoColors.coral),
+      ('h', 1, 1, DemoColors.teal), // teal box01
+      ('h', 2, 0, DemoColors.teal),
+      ('h', 2, 1, DemoColors.teal),
+      ('v', 1, 1, DemoColors.teal), // teal box10+11
+    ],
+    fills: [
+      (0, 0, 3, DemoColors.coral),
+      (0, 1, 8, DemoColors.teal),
+      (1, 0, 11, DemoColors.teal),
+      (1, 1, 11, DemoColors.teal),
+    ],
+    winColor: DemoColors.teal,
+  ),
+  // Coral sweeps all 4 (teal never closes)
+  _DabScript(
+    edges: [
+      ('h', 0, 0, DemoColors.coral),
+      ('v', 0, 0, DemoColors.teal),
+      ('h', 0, 1, DemoColors.coral),
+      ('v', 0, 2, DemoColors.teal),
+      ('v', 1, 0, DemoColors.coral),
+      ('v', 1, 2, DemoColors.teal),
+      ('h', 2, 0, DemoColors.coral),
+      ('h', 2, 1, DemoColors.teal),
+      ('v', 0, 1, DemoColors.coral),
+      ('h', 1, 0, DemoColors.coral), // coral box00
+      ('h', 1, 1, DemoColors.coral), // coral box01
+      ('v', 1, 1, DemoColors.coral), // coral bottom pair
+    ],
+    fills: [
+      (0, 0, 9, DemoColors.coral),
+      (0, 1, 10, DemoColors.coral),
+      (1, 0, 11, DemoColors.coral),
+      (1, 1, 11, DemoColors.coral),
+    ],
+    winColor: DemoColors.coral,
+  ),
+  // Split 2–2 (still a complete game)
+  _DabScript(
+    edges: [
+      ('h', 0, 0, DemoColors.coral),
+      ('v', 0, 0, DemoColors.teal),
+      ('v', 0, 1, DemoColors.coral),
+      ('h', 1, 0, DemoColors.teal), // teal box00
+      ('h', 0, 1, DemoColors.teal), // extra
+      ('v', 0, 2, DemoColors.coral),
+      ('h', 1, 1, DemoColors.teal), // teal box01
+      ('v', 1, 0, DemoColors.coral),
+      ('v', 1, 2, DemoColors.coral),
+      ('h', 2, 0, DemoColors.coral),
+      ('h', 2, 1, DemoColors.coral),
+      ('v', 1, 1, DemoColors.coral), // coral bottoms
+    ],
+    fills: [
+      (0, 0, 3, DemoColors.teal),
+      (0, 1, 6, DemoColors.teal),
+      (1, 0, 11, DemoColors.coral),
+      (1, 1, 11, DemoColors.coral),
+    ],
+    winColor: DemoColors.gold, // draw-ish celebrate
+  ),
+];
 
 class _DotsBoxesTilePainter extends CustomPainter {
   final double t;
-  _DotsBoxesTilePainter({required this.t});
-
-  /// Full 2×2 board (12 edges). Teal takes box (0,0); coral takes the other
-  /// three (3–1). ('h'|'v', row, col, color).
-  static const _play = <(String kind, int r, int c, Color color)>[
-    ('h', 0, 0, DemoColors.coral),
-    ('v', 0, 0, DemoColors.teal),
-    ('v', 0, 1, DemoColors.coral),
-    ('h', 1, 0, DemoColors.teal), // closes box00 → teal
-    ('h', 0, 1, DemoColors.coral),
-    ('v', 0, 2, DemoColors.teal),
-    ('v', 1, 0, DemoColors.coral),
-    ('v', 1, 2, DemoColors.teal),
-    ('h', 1, 1, DemoColors.coral), // closes box01 → coral
-    ('h', 2, 0, DemoColors.coral),
-    ('h', 2, 1, DemoColors.coral),
-    ('v', 1, 1, DemoColors.coral), // closes box10 + box11 → coral
-  ];
+  final int script;
+  _DotsBoxesTilePainter({required this.t, required this.script});
 
   @override
   void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _dabScripts);
     final opacity = _loopOpacity(t);
     canvas.saveLayer(
       Offset.zero & size,
@@ -455,10 +729,10 @@ class _DotsBoxesTilePainter extends CustomPainter {
       }
     }
 
-    for (var i = 0; i < _play.length; i++) {
-      final p = _beat(t, i, _play.length, drawShare: 0.58);
+    for (var i = 0; i < s.edges.length; i++) {
+      final p = _beat(t, i, s.edges.length, drawShare: 0.58);
       if (p <= 0) continue;
-      final (kind, er, ec, color) = _play[i];
+      final (kind, er, ec, color) = s.edges[i];
       final Offset a;
       final Offset b;
       if (kind == 'h') {
@@ -478,9 +752,9 @@ class _DotsBoxesTilePainter extends CustomPainter {
       );
     }
 
-    void maybeFill(int br, int bc, int closeStep, Color owner) {
-      final p = _beat(t, closeStep, _play.length, drawShare: 0.58);
-      if (p < 0.9) return;
+    for (final (br, bc, closeStep, owner) in s.fills) {
+      final p = _beat(t, closeStep, s.edges.length, drawShare: 0.58);
+      if (p < 0.9) continue;
       final local = Curves.easeOutBack.transform(
         ((p - 0.9) / 0.1).clamp(0.0, 1.0),
       );
@@ -496,11 +770,6 @@ class _DotsBoxesTilePainter extends CustomPainter {
         Paint()..color = owner.withValues(alpha: 0.32 * cFill.clamp(0.0, 1.0)),
       );
     }
-
-    maybeFill(0, 0, 3, DemoColors.teal);
-    maybeFill(0, 1, 8, DemoColors.coral);
-    maybeFill(1, 0, 11, DemoColors.coral);
-    maybeFill(1, 1, 11, DemoColors.coral);
 
     for (var y = 0; y < n; y++) {
       for (var x = 0; x < n; x++) {
@@ -518,7 +787,7 @@ class _DotsBoxesTilePainter extends CustomPainter {
         Offset(size.width * 0.5, size.height * 0.12),
         size.width * 0.09 * winP,
         Paint()
-          ..color = DemoColors.coral.withValues(alpha: 0.4 * winP)
+          ..color = s.winColor.withValues(alpha: 0.4 * winP)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.045),
       );
     }
@@ -527,5 +796,6 @@ class _DotsBoxesTilePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DotsBoxesTilePainter old) => old.t != t;
+  bool shouldRepaint(_DotsBoxesTilePainter old) =>
+      old.t != t || old.script != script;
 }
