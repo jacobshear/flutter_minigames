@@ -16,9 +16,10 @@ packages/
   minigames_core/         # pure Dart: TurnGame, Match, GameTransport, LocalTransport, MatchController
   minigames_test/         # shared conformance suite any GameTransport can run
   minigame_tictactoe/     # reference game: logic + animated board
-  minigame_connect_four/  # connect four: gravity drops + animated board
-  minigames_firebase/     # GameTransport backed by Firebase Realtime Database
-  example_app/            # demo catalog: main menu + local hot-seat; multiplayer seam ready
+  minigame_connect_four/    # connect four: gravity drops + animated board
+  minigame_dots_and_boxes/   # dots and boxes: edges, box chains, extra turns
+  minigames_firebase/       # GameTransport backed by Firebase Realtime Database
+  example_app/              # demo catalog: main menu + local hot-seat; multiplayer seam ready
 ```
 
 - `minigames_core` imports **nothing** — no Flutter, no Firebase, no Flame.
@@ -81,8 +82,9 @@ The demo is a **catalog**, not a host app. Multiplayer is not wired here:
 (cd packages/minigames_core   && dart test)      # turn engine
 (cd packages/minigames_test   && dart test)      # transport conformance (LocalTransport)
 (cd packages/minigame_tictactoe    && flutter test) # tic-tac-toe logic
-(cd packages/minigame_connect_four && flutter test) # connect four logic
-(cd packages/example_app           && flutter test test/)  # widget smoke
+(cd packages/minigame_connect_four    && flutter test) # connect four
+(cd packages/minigame_dots_and_boxes  && flutter test) # dots and boxes
+(cd packages/example_app              && flutter test test/)  # widget smoke
 ```
 
 Note: run `flutter test test/` for `example_app` — pointing at the whole package

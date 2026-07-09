@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../screens/connect_four_play_screen.dart';
+import '../screens/dots_and_boxes_play_screen.dart';
 import '../screens/tictactoe_play_screen.dart';
 import '../theme/demo_theme.dart';
 
@@ -52,13 +53,13 @@ List<GameCatalogEntry> get gameCatalog => [
         icon: Icons.view_column_rounded,
         builder: (_) => const ConnectFourPlayScreen(),
       ),
-      const GameCatalogEntry(
+      GameCatalogEntry(
         id: 'dots_and_boxes',
         title: 'Dots and boxes',
-        tagline: 'Claim edges, steal boxes.',
-        players: '2 players',
-        accent: Color(0xFFF4B740),
+        tagline: 'Claim edges, chain boxes, go again.',
+        players: '2 players · hot seat',
+        accent: const Color(0xFFF4B740),
         icon: Icons.apps_rounded,
-        available: false,
+        builder: (_) => const DotsAndBoxesPlayScreen(),
       ),
     ];
