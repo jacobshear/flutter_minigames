@@ -404,13 +404,12 @@ class _ResultPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.45), width: 1.6),
+        border: Border.all(color: color.withValues(alpha: 0.7), width: 2.5),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: 0.22),
-            blurRadius: 18,
-            spreadRadius: 0,
+            color: Colors.black.withValues(alpha: 0.12),
             offset: const Offset(0, 4),
+            blurRadius: 0,
           ),
         ],
       ),

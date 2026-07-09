@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:minigame_dots_and_boxes/minigame_dots_and_boxes.dart';
 import 'package:minigames_core/minigames_core.dart';
 
 import '../audio/demo_sfx.dart';
 import '../multiplayer/play_session.dart';
 import '../theme/demo_theme.dart';
+import '../widgets/game_chrome.dart';
 
 /// Local hot-seat Dots and Boxes via [PlaySession].
 class DotsAndBoxesPlayScreen extends StatefulWidget {
@@ -24,14 +24,12 @@ class _DotsAndBoxesPlayScreenState extends State<DotsAndBoxesPlayScreen> {
   MatchController<DotsAndBoxesState, DotsAndBoxesMove>? _controller;
   int _round = 0;
 
-  static const _gold = Color(0xFFF4B740);
-
   late final DotsAndBoxesStyle _boardStyle = DotsAndBoxesStyle(
     player0Color: DemoColors.coral,
     player1Color: DemoColors.teal,
     boardColor: DemoColors.card,
-    freeEdgeColor: DemoColors.ink.withValues(alpha: 0.12),
-    dotColor: DemoColors.ink.withValues(alpha: 0.75),
+    freeEdgeColor: DemoColors.ink.withValues(alpha: 0.14),
+    dotColor: DemoColors.ink,
     sounds: DotsAndBoxesSounds(
       onClaim: DemoSfx.instance.mark,
       onBox: (_) => DemoSfx.instance.drop(),
@@ -74,166 +72,50 @@ class _DotsAndBoxesPlayScreenState extends State<DotsAndBoxesPlayScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     return Scaffold(
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [DemoColors.paperTop, DemoColors.paperBottom],
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: const Alignment(0, -0.1),
-                    radius: 0.95,
-                    colors: [
-                      _gold.withValues(alpha: 0.14),
-                      _gold.withValues(alpha: 0.0),
-                    ],
+      body: GameBackdrop(
+        bloom: DemoColors.gold,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: [
+                const SizedBox(height: 6),
+                GameTopBar(onBack: () => Navigator.of(context).maybePop()),
+                const SizedBox(height: 12),
+                GameScreenHeader(
+                  title: 'Dots & boxes',
+                  subtitle: _session.hotSeat
+                      ? 'Hot seat · claim an edge'
+                      : 'Networked match',
+                  accent: DemoColors.gold,
+                ),
+                const Spacer(),
+                if (controller == null)
+                  const CircularProgressIndicator()
+                else
+                  GamePanel(
+                    padding: const EdgeInsets.fromLTRB(14, 16, 14, 18),
+                    child: DotsAndBoxesBoard(
+                      key: ValueKey(_round),
+                      controller: controller,
+                      style: _boardStyle,
+                    ),
                   ),
+                const Spacer(),
+                GameButton(
+                  label: 'New game',
+                  icon: Icons.refresh_rounded,
+                  color: DemoColors.gold,
+                  foreground: DemoColors.ink,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    DemoSfx.instance.newGame();
+                    setState(() => _round++);
+                    _startNewGame();
+                  },
                 ),
-              ),
-            ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 4),
-                    _TopBar(onBack: () => Navigator.of(context).maybePop()),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Dots and boxes',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.fraunces(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w700,
-                        color: DemoColors.ink,
-                        height: 1.0,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _session.hotSeat
-                          ? 'Hot seat · claim an edge'
-                          : 'Networked match',
-                      style: GoogleFonts.fraunces(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: DemoColors.ink.withValues(alpha: 0.5),
-                      ),
-                    ),
-                    const Spacer(),
-                    if (controller == null)
-                      const CircularProgressIndicator()
-                    else
-                      DotsAndBoxesBoard(
-                        key: ValueKey(_round),
-                        controller: controller,
-                        style: _boardStyle,
-                      ),
-                    const Spacer(),
-                    _NewGameButton(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        DemoSfx.instance.newGame();
-                        setState(() => _round++);
-                        _startNewGame();
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  final VoidCallback onBack;
-  const _TopBar({required this.onBack});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        IconButton(
-          onPressed: () {
-            HapticFeedback.selectionClick();
-            onBack();
-          },
-          icon: const Icon(Icons.arrow_back_rounded),
-          color: DemoColors.ink,
-        ),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: DemoColors.ink.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            'Local',
-            style: GoogleFonts.fraunces(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: DemoColors.ink.withValues(alpha: 0.55),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _NewGameButton extends StatefulWidget {
-  final VoidCallback onTap;
-  const _NewGameButton({required this.onTap});
-
-  @override
-  State<_NewGameButton> createState() => _NewGameButtonState();
-}
-
-class _NewGameButtonState extends State<_NewGameButton> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      child: AnimatedScale(
-        scale: _pressed ? 0.96 : 1,
-        duration: const Duration(milliseconds: 110),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 15),
-          decoration: BoxDecoration(
-            color: DemoColors.ink,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: [
-              BoxShadow(
-                color: DemoColors.ink.withValues(alpha: 0.22),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Text(
-            'New game',
-            style: GoogleFonts.fraunces(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: DemoColors.paperTop,
+                const SizedBox(height: 22),
+              ],
             ),
           ),
         ),

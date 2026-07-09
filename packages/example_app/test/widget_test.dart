@@ -19,7 +19,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byType(HomeMenuScreen), findsOneWidget);
-    expect(find.text('Play locally'), findsOneWidget);
+    expect(find.text('Mini games'), findsOneWidget);
     expect(find.text('Tic-tac-toe'), findsOneWidget);
     expect(find.text('Connect four'), findsOneWidget);
     expect(find.text('Dots and boxes'), findsOneWidget);

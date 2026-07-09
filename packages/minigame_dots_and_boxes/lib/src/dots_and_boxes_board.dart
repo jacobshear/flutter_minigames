@@ -394,8 +394,10 @@ class _StatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Prefer ambient theme, but force a bold game-y weight for scores/turn.
     final textStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.2,
         );
     final a = state.playerIds[0];
     final b = state.playerIds[1];
@@ -525,12 +527,12 @@ class _ResultPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.45), width: 1.6),
+        border: Border.all(color: color.withValues(alpha: 0.7), width: 2.5),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: 0.22),
-            blurRadius: 16,
+            color: Colors.black.withValues(alpha: 0.12),
             offset: const Offset(0, 4),
+            blurRadius: 0,
           ),
         ],
       ),
@@ -564,21 +566,19 @@ class _ScoreChip extends StatelessWidget {
         vertical: winner ? 10 : 8,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: winner ? 0.28 : (active ? 0.18 : 0.08)),
-        borderRadius: BorderRadius.circular(14),
+        color: color.withValues(alpha: winner ? 0.28 : (active ? 0.18 : 0.10)),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: color.withValues(alpha: winner ? 0.85 : (active ? 0.55 : 0.18)),
-          width: emphasize ? 2 : 1,
+          color: color.withValues(alpha: winner ? 0.95 : (active ? 0.7 : 0.35)),
+          width: emphasize ? 2.5 : 2,
         ),
-        boxShadow: winner
-            ? [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.35),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4),
-                ),
-              ]
-            : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: winner ? 0.16 : 0.08),
+            offset: Offset(0, winner ? 4 : 3),
+            blurRadius: 0,
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
