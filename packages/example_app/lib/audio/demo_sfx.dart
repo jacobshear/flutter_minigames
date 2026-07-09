@@ -1,8 +1,12 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 /// Demo-app SFX mixer. Fail-soft: missing assets or platform limits never crash
 /// a game. Game packages only receive callbacks — no audio dependency.
+///
+/// Paths are relative to the Flutter asset root (`assets/…` in pubspec).
+/// [AssetSource] adds the `assets/` prefix used by [AudioCache].
 ///
 /// Assets (procedural, 44.1 kHz mono):
 /// - [mark] — soft ink tick (tic-tac-toe place)
@@ -21,23 +25,29 @@ class DemoSfx {
   final AudioPlayer _draw = AudioPlayer();
   final AudioPlayer _newGame = AudioPlayer();
 
-  bool _ready = false;
+  final Set<AudioPlayer> _readyPlayers = {};
+
+  bool get _anyReady => _readyPlayers.isNotEmpty;
 
   Future<void> init() async {
-    if (_ready) return;
-    try {
-      await Future.wait([
-        _configure(_mark, 'sfx/mark.wav', volume: 0.58),
-        _configure(_drop, 'sfx/drop.wav', volume: 0.72),
-        _configure(_dropLong, 'sfx/drop_long.wav', volume: 0.75),
-        _configure(_invalid, 'sfx/invalid.wav', volume: 0.45),
-        _configure(_win, 'sfx/win.wav', volume: 0.78),
-        _configure(_draw, 'sfx/draw.wav', volume: 0.55),
-        _configure(_newGame, 'sfx/new_game.wav', volume: 0.5),
-      ]);
-      _ready = true;
-    } catch (e, st) {
-      debugPrint('DemoSfx.init failed (sounds disabled): $e\n$st');
+    if (_anyReady) return;
+    // Load each asset independently so one missing file does not kill the bank.
+    await Future.wait([
+      _configure(_mark, 'sfx/mark.wav', volume: 0.58),
+      _configure(_drop, 'sfx/drop.wav', volume: 0.72),
+      _configure(_dropLong, 'sfx/drop_long.wav', volume: 0.75),
+      _configure(_invalid, 'sfx/invalid.wav', volume: 0.45),
+      _configure(_win, 'sfx/win.wav', volume: 0.78),
+      _configure(_draw, 'sfx/draw.wav', volume: 0.55),
+      _configure(_newGame, 'sfx/new_game.wav', volume: 0.5),
+    ]);
+    if (!_anyReady) {
+      debugPrint(
+        'DemoSfx: no SFX loaded. Do a full rebuild (not hot restart) '
+        'after adding assets — AssetManifest is only rebuilt on full run.',
+      );
+    } else {
+      debugPrint('DemoSfx: ready (${_readyPlayers.length}/7 clips)');
     }
   }
 
@@ -46,14 +56,21 @@ class DemoSfx {
     String asset, {
     required double volume,
   }) async {
-    await player.setReleaseMode(ReleaseMode.stop);
-    await player.setPlayerMode(PlayerMode.lowLatency);
-    await player.setVolume(volume);
-    await player.setSource(AssetSource(asset));
+    try {
+      // Prove the asset is in the bundle before handing it to the native player.
+      await rootBundle.load('assets/$asset');
+      await player.setReleaseMode(ReleaseMode.stop);
+      await player.setPlayerMode(PlayerMode.lowLatency);
+      await player.setVolume(volume);
+      await player.setSource(AssetSource(asset));
+      _readyPlayers.add(player);
+    } catch (e) {
+      debugPrint('DemoSfx: skip $asset — $e');
+    }
   }
 
   Future<void> _fire(AudioPlayer player) async {
-    if (!_ready) return;
+    if (!_readyPlayers.contains(player)) return;
     try {
       await player.stop();
       await player.seek(Duration.zero);
@@ -88,6 +105,6 @@ class DemoSfx {
       _draw.dispose(),
       _newGame.dispose(),
     ]);
-    _ready = false;
+    _readyPlayers.clear();
   }
 }

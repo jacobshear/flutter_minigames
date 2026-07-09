@@ -35,4 +35,13 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/sfx/
+    # Explicit list — directory globs can leave a running build on a stale
+    # AssetManifest after hot-restart (new WAVs never get bundled).
+    - assets/sfx/mark.wav
+    - assets/sfx/drop.wav
+    - assets/sfx/drop_long.wav
+    - assets/sfx/invalid.wav
+    - assets/sfx/win.wav
+    - assets/sfx/draw.wav
+    - assets/sfx/new_game.wav
+
