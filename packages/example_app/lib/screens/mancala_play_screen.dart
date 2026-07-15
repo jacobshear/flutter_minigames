@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:minigame_reversi/minigame_reversi.dart';
+import 'package:minigame_mancala/minigame_mancala.dart';
 import 'package:minigames_core/minigames_core.dart';
 
 import '../audio/demo_sfx.dart';
@@ -8,30 +8,30 @@ import '../multiplayer/play_session.dart';
 import '../theme/demo_theme.dart';
 import '../widgets/game_chrome.dart';
 
-/// Hot-seat Reversi with thin shell chrome.
-class ReversiPlayScreen extends StatefulWidget {
+/// Hot-seat Mancala with thin shell chrome.
+class MancalaPlayScreen extends StatefulWidget {
   final PlaySession? session;
 
-  const ReversiPlayScreen({super.key, this.session});
+  const MancalaPlayScreen({super.key, this.session});
 
   @override
-  State<ReversiPlayScreen> createState() => _ReversiPlayScreenState();
+  State<MancalaPlayScreen> createState() => _MancalaPlayScreenState();
 }
 
-class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
+class _MancalaPlayScreenState extends State<MancalaPlayScreen> {
   late final PlaySession _session;
-  final ReversiGame _game = const ReversiGame();
-  MatchController<ReversiState, ReversiMove>? _controller;
+  final MancalaGame _game = const MancalaGame(seedsPerPit: 4);
+  MatchController<MancalaState, MancalaMove>? _controller;
   int _round = 0;
 
-  late final ReversiStyle _boardStyle = ReversiStyle(
-    darkColor: DemoColors.ink,
-    lightColor: const Color(0xFFF5F5F7),
-    boardColor: const Color(0xFF2D8A4E),
-    sounds: ReversiSounds(
-      onPlace: DemoSfx.instance.mark,
-      onFlip: (_) => DemoSfx.instance.drop(),
-      onPass: DemoSfx.instance.invalid,
+  late final MancalaStyle _boardStyle = MancalaStyle(
+    southAccent: DemoColors.ink,
+    northAccent: DemoColors.coral,
+    sounds: MancalaSounds(
+      onDrop: DemoSfx.instance.drop,
+      onCapture: () => DemoSfx.instance.drop(longDrop: true),
+      onExtraTurn: DemoSfx.instance.mark,
+      onInvalid: DemoSfx.instance.invalid,
       onWin: DemoSfx.instance.win,
       onDraw: DemoSfx.instance.draw,
     ),
@@ -47,10 +47,10 @@ class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
   Future<void> _startNewGame() async {
     await _controller?.dispose();
     final controller =
-        await MatchController.create<ReversiState, ReversiMove>(
+        await MatchController.create<MancalaState, MancalaMove>(
       game: _game,
       transport: _session.transport,
-      matchId: 'local-rev-$_round',
+      matchId: 'local-mcl-$_round',
       playerIds: const ['p1', 'p2'],
       localPlayerId: 'p1',
       hotSeat: _session.hotSeat,
@@ -80,22 +80,25 @@ class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
               GameTopBar(onBack: () => Navigator.of(context).maybePop()),
               const SizedBox(height: 8),
               GameScreenHeader(
-                title: 'Reversi',
+                title: 'Mancala',
                 subtitle: _session.hotSeat ? 'Pass and play' : 'Online',
               ),
-              const Spacer(),
-              if (controller == null)
-                const CircularProgressIndicator()
-              else
-                GamePanel(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  child: ReversiBoard(
-                    key: ValueKey(_round),
-                    controller: controller,
-                    style: _boardStyle,
-                  ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Center(
+                  child: controller == null
+                      ? const CircularProgressIndicator()
+                      // Board paints its own felt table — no white panel.
+                      : SingleChildScrollView(
+                          child: MancalaBoard(
+                            key: ValueKey(_round),
+                            controller: controller,
+                            style: _boardStyle,
+                          ),
+                        ),
                 ),
-              const Spacer(),
+              ),
+              const SizedBox(height: 8),
               GameButton(
                 label: 'New game',
                 color: DemoColors.blue,

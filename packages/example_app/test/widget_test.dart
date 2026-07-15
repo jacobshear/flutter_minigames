@@ -1,13 +1,17 @@
 import 'package:example_app/main.dart';
+import 'package:example_app/screens/checkers_play_screen.dart';
 import 'package:example_app/screens/connect_four_play_screen.dart';
 import 'package:example_app/screens/dots_and_boxes_play_screen.dart';
 import 'package:example_app/screens/home_menu_screen.dart';
+import 'package:example_app/screens/mancala_play_screen.dart';
 import 'package:example_app/screens/reversi_play_screen.dart';
 import 'package:example_app/screens/tictactoe_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:minigame_checkers/minigame_checkers.dart';
 import 'package:minigame_connect_four/minigame_connect_four.dart';
 import 'package:minigame_dots_and_boxes/minigame_dots_and_boxes.dart';
+import 'package:minigame_mancala/minigame_mancala.dart';
 import 'package:minigame_reversi/minigame_reversi.dart';
 import 'package:minigame_tictactoe/minigame_tictactoe.dart';
 
@@ -26,6 +30,8 @@ void main() {
     expect(find.text('4 in a Row'), findsOneWidget);
     expect(find.text('Dots & Boxes'), findsOneWidget);
     expect(find.text('Reversi'), findsOneWidget);
+    expect(find.text('Checkers'), findsOneWidget);
+    expect(find.text('Mancala'), findsOneWidget);
   });
 
   testWidgets('opens tic-tac-toe', (tester) async {
@@ -90,5 +96,37 @@ void main() {
 
     expect(find.byType(ReversiPlayScreen), findsOneWidget);
     expect(find.byType(ReversiBoard), findsOneWidget);
+  });
+
+  testWidgets('opens checkers', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const ExampleApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.text('Checkers'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.byType(CheckersPlayScreen), findsOneWidget);
+    expect(find.byType(CheckersBoard), findsOneWidget);
+  });
+
+  testWidgets('opens mancala', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const ExampleApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.text('Mancala'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.byType(MancalaPlayScreen), findsOneWidget);
+    expect(find.byType(MancalaBoard), findsOneWidget);
   });
 }

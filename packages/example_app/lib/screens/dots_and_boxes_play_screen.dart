@@ -20,7 +20,7 @@ class DotsAndBoxesPlayScreen extends StatefulWidget {
 
 class _DotsAndBoxesPlayScreenState extends State<DotsAndBoxesPlayScreen> {
   late final PlaySession _session;
-  final DotsAndBoxesGame _game = const DotsAndBoxesGame(gridSize: 4);
+  final DotsAndBoxesGame _game = const DotsAndBoxesGame(gridSize: 3);
   MatchController<DotsAndBoxesState, DotsAndBoxesMove>? _controller;
   int _round = 0;
 

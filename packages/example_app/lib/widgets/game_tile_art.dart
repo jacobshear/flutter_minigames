@@ -6,7 +6,14 @@ import 'package:flutter/material.dart';
 import '../theme/demo_theme.dart';
 
 /// Which miniature to paint on a launcher tile.
-enum GameTileKind { ticTacToe, connectFour, dotsAndBoxes, reversi }
+enum GameTileKind {
+  ticTacToe,
+  connectFour,
+  dotsAndBoxes,
+  reversi,
+  checkers,
+  mancala,
+}
 
 /// Colorful toy diorama that plays complete short matches on a smooth loop,
 /// picking a **new random script** each cycle.
@@ -34,7 +41,9 @@ class _GameTileArtState extends State<GameTileArt>
       GameTileKind.ticTacToe => const Duration(milliseconds: 5600),
       GameTileKind.connectFour => const Duration(milliseconds: 7000),
       GameTileKind.dotsAndBoxes => const Duration(milliseconds: 7800),
-      GameTileKind.reversi => const Duration(milliseconds: 6400),
+      GameTileKind.reversi => const Duration(milliseconds: 9600),
+      GameTileKind.checkers => const Duration(milliseconds: 7200),
+      GameTileKind.mancala => const Duration(milliseconds: 6800),
     },
   )..repeat();
 
@@ -76,6 +85,10 @@ class _GameTileArtState extends State<GameTileArt>
               _DotsBoxesTilePainter(t: t, script: _script),
             GameTileKind.reversi =>
               _ReversiTilePainter(t: t, script: _script),
+            GameTileKind.checkers =>
+              _CheckersTilePainter(t: t, script: _script),
+            GameTileKind.mancala =>
+              _MancalaTilePainter(t: t, script: _script),
           },
         );
       },
@@ -557,12 +570,14 @@ class _ConnectFourTilePainter extends CustomPainter {
 }
 
 // ---------------------------------------------------------------------------
-// Dots & boxes — full 2×2 (12 edges), several outcomes
+// Dots & boxes — full 3×3 boxes (4×4 dots), centered; scripts claim a subset
 // ---------------------------------------------------------------------------
 
 class _DabScript {
+  /// Claimed edges only. kind is 'h' or 'v'; (r,c) is the edge origin
+  /// on a 4×4 dot grid (h: r 0..3, c 0..2; v: r 0..2, c 0..3).
   final List<(String kind, int r, int c, Color color)> edges;
-  /// (boxRow, boxCol, closeStep, owner)
+  /// (boxRow, boxCol, closeStep, owner) — box indices 0..2 on the 3×3.
   final List<(int br, int bc, int closeStep, Color owner)> fills;
   final Color winColor;
 
@@ -574,55 +589,55 @@ class _DabScript {
 }
 
 const _dabScripts = <_DabScript>[
-  // Coral 3 – teal 1
+  // Coral 3 – teal 1 on the bottom-right of the 3×3
   _DabScript(
     edges: [
-      ('h', 0, 0, DemoColors.coral),
-      ('v', 0, 0, DemoColors.teal),
-      ('v', 0, 1, DemoColors.coral),
-      ('h', 1, 0, DemoColors.teal), // teal box00
-      ('h', 0, 1, DemoColors.coral),
-      ('v', 0, 2, DemoColors.teal),
-      ('v', 1, 0, DemoColors.coral),
-      ('v', 1, 2, DemoColors.teal),
-      ('h', 1, 1, DemoColors.coral), // coral box01
-      ('h', 2, 0, DemoColors.coral),
-      ('h', 2, 1, DemoColors.coral),
-      ('v', 1, 1, DemoColors.coral), // coral box10+11
+      ('h', 1, 1, DemoColors.coral),
+      ('v', 1, 1, DemoColors.teal),
+      ('v', 1, 2, DemoColors.coral),
+      ('h', 2, 1, DemoColors.teal), // teal box(1,1)
+      ('h', 1, 2, DemoColors.coral),
+      ('v', 1, 3, DemoColors.teal),
+      ('h', 2, 2, DemoColors.coral), // coral box(1,2)
+      ('v', 2, 1, DemoColors.teal),
+      ('v', 2, 3, DemoColors.coral),
+      ('h', 3, 1, DemoColors.coral),
+      ('h', 3, 2, DemoColors.coral),
+      ('v', 2, 2, DemoColors.coral), // coral box(2,1)+box(2,2)
     ],
     fills: [
-      (0, 0, 3, DemoColors.teal),
-      (0, 1, 8, DemoColors.coral),
-      (1, 0, 11, DemoColors.coral),
-      (1, 1, 11, DemoColors.coral),
+      (1, 1, 3, DemoColors.teal),
+      (1, 2, 6, DemoColors.coral),
+      (2, 1, 11, DemoColors.coral),
+      (2, 2, 11, DemoColors.coral),
     ],
     winColor: DemoColors.coral,
   ),
   // Teal 3 – coral 1 (mirror colors)
   _DabScript(
     edges: [
-      ('h', 0, 0, DemoColors.teal),
-      ('v', 0, 0, DemoColors.coral),
-      ('v', 0, 1, DemoColors.teal),
-      ('h', 1, 0, DemoColors.coral), // coral box00
-      ('h', 0, 1, DemoColors.teal),
-      ('v', 0, 2, DemoColors.coral),
-      ('v', 1, 0, DemoColors.teal),
-      ('v', 1, 2, DemoColors.coral),
-      ('h', 1, 1, DemoColors.teal), // teal box01
-      ('h', 2, 0, DemoColors.teal),
-      ('h', 2, 1, DemoColors.teal),
-      ('v', 1, 1, DemoColors.teal), // teal box10+11
+      ('h', 1, 1, DemoColors.teal),
+      ('v', 1, 1, DemoColors.coral),
+      ('v', 1, 2, DemoColors.teal),
+      ('h', 2, 1, DemoColors.coral), // coral box(1,1)
+      ('h', 1, 2, DemoColors.teal),
+      ('v', 1, 3, DemoColors.coral),
+      ('h', 2, 2, DemoColors.teal), // teal box(1,2)
+      ('v', 2, 1, DemoColors.coral),
+      ('v', 2, 3, DemoColors.teal),
+      ('h', 3, 1, DemoColors.teal),
+      ('h', 3, 2, DemoColors.teal),
+      ('v', 2, 2, DemoColors.teal), // teal bottoms
     ],
     fills: [
-      (0, 0, 3, DemoColors.coral),
-      (0, 1, 8, DemoColors.teal),
-      (1, 0, 11, DemoColors.teal),
-      (1, 1, 11, DemoColors.teal),
+      (1, 1, 3, DemoColors.coral),
+      (1, 2, 6, DemoColors.teal),
+      (2, 1, 11, DemoColors.teal),
+      (2, 2, 11, DemoColors.teal),
     ],
     winColor: DemoColors.teal,
   ),
-  // Coral sweeps all 4 (teal never closes)
+  // Coral cascade along top-left 2×2 of the 3×3
   _DabScript(
     edges: [
       ('h', 0, 0, DemoColors.coral),
@@ -634,9 +649,9 @@ const _dabScripts = <_DabScript>[
       ('h', 2, 0, DemoColors.coral),
       ('h', 2, 1, DemoColors.teal),
       ('v', 0, 1, DemoColors.coral),
-      ('h', 1, 0, DemoColors.coral), // coral box00
-      ('h', 1, 1, DemoColors.coral), // coral box01
-      ('v', 1, 1, DemoColors.coral), // coral bottom pair
+      ('h', 1, 0, DemoColors.coral), // coral box(0,0)
+      ('h', 1, 1, DemoColors.coral), // coral box(0,1)
+      ('v', 1, 1, DemoColors.coral), // coral box(1,0)+box(1,1)
     ],
     fills: [
       (0, 0, 9, DemoColors.coral),
@@ -646,29 +661,29 @@ const _dabScripts = <_DabScript>[
     ],
     winColor: DemoColors.coral,
   ),
-  // Split 2–2 (still a complete game)
+  // Split 2–2 on the bottom-right 2×2
   _DabScript(
     edges: [
-      ('h', 0, 0, DemoColors.coral),
-      ('v', 0, 0, DemoColors.teal),
-      ('v', 0, 1, DemoColors.coral),
-      ('h', 1, 0, DemoColors.teal), // teal box00
-      ('h', 0, 1, DemoColors.teal), // extra
-      ('v', 0, 2, DemoColors.coral),
-      ('h', 1, 1, DemoColors.teal), // teal box01
-      ('v', 1, 0, DemoColors.coral),
+      ('h', 1, 1, DemoColors.coral),
+      ('v', 1, 1, DemoColors.teal),
       ('v', 1, 2, DemoColors.coral),
-      ('h', 2, 0, DemoColors.coral),
-      ('h', 2, 1, DemoColors.coral),
-      ('v', 1, 1, DemoColors.coral), // coral bottoms
+      ('h', 2, 1, DemoColors.teal), // teal box(1,1)
+      ('h', 1, 2, DemoColors.teal),
+      ('v', 1, 3, DemoColors.coral),
+      ('h', 2, 2, DemoColors.teal), // teal box(1,2)
+      ('v', 2, 1, DemoColors.coral),
+      ('v', 2, 3, DemoColors.coral),
+      ('h', 3, 1, DemoColors.coral),
+      ('h', 3, 2, DemoColors.coral),
+      ('v', 2, 2, DemoColors.coral), // coral bottoms
     ],
     fills: [
-      (0, 0, 3, DemoColors.teal),
-      (0, 1, 6, DemoColors.teal),
-      (1, 0, 11, DemoColors.coral),
-      (1, 1, 11, DemoColors.coral),
+      (1, 1, 3, DemoColors.teal),
+      (1, 2, 6, DemoColors.teal),
+      (2, 1, 11, DemoColors.coral),
+      (2, 2, 11, DemoColors.coral),
     ],
-    winColor: DemoColors.gold, // draw-ish celebrate
+    winColor: DemoColors.gold,
   ),
 ];
 
@@ -676,6 +691,9 @@ class _DotsBoxesTilePainter extends CustomPainter {
   final double t;
   final int script;
   _DotsBoxesTilePainter({required this.t, required this.script});
+
+  /// 4 dots per side → 3×3 boxes (matches live [DotsAndBoxesGame.gridSize]).
+  static const int dots = 4;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -695,34 +713,35 @@ class _DotsBoxesTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    final pad = size.width * 0.2;
-    final area = Rect.fromLTWH(
-      pad,
-      pad,
-      size.width - pad * 2,
-      size.height - pad * 2,
+    // Square playfield, explicitly centered in the tile (not pad-from-width
+    // only — that drifts when the tile aspect isn't 1:1).
+    final side = size.shortestSide * 0.82;
+    final area = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: side,
+      height: side,
     );
-    const n = 3;
-    final step = area.width / (n - 1);
+    final step = area.width / (dots - 1);
 
     Offset d(int x, int y) => Offset(area.left + x * step, area.top + y * step);
 
     final free = Paint()
-      ..color = DemoColors.ink.withValues(alpha: 0.12)
-      ..strokeWidth = size.width * 0.028
+      ..color = DemoColors.ink.withValues(alpha: 0.11)
+      ..strokeWidth = size.shortestSide * 0.016
       ..strokeCap = StrokeCap.round;
-    for (var y = 0; y < n; y++) {
-      for (var x = 0; x < n - 1; x++) {
+    for (var y = 0; y < dots; y++) {
+      for (var x = 0; x < dots - 1; x++) {
         canvas.drawLine(d(x, y), d(x + 1, y), free);
       }
     }
-    for (var y = 0; y < n - 1; y++) {
-      for (var x = 0; x < n; x++) {
+    for (var y = 0; y < dots - 1; y++) {
+      for (var x = 0; x < dots; x++) {
         canvas.drawLine(d(x, y), d(x, y + 1), free);
       }
     }
 
     final presence = _boardPresence(t);
+    final claimedW = size.shortestSide * 0.028;
     for (var i = 0; i < s.edges.length; i++) {
       final p = _piece(t, i, s.edges.length, drawShare: 0.58);
       if (p <= 0.001) continue;
@@ -743,11 +762,12 @@ class _DotsBoxesTilePainter extends CustomPainter {
         end,
         Paint()
           ..color = color
-          ..strokeWidth = size.width * 0.045
+          ..strokeWidth = claimedW
           ..strokeCap = StrokeCap.round,
       );
     }
 
+    final fillPad = step * 0.18;
     for (final (br, bc, closeStep, owner) in s.fills) {
       final p = _piece(t, closeStep, s.edges.length, drawShare: 0.58);
       if (p < 0.85) continue;
@@ -758,34 +778,36 @@ class _DotsBoxesTilePainter extends CustomPainter {
       if (cFill <= 0.001) continue;
       final cx = area.left + (bc + 0.5) * step;
       final cy = area.top + (br + 0.5) * step;
-      final side = (step - 6) * (0.2 + 0.8 * cFill);
+      final boxSide = (step - fillPad) * (0.2 + 0.8 * cFill);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromCenter(center: Offset(cx, cy), width: side, height: side),
-          Radius.circular(size.width * 0.035),
+          Rect.fromCenter(
+            center: Offset(cx, cy),
+            width: boxSide,
+            height: boxSide,
+          ),
+          Radius.circular(size.shortestSide * 0.02),
         ),
         Paint()..color = owner.withValues(alpha: 0.32 * cFill),
       );
     }
 
-    for (var y = 0; y < n; y++) {
-      for (var x = 0; x < n; x++) {
-        canvas.drawCircle(
-          d(x, y),
-          size.width * 0.038,
-          Paint()..color = DemoColors.ink,
-        );
+    final dotR = size.shortestSide * 0.022;
+    for (var y = 0; y < dots; y++) {
+      for (var x = 0; x < dots; x++) {
+        canvas.drawCircle(d(x, y), dotR, Paint()..color = DemoColors.ink);
       }
     }
 
     final winP = _celebrate(t);
     if (winP > 0.001) {
       canvas.drawCircle(
-        Offset(size.width * 0.5, size.height * 0.12),
-        size.width * 0.09 * winP,
+        Offset(size.width * 0.5, size.height * 0.10),
+        size.shortestSide * 0.08 * winP,
         Paint()
           ..color = s.winColor.withValues(alpha: 0.4 * winP)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.045),
+          ..maskFilter =
+              MaskFilter.blur(BlurStyle.normal, size.shortestSide * 0.04),
       );
     }
   }
@@ -796,72 +818,121 @@ class _DotsBoxesTilePainter extends CustomPainter {
 }
 
 // ---------------------------------------------------------------------------
-// Reversi tile — mini green board, place + flip loop
+// Reversi tile — plastic chips, drop+bounce place, staggered cosine flips
 // ---------------------------------------------------------------------------
 
 class _RevScript {
-  /// Sequence of placements as (row, col) on a 4×4 center crop of logic,
-  /// dark starts. We paint a 6×6 visual grid with opening + a few flips.
-  final List<(int r, int c, bool dark)> places;
+  /// Fully legal places on a 6×6 board (dark first). Opening is the standard
+  /// center four; each place is verified against full flip rules.
+  final List<(int r, int c)> places;
   final bool darkWins;
 
   const _RevScript(this.places, {this.darkWins = true});
 }
 
+/// Curated legal multi-flip sequences on 6×6.
 const _revScripts = <_RevScript>[
   _RevScript([
-    (1, 0, true),
-    (0, 0, false),
-    (0, 1, true),
-    (0, 2, false),
-    (2, 0, true),
-    (3, 0, false),
-    (1, 2, true),
+    (4, 3),
+    (2, 4),
+    (1, 2),
+    (4, 2),
+    (1, 3),
+    (0, 2),
+    (4, 1),
   ]),
   _RevScript([
-    (0, 1, true),
-    (0, 0, false),
-    (1, 0, true),
-    (2, 0, false),
-    (0, 2, true),
-    (0, 3, false),
-    (2, 2, true),
+    (3, 4),
+    (4, 2),
+    (2, 1),
+    (2, 4),
+    (3, 1),
+    (2, 0),
+    (1, 4),
+  ]),
+  _RevScript([
+    (2, 1),
+    (1, 3),
+    (3, 4),
+    (3, 1),
+    (2, 4),
+    (3, 5),
+    (4, 3),
+  ]),
+  _RevScript([
+    (1, 2),
+    (3, 1),
+    (4, 3),
+    (1, 3),
+    (4, 2),
+    (5, 3),
+    (3, 4),
+  ]),
+  _RevScript([
+    (4, 3),
+    (4, 2),
+    (4, 1),
+    (5, 2),
+    (2, 1),
+    (4, 4),
+    (4, 5),
+  ]),
+  _RevScript([
+    (1, 2),
+    (1, 1),
+    (2, 1),
+    (1, 3),
+    (0, 1),
+    (0, 0),
+    (3, 4),
+    (2, 0),
   ], darkWins: false),
-  _RevScript([
-    (2, 1, true),
-    (1, 0, false),
-    (0, 1, true),
-    (3, 1, false),
-    (1, 2, true),
-    (2, 3, false),
-    (3, 2, true),
-  ]),
 ];
+
+/// Per-disc pose for a single frame of the tile loop.
+class _RevPose {
+  final bool isDark;
+  final double scale; // overall size (place + clear)
+  final double scaleX; // land squash
+  final double scaleY; // flip squash
+  final double dropY; // place drop offset in cell units (negative = above)
+  final double liftY; // flip lift in cell units (negative = above)
+
+  const _RevPose({
+    required this.isDark,
+    this.scale = 1,
+    this.scaleX = 1,
+    this.scaleY = 1,
+    this.dropY = 0,
+    this.liftY = 0,
+  });
+}
 
 class _ReversiTilePainter extends CustomPainter {
   final double t;
   final int script;
   _ReversiTilePainter({required this.t, required this.script});
 
+  static const int n = 6;
+  static const _dirs = <(int, int)>[
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+  ];
+
   @override
   void paint(Canvas canvas, Size size) {
-    final s = _pick(script, _revScripts);
-    final r = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
-    canvas.drawRRect(
-      r,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF3D9B5C), Color(0xFF2D8A4E)],
-        ).createShader(Offset.zero & size),
-    );
+    final scriptData = _pick(script, _revScripts);
+    final presence = _boardPresence(t);
 
-    const n = 4;
-    final pad = size.width * 0.16;
+    _paintFelt(canvas, size);
+
+    final pad = size.width * 0.10;
     final board = Rect.fromLTWH(
       pad,
       pad,
@@ -869,103 +940,1040 @@ class _ReversiTilePainter extends CustomPainter {
       size.height - pad * 2,
     );
     final cell = board.width / n;
+
+    _paintGrid(canvas, board, cell, size);
+
+    // Logical board: null empty, true dark, false light.
+    final cells = List.generate(n, (_) => List<bool?>.filled(n, null));
+    cells[2][2] = false;
+    cells[2][3] = true;
+    cells[3][2] = true;
+    cells[3][3] = false;
+
+    final poses = List.generate(n, (_) => List<_RevPose?>.filled(n, null));
+    for (var r = 0; r < n; r++) {
+      for (var c = 0; c < n; c++) {
+        final v = cells[r][c];
+        if (v != null) {
+          poses[r][c] = _RevPose(isDark: v, scale: presence);
+        }
+      }
+    }
+
+    final moveCount = scriptData.places.length;
+    var darkTurn = true;
+
+    for (var i = 0; i < moveCount; i++) {
+      // Longer drawShare so place + cascade have room to breathe.
+      final raw = _beat(t, i, moveCount, drawShare: 0.90);
+      final (pr, pc) = scriptData.places[i];
+      final isDark = darkTurn;
+
+      final flips = _flips(cells, pr, pc, isDark);
+      if (cells[pr][pc] != null || flips.isEmpty) {
+        darkTurn = !darkTurn;
+        continue;
+      }
+
+      // Within-beat timeline:
+      // 0.00–0.34  place drop + land bounce
+      // 0.26–0.92  staggered flips (distance from place)
+      // rest       settle
+      if (raw > 0.01) {
+        final place = _placePhysics(raw);
+        cells[pr][pc] = isDark;
+        poses[pr][pc] = _RevPose(
+          isDark: isDark,
+          scale: place.scale * presence,
+          scaleX: place.scaleX,
+          scaleY: place.scaleY,
+          dropY: place.dropY,
+        );
+      }
+
+      if (raw > 0.22) {
+        // Sort flips by Manhattan distance so stagger is deterministic.
+        final sorted = [...flips]
+          ..sort((a, b) {
+            final da = (a.$1 - pr).abs() + (a.$2 - pc).abs();
+            final db = (b.$1 - pr).abs() + (b.$2 - pc).abs();
+            return da.compareTo(db);
+          });
+
+        for (var fi = 0; fi < sorted.length; fi++) {
+          final (fr, fc) = sorted[fi];
+          final dist = (fr - pr).abs() + (fc - pc).abs();
+          // Stagger by ring + slight index so multi-disc lines cascade.
+          final delay = 0.24 + (dist - 1) * 0.085 + fi * 0.012;
+          final local = ((raw - delay) / 0.48).clamp(0.0, 1.0);
+          final fp = Curves.easeInOutCubic.transform(local);
+          final flip = _flipPhysics(fp);
+          final showDark = fp < 0.5 ? !isDark : isDark;
+          poses[fr][fc] = _RevPose(
+            isDark: showDark,
+            scale: presence,
+            scaleX: flip.scaleX,
+            scaleY: flip.scaleY,
+            liftY: flip.liftY,
+          );
+          if (fp >= 1) cells[fr][fc] = isDark;
+        }
+
+        if (raw >= 1) {
+          for (final (fr, fc) in flips) {
+            cells[fr][fc] = isDark;
+            poses[fr][fc] = _RevPose(isDark: isDark, scale: presence);
+          }
+        }
+      }
+
+      darkTurn = !darkTurn;
+    }
+
+    // Draw discs back-to-front by row so drop shadows stack naturally.
+    for (var row = 0; row < n; row++) {
+      for (var col = 0; col < n; col++) {
+        final pose = poses[row][col];
+        if (pose == null || pose.scale < 0.04) continue;
+
+        final cx = board.left + (col + 0.5) * cell;
+        final cy = board.top + (row + 0.5) * cell;
+        final radius = cell * 0.40;
+        final dy = (pose.dropY + pose.liftY) * cell;
+
+        _paintChip(
+          canvas,
+          Offset(cx, cy + dy),
+          radius,
+          isDark: pose.isDark,
+          scale: pose.scale.clamp(0.0, 1.25),
+          scaleX: pose.scaleX.clamp(0.55, 1.35),
+          scaleY: pose.scaleY.clamp(0.06, 1.2),
+          shadowMul: (1 - pose.dropY.abs().clamp(0.0, 1.0) * 0.55) *
+              pose.scaleY.clamp(0.15, 1.0),
+        );
+      }
+    }
+
+    final winP = _celebrate(t);
+    if (winP > 0.001) {
+      // Soft crown glow matching the winning face color.
+      final color =
+          scriptData.darkWins ? DemoColors.ink : const Color(0xFFF5F5F7);
+      canvas.drawCircle(
+        Offset(size.width * 0.5, size.height * 0.10),
+        size.width * 0.09 * winP,
+        Paint()
+          ..color = color.withValues(alpha: 0.38 * winP)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.05),
+      );
+      // Pulse a thin gold ring for “match over.”
+      canvas.drawCircle(
+        Offset(size.width * 0.5, size.height * 0.10),
+        size.width * 0.055 * winP,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = size.width * 0.012
+          ..color = DemoColors.gold.withValues(alpha: 0.55 * winP),
+      );
+    }
+  }
+
+  void _paintFelt(Canvas canvas, Size size) {
+    final outer = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.width * 0.22),
+    );
+    // Deep green felt matching the live board (≈ 0xFF2D8A4E).
+    canvas.drawRRect(
+      outer,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF3FA862),
+            Color(0xFF2D8A4E),
+            Color(0xFF1F6B3A),
+          ],
+          stops: [0.0, 0.48, 1.0],
+        ).createShader(Offset.zero & size),
+    );
+    // Soft top light + bottom vignette for depth.
+    canvas.drawRRect(
+      outer,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.15, -0.35),
+          radius: 1.05,
+          colors: [
+            Colors.white.withValues(alpha: 0.14),
+            Colors.transparent,
+            Colors.black.withValues(alpha: 0.12),
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(Offset.zero & size),
+    );
+    // Thin lip edge so the tile reads as a tray, not a flat stamp.
+    canvas.drawRRect(
+      outer.deflate(size.width * 0.012),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = size.width * 0.014
+        ..color = Colors.black.withValues(alpha: 0.12),
+    );
+  }
+
+  void _paintGrid(Canvas canvas, Rect board, double cell, Size size) {
+    // Slightly inset playfield.
+    final inset = board.deflate(cell * 0.02);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(inset, Radius.circular(cell * 0.12)),
+      Paint()..color = Colors.black.withValues(alpha: 0.06),
+    );
+
     final grid = Paint()
-      ..color = Colors.black.withValues(alpha: 0.2)
-      ..strokeWidth = 1;
+      ..color = Colors.black.withValues(alpha: 0.20)
+      ..strokeWidth = math.max(0.6, size.width * 0.007);
+    final gridHi = Paint()
+      ..color = Colors.white.withValues(alpha: 0.07)
+      ..strokeWidth = math.max(0.4, size.width * 0.005);
 
     for (var i = 0; i <= n; i++) {
       final o = i * cell;
+      // Vertical
       canvas.drawLine(
         Offset(board.left + o, board.top),
         Offset(board.left + o, board.bottom),
         grid,
       );
       canvas.drawLine(
+        Offset(board.left + o + 0.7, board.top),
+        Offset(board.left + o + 0.7, board.bottom),
+        gridHi,
+      );
+      // Horizontal
+      canvas.drawLine(
         Offset(board.left, board.top + o),
         Offset(board.right, board.top + o),
         grid,
       );
+      canvas.drawLine(
+        Offset(board.left, board.top + o + 0.7),
+        Offset(board.right, board.top + o + 0.7),
+        gridHi,
+      );
     }
 
-    // Opening four (center of 4×4 → cells 1,1 1,2 2,1 2,2).
-    final discs = <(int r, int c, bool dark)>[
-      (1, 1, false),
-      (1, 2, true),
-      (2, 1, true),
-      (2, 2, false),
-    ];
-
-    // Apply places over time; simple: each place just sets that cell dark/light
-    // and flips adjacent opponent in one direction for visual flip (not full rules).
-    final boardState = List.generate(n, (_) => List<bool?>.filled(n, null));
-    for (final (r0, c0, dark) in discs) {
-      boardState[r0][c0] = dark;
-    }
-
-    // Progressive: show opening always, then layer places.
-    for (var i = 0; i < s.places.length; i++) {
-      final p = _piece(t, i, s.places.length, drawShare: 0.55);
-      if (p <= 0) continue;
-      final (pr, pc, dark) = s.places[i];
-      if (p > 0.5) boardState[pr][pc] = dark;
-      // Soft flip neighbors for juice.
-      if (p > 0.7) {
-        for (final (dr, dc) in const [(0, 1), (1, 0), (0, -1), (-1, 0)]) {
-          final nr = pr + dr;
-          final nc = pc + dc;
-          if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
-          final cur = boardState[nr][nc];
-          if (cur != null && cur != dark) boardState[nr][nc] = dark;
-        }
-      }
-    }
-
-    final presence = _boardPresence(t);
+    // Recessed cell wells (subtle, not noisy).
     for (var row = 0; row < n; row++) {
       for (var col = 0; col < n; col++) {
-        final dark = boardState[row][col];
-        if (dark == null) continue;
-        final c = Offset(
-          board.left + (col + 0.5) * cell,
-          board.top + (row + 0.5) * cell,
-        );
-        final rad = cell * 0.34 * presence.clamp(0.05, 1.0);
-        if (rad < 0.5) continue;
-        final color = dark ? DemoColors.ink : const Color(0xFFF5F5F7);
+        final cx = board.left + (col + 0.5) * cell;
+        final cy = board.top + (row + 0.5) * cell;
         canvas.drawCircle(
-          c,
-          rad,
-          Paint()
-            ..shader = RadialGradient(
-              center: const Alignment(-0.3, -0.35),
-              colors: [
-                Color.lerp(color, Colors.white, 0.3)!,
-                color,
-              ],
-            ).createShader(Rect.fromCircle(center: c, radius: rad)),
+          Offset(cx, cy + cell * 0.015),
+          cell * 0.34,
+          Paint()..color = Colors.black.withValues(alpha: 0.05),
         );
       }
     }
 
-    // Opening discs always visible during play (re-assert base if cleared early).
-    if (presence > 0.05 && t < _kActionEnd) {
-      // already painted via boardState which includes opening
+    // Classic Othello star points near the center of the 6×6.
+    final star = Paint()..color = Colors.black.withValues(alpha: 0.28);
+    for (final (r, c) in const [(1, 1), (1, 4), (4, 1), (4, 4)]) {
+      canvas.drawCircle(
+        Offset(board.left + (c + 0.5) * cell, board.top + (r + 0.5) * cell),
+        cell * 0.055,
+        star,
+      );
+    }
+  }
+
+  /// Place physics in beat-local time [raw] 0..1.
+  ({double scale, double scaleX, double scaleY, double dropY}) _placePhysics(
+    double raw,
+  ) {
+    // Phase A: free-fall toward the cell (0 → 0.38).
+    // Phase B: impact squash + settle bounce (0.38 → 0.72).
+    // Phase C: rest.
+    if (raw >= 0.72) {
+      return (scale: 1.0, scaleX: 1.0, scaleY: 1.0, dropY: 0.0);
+    }
+    if (raw < 0.38) {
+      final u = Curves.easeInCubic.transform(raw / 0.38);
+      // Start slightly small + high; grow as it approaches.
+      return (
+        scale: lerpDouble(0.72, 1.02, u)!,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        dropY: lerpDouble(-0.95, 0.0, u)!,
+      );
+    }
+    // Impact squash then ease-out rebound.
+    final u = (raw - 0.38) / 0.34;
+    final bounce = math.sin(u * math.pi); // 0 → 1 → 0
+    final squash = bounce * 0.18;
+    return (
+      scale: lerpDouble(1.02, 1.0, Curves.easeOutCubic.transform(u))!,
+      scaleX: 1.0 + squash,
+      scaleY: 1.0 - squash * 0.85,
+      dropY: -0.04 * bounce, // tiny hop after land
+    );
+  }
+
+  /// Flip physics for progress [fp] 0..1 (easeInOut already applied).
+  /// Cosine Y-scale keeps motion continuous (no piecewise kink at mid).
+  ({double scaleX, double scaleY, double liftY}) _flipPhysics(double fp) {
+    if (fp <= 0) return (scaleX: 1.0, scaleY: 1.0, liftY: 0.0);
+    if (fp >= 1) return (scaleX: 1.0, scaleY: 1.0, liftY: 0.0);
+    // |cos(πt)| → 1…0…1; floor at 0.08 so edge thickness stays visible.
+    final cosAbs = math.cos(math.pi * fp).abs();
+    final scaleY = 0.08 + 0.92 * cosAbs;
+    // Slight X swell near edge-on (reads as thickness).
+    final edge = (1.0 - cosAbs).clamp(0.0, 1.0);
+    final scaleX = 1.0 + 0.12 * edge;
+    // Lift off the felt mid-flip.
+    final liftY = -0.18 * math.sin(math.pi * fp);
+    return (scaleX: scaleX, scaleY: scaleY, liftY: liftY);
+  }
+
+  List<(int, int)> _flips(
+    List<List<bool?>> cells,
+    int row,
+    int col,
+    bool isDark,
+  ) {
+    if (row < 0 || row >= n || col < 0 || col >= n) return const [];
+    if (cells[row][col] != null) return const [];
+    final flips = <(int, int)>[];
+    for (final (dr, dc) in _dirs) {
+      final line = <(int, int)>[];
+      var r = row + dr;
+      var c = col + dc;
+      while (r >= 0 && r < n && c >= 0 && c < n) {
+        final v = cells[r][c];
+        if (v == null) break;
+        if (v != isDark) {
+          line.add((r, c));
+          r += dr;
+          c += dc;
+          continue;
+        }
+        if (v == isDark && line.isNotEmpty) flips.addAll(line);
+        break;
+      }
+    }
+    return flips;
+  }
+
+  /// Thick plastic dual-face chip: contact shadow, body, rim, specular,
+  /// and a mid-flip edge band so the disc reads as a real Othello piece.
+  void _paintChip(
+    Canvas canvas,
+    Offset center,
+    double radius, {
+    required bool isDark,
+    required double scale,
+    required double scaleX,
+    required double scaleY,
+    double shadowMul = 1,
+  }) {
+    final r = radius * scale;
+    if (r < 0.35) return;
+
+    final sy = scaleY.clamp(0.06, 1.2);
+    final sx = scaleX.clamp(0.55, 1.35);
+
+    // Contact shadow sits under the disc (not scaled with flip squash).
+    final shadowAlpha = (0.26 * shadowMul * scale).clamp(0.0, 0.35);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy + r * 0.42),
+        width: r * 1.75 * sx,
+        height: r * 0.38 * sy.clamp(0.35, 1.0),
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: shadowAlpha)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.28),
+    );
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.scale(sx, sy);
+
+    final face = isDark ? const Color(0xFF1C1C1E) : const Color(0xFFF5F5F7);
+    final deep = isDark ? const Color(0xFF0A0A0B) : const Color(0xFFD8D8DE);
+    final hi = isDark ? const Color(0xFF4A4A4E) : const Color(0xFFFFFFFF);
+    final rim = isDark ? const Color(0xFF3A3A3C) : const Color(0xFFE2E2E8);
+    // Mid-tone edge of a dual-face plastic disc.
+    final edgeBand = Color.lerp(
+      const Color(0xFF1C1C1E),
+      const Color(0xFFF5F5F7),
+      isDark ? 0.42 : 0.58,
+    )!;
+
+    final bodyRect = Rect.fromCircle(center: Offset.zero, radius: r);
+
+    // Near edge-on: paint a thick lozenge so thickness is readable.
+    if (sy < 0.38) {
+      final h = r * 0.55;
+      final edgeRect = Rect.fromCenter(
+        center: Offset.zero,
+        width: r * 2.05,
+        height: h,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(edgeRect, Radius.circular(h * 0.45)),
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              isDark ? face : edgeBand,
+              edgeBand,
+              isDark ? edgeBand : face,
+            ],
+          ).createShader(edgeRect),
+      );
+      // Specular line along the rim.
+      canvas.drawLine(
+        Offset(-r * 0.85, -h * 0.15),
+        Offset(r * 0.85, -h * 0.15),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.45)
+          ..strokeWidth = r * 0.12
+          ..strokeCap = StrokeCap.round,
+      );
+      canvas.restore();
+      return;
+    }
+
+    // Main body — matches live _Disc radial gradient.
+    canvas.drawCircle(
+      Offset.zero,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.35, -0.40),
+          radius: 1.08,
+          colors: [
+            Color.lerp(face, Colors.white, isDark ? 0.32 : 0.42)!,
+            face,
+            Color.lerp(face, Colors.black, isDark ? 0.28 : 0.14)!,
+          ],
+          stops: const [0.0, 0.52, 1.0],
+        ).createShader(bodyRect),
+    );
+
+    // Inner face plate (slightly inset) for plastic depth.
+    canvas.drawCircle(
+      Offset.zero,
+      r * 0.88,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.28, -0.36),
+          radius: 0.95,
+          colors: [
+            Color.lerp(face, hi, isDark ? 0.18 : 0.35)!,
+            face,
+            deep.withValues(alpha: isDark ? 0.55 : 0.25),
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(Rect.fromCircle(center: Offset.zero, radius: r * 0.88)),
+    );
+
+    // Rim ring — reads as chip wall thickness.
+    canvas.drawCircle(
+      Offset.zero,
+      r * 0.94,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.085
+        ..color = rim.withValues(alpha: 0.90),
+    );
+    // Outer micro-outline for silhouette on the green felt.
+    canvas.drawCircle(
+      Offset.zero,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.035
+        ..color = Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+    );
+
+    // Specular highlight.
+    final hx = -r * 0.28;
+    final hy = -r * 0.30;
+    final hr = r * (isDark ? 0.30 : 0.34);
+    canvas.drawCircle(
+      Offset(hx, hy),
+      hr,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.white.withValues(alpha: isDark ? 0.38 : 0.72),
+            Colors.white.withValues(alpha: 0),
+          ],
+        ).createShader(Rect.fromCircle(center: Offset(hx, hy), radius: hr)),
+    );
+    // Secondary soft glint.
+    canvas.drawCircle(
+      Offset(r * 0.22, r * 0.18),
+      r * 0.16,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.white.withValues(alpha: isDark ? 0.08 : 0.18),
+            Colors.white.withValues(alpha: 0),
+          ],
+        ).createShader(
+          Rect.fromCircle(center: Offset(r * 0.22, r * 0.18), radius: r * 0.16),
+        ),
+    );
+
+    // Edge glint while partially flipped (sy mid-range).
+    if (sy < 0.55) {
+      final edgeA = ((0.55 - sy) / 0.55).clamp(0.0, 1.0);
+      canvas.drawLine(
+        Offset(-r * 0.92, 0),
+        Offset(r * 0.92, 0),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.40 * edgeA)
+          ..strokeWidth = r * 0.14
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_ReversiTilePainter old) =>
+      old.t != t || old.script != script;
+}
+
+// ---------------------------------------------------------------------------
+// Checkers tile — 8×8 wood board, slide + jump + crown
+// ---------------------------------------------------------------------------
+
+class _ChkScript {
+  /// Moves as (fromRow, fromCol, toRow, toCol). Dark (ink) starts.
+  final List<(int fr, int fc, int tr, int tc)> moves;
+  final bool darkWins;
+
+  const _ChkScript(this.moves, {this.darkWins = true});
+}
+
+/// Short showcase sequences on a full board (not full games).
+const _chkScripts = <_ChkScript>[
+  // Dark advances, red answers, dark jumps.
+  _ChkScript([
+    (5, 0, 4, 1),
+    (2, 1, 3, 0),
+    (5, 2, 4, 3),
+    (2, 3, 3, 2),
+    (4, 1, 2, 3), // jump red at 3,2
+  ]),
+  // Red wins path-ish showcase
+  _ChkScript([
+    (5, 0, 4, 1),
+    (2, 1, 3, 2),
+    (5, 2, 4, 3),
+    (3, 2, 5, 0), // red jump
+  ], darkWins: false),
+  _ChkScript([
+    (5, 4, 4, 5),
+    (2, 5, 3, 4),
+    (5, 6, 4, 7),
+    (2, 7, 3, 6),
+    (4, 5, 2, 7),
+  ]),
+];
+
+class _CheckersTilePainter extends CustomPainter {
+  final double t;
+  final int script;
+  _CheckersTilePainter({required this.t, required this.script});
+
+  static const int n = 8;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _chkScripts);
+    final presence = _boardPresence(t);
+
+    final outer = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.width * 0.22),
+    );
+    canvas.drawRRect(
+      outer,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF8D6E63), Color(0xFF5D4037)],
+        ).createShader(Offset.zero & size),
+    );
+
+    final side = size.shortestSide * 0.86;
+    final board = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: side,
+      height: side,
+    );
+    final cell = board.width / n;
+
+    // Squares
+    for (var r = 0; r < n; r++) {
+      for (var c = 0; c < n; c++) {
+        final dark = (r + c).isOdd;
+        canvas.drawRect(
+          Rect.fromLTWH(
+            board.left + c * cell,
+            board.top + r * cell,
+            cell + 0.5,
+            cell + 0.5,
+          ),
+          Paint()
+            ..color = dark
+                ? const Color(0xFF5D4037)
+                : const Color(0xFFD7CCC8),
+        );
+      }
+    }
+
+    // Opening layout: dark bottom, red top (owners: true=dark, false=red)
+    final owners = List.generate(n, (_) => List<bool?>.filled(n, null));
+    for (var r = 0; r < 3; r++) {
+      for (var c = 0; c < n; c++) {
+        if ((r + c).isOdd) owners[r][c] = false;
+      }
+    }
+    for (var r = 5; r < n; r++) {
+      for (var c = 0; c < n; c++) {
+        if ((r + c).isOdd) owners[r][c] = true;
+      }
+    }
+
+    // Apply completed moves; animate current.
+    final moveCount = s.moves.length;
+    var movingFrom = (-1, -1);
+    var movingTo = (-1, -1);
+    var moveP = 0.0;
+    var movingDark = true;
+    var capturedAt = (-1, -1);
+
+    for (var i = 0; i < moveCount; i++) {
+      final raw = _beat(t, i, moveCount, drawShare: 0.72);
+      final (fr, fc, tr, tc) = s.moves[i];
+      if (raw <= 0) break;
+      if (raw < 1) {
+        movingFrom = (fr, fc);
+        movingTo = (tr, tc);
+        moveP = Curves.easeInOutCubic.transform(raw);
+        movingDark = owners[fr][fc] ?? true;
+        if ((tr - fr).abs() == 2) {
+          capturedAt = ((fr + tr) ~/ 2, (fc + tc) ~/ 2);
+        }
+        owners[fr][fc] = null;
+        break;
+      }
+      // Commit
+      final isDark = owners[fr][fc];
+      owners[fr][fc] = null;
+      if ((tr - fr).abs() == 2) {
+        owners[(fr + tr) ~/ 2][(fc + tc) ~/ 2] = null;
+      }
+      owners[tr][tc] = isDark;
+    }
+
+    void paintMan(int r, int c, bool isDark, {double ox = 0, double oy = 0}) {
+      final cx = board.left + (c + 0.5) * cell + ox;
+      final cy = board.top + (r + 0.5) * cell + oy;
+      final rad = cell * 0.36 * presence;
+      if (rad < 0.4) return;
+      final face = isDark ? DemoColors.ink : DemoColors.coral;
+      canvas.drawCircle(
+        Offset(cx, cy + rad * 0.12),
+        rad * 0.9,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.2 * presence)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, rad * 0.2),
+      );
+      canvas.drawCircle(
+        Offset(cx, cy),
+        rad,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.35, -0.4),
+            colors: [
+              Color.lerp(face, Colors.white, 0.3)!,
+              face,
+              Color.lerp(face, Colors.black, 0.25)!,
+            ],
+          ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: rad)),
+      );
+    }
+
+    // Captured fade
+    if (capturedAt.$1 >= 0 && moveP > 0) {
+      final (cr, cc) = capturedAt;
+      final fade = (1 - moveP).clamp(0.0, 1.0);
+      canvas.saveLayer(
+        board,
+        Paint()..color = Colors.white.withValues(alpha: fade),
+      );
+      paintMan(cr, cc, !movingDark);
+      canvas.restore();
+    }
+
+    for (var r = 0; r < n; r++) {
+      for (var c = 0; c < n; c++) {
+        final o = owners[r][c];
+        if (o == null) continue;
+        if (r == movingFrom.$1 && c == movingFrom.$2) continue;
+        paintMan(r, c, o);
+      }
+    }
+
+    if (movingFrom.$1 >= 0) {
+      final (fr, fc) = movingFrom;
+      final (tr, tc) = movingTo;
+      final ox = (tc - fc) * cell * moveP;
+      final oy = (tr - fr) * cell * moveP;
+      final lift = (tr - fr).abs() == 2
+          ? math.sin(moveP * math.pi) * cell * 0.28
+          : 0.0;
+      paintMan(fr, fc, movingDark, ox: ox, oy: oy - lift);
     }
 
     final winP = _celebrate(t);
     if (winP > 0.001) {
-      final color = s.darkWins ? DemoColors.ink : const Color(0xFFF5F5F7);
+      final color = s.darkWins ? DemoColors.ink : DemoColors.coral;
       canvas.drawCircle(
-        Offset(size.width * 0.5, size.height * 0.12),
-        size.width * 0.08 * winP,
+        Offset(size.width * 0.5, size.height * 0.10),
+        size.shortestSide * 0.08 * winP,
         Paint()
-          ..color = color.withValues(alpha: 0.45 * winP)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.04),
+          ..color = color.withValues(alpha: 0.4 * winP)
+          ..maskFilter =
+              MaskFilter.blur(BlurStyle.normal, size.shortestSide * 0.04),
       );
     }
   }
 
   @override
-  bool shouldRepaint(_ReversiTilePainter old) =>
+  bool shouldRepaint(_CheckersTilePainter old) =>
+      old.t != t || old.script != script;
+}
+
+// ---------------------------------------------------------------------------
+// Mancala tile — wood board, sow seeds into stores
+// ---------------------------------------------------------------------------
+
+class _MclScript {
+  /// South-first pit indices to sow (0–5 south, 7–12 north).
+  final List<int> pits;
+  final bool southWins;
+
+  const _MclScript(this.pits, {this.southWins = true});
+}
+
+const _mclScripts = <_MclScript>[
+  _MclScript([2, 9, 5, 11, 1]),
+  _MclScript([0, 7, 3, 10, 4], southWins: false),
+  _MclScript([2, 8, 1, 12, 5]),
+];
+
+class _MancalaTilePainter extends CustomPainter {
+  final double t;
+  final int script;
+  _MancalaTilePainter({required this.t, required this.script});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _mclScripts);
+    final presence = _boardPresence(t);
+
+    final outer = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.width * 0.22),
+    );
+    // Maroon felt table, matching the live board's backdrop.
+    canvas.drawRRect(
+      outer,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF7A4441), Color(0xFF5E322F), Color(0xFF46231F)],
+          stops: [0.0, 0.55, 1.0],
+        ).createShader(Offset.zero & size),
+    );
+
+    // Vertical tray (portrait).
+    final board = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: size.shortestSide * 0.72,
+      height: size.shortestSide * 0.88,
+    );
+    // Pale birch slab — static chrome; only the marbles clear with presence.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(board, Radius.circular(board.width * 0.14)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFEADCBB), Color(0xFFD9C69F)],
+        ).createShader(board),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(board, Radius.circular(board.width * 0.14)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = const Color(0xFF5E4C32).withValues(alpha: 0.35),
+    );
+
+    // Real Kalah opening: 4 seeds per pit, empty stores. Each scripted move
+    // replays an actual sow — seeds drop one-by-one into consecutive cups,
+    // skipping the opponent's store, exactly like the live board.
+    final pits = List<int>.filled(14, 4);
+    pits[6] = 0;
+    pits[13] = 0;
+
+    List<int> sowPath(int pit, int hand) {
+      final oppStore = pit < 6 ? 13 : 6;
+      final path = <int>[];
+      var cup = pit;
+      for (var k = 0; k < hand; k++) {
+        cup = (cup + 1) % 14;
+        if (cup == oppStore) cup = (cup + 1) % 14;
+        path.add(cup);
+      }
+      return path;
+    }
+
+    final moveCount = s.pits.length;
+    var highlight = -1;
+    var flyFrom = -1;
+    var flyTo = -1;
+    var flyT = 0.0;
+    var flyHand = 0;
+    for (var i = 0; i < moveCount; i++) {
+      final raw = _beat(t, i, moveCount, drawShare: 0.72);
+      if (raw <= 0) break;
+      final pit = s.pits[i];
+      final hand = pits[pit];
+      if (hand <= 0) continue;
+      final path = sowPath(pit, hand);
+      if (raw >= 1) {
+        // Move fully settled into the board state.
+        pits[pit] = 0;
+        for (final c in path) {
+          pits[c] += 1;
+        }
+        continue;
+      }
+      // Mid-sow: landed seeds are in their cups; the rest fly as a hand.
+      final prog = raw * hand;
+      final done = prog.floor().clamp(0, hand - 1);
+      pits[pit] = 0;
+      for (var k = 0; k < done; k++) {
+        pits[path[k]] += 1;
+      }
+      flyFrom = done == 0 ? pit : path[done - 1];
+      flyTo = path[done];
+      flyT = Curves.easeInOut.transform((prog - done).clamp(0.0, 1.0));
+      flyHand = hand - done;
+      highlight = flyTo;
+      break;
+    }
+
+    // Vertical two-column layout matching the live board:
+    // left top→down 7..12, right bottom→up 0..5; south store TOP, north BOTTOM.
+    Offset cupC(int idx) {
+      if (idx == 6) {
+        // South store — top (after right column 5).
+        return Offset(board.center.dx, board.top + board.height * 0.10);
+      }
+      if (idx == 13) {
+        // North store — bottom (after left column 12).
+        return Offset(board.center.dx, board.bottom - board.height * 0.10);
+      }
+      final row = idx < 6 ? (5 - idx) : (idx - 7); // top→bottom index
+      final col = idx < 6 ? 1 : 0; // south right, north left
+      return Offset(
+        board.left + board.width * (0.30 + col * 0.40),
+        board.top + board.height * (0.22 + row * 0.105),
+      );
+    }
+
+    // GP glass-marble palette (hi, base) — white / blue / black.
+    const marbleColors = [
+      (Color(0xFFFFFFFF), Color(0xFFE8E8E2)),
+      (Color(0xFFBBD4F8), Color(0xFF4C7FD9)),
+      (Color(0xFF94949C), Color(0xFF45454B)),
+    ];
+
+    void drawMarble(Offset p, double r, int colorIdx) {
+      // Marbles scale out in place during the clear phase (house pattern —
+      // the board itself never fades).
+      final rr = r * presence;
+      if (rr < 0.3) return;
+      final (hi, base) = marbleColors[colorIdx % 3];
+      canvas.drawCircle(
+        p,
+        rr,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.3, -0.3),
+            colors: [hi, base],
+          ).createShader(Rect.fromCircle(center: p, radius: rr)),
+      );
+    }
+
+    void drawCup(int idx, double r, int count) {
+      final c = cupC(idx);
+      // Shallow same-wood scoop: tan fill + top-shadow rim.
+      canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFFAE9668),
+              const Color(0xFFCDB88E),
+            ],
+          ).createShader(Rect.fromCircle(center: c, radius: r)),
+      );
+      canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = r * 0.08
+          ..color = const Color(0xFF8A7350).withValues(alpha: 0.5),
+      );
+      if (highlight == idx) {
+        canvas.drawCircle(
+          c,
+          r,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = r * 0.14
+            ..color = const Color(0xFF8B6F47).withValues(alpha: 0.9),
+        );
+      }
+      final n = count.clamp(0, 6);
+      for (var i = 0; i < n; i++) {
+        final a = -math.pi / 2 + i * (2 * math.pi / math.max(n, 1));
+        final p = c + Offset(math.cos(a), math.sin(a)) * r * (n > 1 ? 0.40 : 0.0);
+        drawMarble(p, r * 0.18, idx * 2 + i * 5);
+      }
+    }
+
+    // Radius sized under the row pitch so cups never overlap.
+    final pitR = board.width * 0.062;
+
+    // Elongated end-stores (stadium wells like the live board), marbles
+    // packed in centered rows along the oval.
+    void drawStore(int idx, int count) {
+      final c = cupC(idx);
+      final rect = Rect.fromCenter(
+        center: c,
+        width: board.width * 0.56,
+        height: board.height * 0.115,
+      );
+      final rr = RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(rect.height / 2),
+      );
+      canvas.drawRRect(
+        rr,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFFAE9668),
+              const Color(0xFFCDB88E),
+            ],
+          ).createShader(rect),
+      );
+      canvas.drawRRect(
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = rect.height * 0.06
+          ..color = const Color(0xFF8A7350).withValues(alpha: 0.5),
+      );
+      if (highlight == idx) {
+        canvas.drawRRect(
+          rr,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = rect.height * 0.10
+            ..color = const Color(0xFF8B6F47).withValues(alpha: 0.9),
+        );
+      }
+      final n = count.clamp(0, 8);
+      for (var i = 0; i < n; i++) {
+        final col = i % 4;
+        final row = i ~/ 4;
+        final colsInRow = row == 0 ? math.min(n, 4) : n - 4;
+        final p = Offset(
+          c.dx + rect.width * 0.226 * (col - (colsInRow - 1) / 2),
+          c.dy + (n <= 4 ? 0 : (row == 0 ? -1 : 1)) * rect.height * 0.18,
+        );
+        drawMarble(p, pitR * 0.24, idx * 2 + i * 5);
+      }
+    }
+
+    for (var i = 0; i < 6; i++) {
+      drawCup(i, pitR, pits[i]);
+      drawCup(12 - i, pitR, pits[12 - i]);
+    }
+    drawStore(6, pits[6]);
+    drawStore(13, pits[13]);
+
+    // Flying hand: remaining seeds arc between cups, one dropping per hop.
+    if (flyFrom >= 0 && flyT > 0 && flyT < 1) {
+      final a = cupC(flyFrom);
+      final b = cupC(flyTo);
+      final mid = Offset.lerp(a, b, flyT)!;
+      final lift = (b - a).distance * 0.42 * math.sin(math.pi * flyT);
+      final p = Offset(mid.dx, mid.dy - lift);
+      final n = flyHand.clamp(1, 5);
+      for (var j = 0; j < n; j++) {
+        final off = n == 1
+            ? Offset.zero
+            : Offset.fromDirection(
+                -math.pi / 2 + j * 2 * math.pi / n,
+                pitR * 0.18,
+              );
+        drawMarble(p + off, pitR * 0.20, flyFrom * 2 + j * 5);
+      }
+    }
+
+    final winP = _celebrate(t);
+    if (winP > 0.001) {
+      // Warm glow over the winner's store (ink reads as a smudge on pale wood).
+      final color = s.southWins ? DemoColors.gold : DemoColors.coral;
+      canvas.drawCircle(
+        cupC(s.southWins ? 6 : 13),
+        board.width * 0.18 * winP,
+        Paint()
+          ..color = color.withValues(alpha: 0.45 * winP)
+          ..maskFilter =
+              MaskFilter.blur(BlurStyle.normal, size.shortestSide * 0.04),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MancalaTilePainter old) =>
       old.t != t || old.script != script;
 }

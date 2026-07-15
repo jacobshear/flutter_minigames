@@ -16,5 +16,7 @@ workspace:
   - packages/minigame_connect_four
   - packages/minigame_dots_and_boxes
   - packages/minigame_reversi
+  - packages/minigame_checkers
+  - packages/minigame_mancala
   - packages/minigames_firebase
   - packages/example_app

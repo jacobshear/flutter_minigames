@@ -6,7 +6,7 @@ import 'package:minigames_core/minigames_core.dart';
 /// mover **and keeps their turn**. Otherwise play passes. Game ends when every
 /// box is claimed; higher box count wins (draw if tied).
 class DotsAndBoxesState {
-  /// Number of boxes along one side (default 4 → 5×5 dots, 40 edges, 16 boxes).
+  /// Number of boxes along one side (default 3 → 4×4 dots, 24 edges, 9 boxes).
   final int n;
 
   /// Horizontal edges, row-major: row `r` (0..n), col `c` (0..n-1).
@@ -96,10 +96,10 @@ class DotsAndBoxesMove {
 
 /// Dots and Boxes as a [TurnGame]. Pure logic — no Flutter import.
 class DotsAndBoxesGame extends TurnGame<DotsAndBoxesState, DotsAndBoxesMove> {
-  /// Boxes per side. 4 is the demo default (16 boxes, good for hot-seat).
+  /// Boxes per side. 3 is the demo default (9 boxes — fast, always a winner).
   final int gridSize;
 
-  const DotsAndBoxesGame({this.gridSize = 4});
+  const DotsAndBoxesGame({this.gridSize = 3});
 
   @override
   String get id => 'dots_and_boxes';

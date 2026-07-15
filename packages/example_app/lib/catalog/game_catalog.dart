@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../screens/checkers_play_screen.dart';
 import '../screens/connect_four_play_screen.dart';
 import '../screens/dots_and_boxes_play_screen.dart';
+import '../screens/mancala_play_screen.dart';
 import '../screens/reversi_play_screen.dart';
 import '../screens/tictactoe_play_screen.dart';
 import '../widgets/game_tile_art.dart';
@@ -50,5 +52,17 @@ List<GameCatalogEntry> get gameCatalog => [
         title: 'Reversi',
         art: GameTileKind.reversi,
         builder: (_) => const ReversiPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'checkers',
+        title: 'Checkers',
+        art: GameTileKind.checkers,
+        builder: (_) => const CheckersPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'mancala',
+        title: 'Mancala',
+        art: GameTileKind.mancala,
+        builder: (_) => const MancalaPlayScreen(),
       ),
     ];

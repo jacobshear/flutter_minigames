@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:minigame_reversi/minigame_reversi.dart';
+import 'package:minigame_checkers/minigame_checkers.dart';
 import 'package:minigames_core/minigames_core.dart';
 
 import '../audio/demo_sfx.dart';
@@ -8,30 +8,32 @@ import '../multiplayer/play_session.dart';
 import '../theme/demo_theme.dart';
 import '../widgets/game_chrome.dart';
 
-/// Hot-seat Reversi with thin shell chrome.
-class ReversiPlayScreen extends StatefulWidget {
+/// Hot-seat Checkers with thin shell chrome.
+class CheckersPlayScreen extends StatefulWidget {
   final PlaySession? session;
 
-  const ReversiPlayScreen({super.key, this.session});
+  const CheckersPlayScreen({super.key, this.session});
 
   @override
-  State<ReversiPlayScreen> createState() => _ReversiPlayScreenState();
+  State<CheckersPlayScreen> createState() => _CheckersPlayScreenState();
 }
 
-class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
+class _CheckersPlayScreenState extends State<CheckersPlayScreen> {
   late final PlaySession _session;
-  final ReversiGame _game = const ReversiGame();
-  MatchController<ReversiState, ReversiMove>? _controller;
+  final CheckersGame _game = const CheckersGame();
+  MatchController<CheckersState, CheckersMove>? _controller;
   int _round = 0;
 
-  late final ReversiStyle _boardStyle = ReversiStyle(
-    darkColor: DemoColors.ink,
-    lightColor: const Color(0xFFF5F5F7),
-    boardColor: const Color(0xFF2D8A4E),
-    sounds: ReversiSounds(
-      onPlace: DemoSfx.instance.mark,
-      onFlip: (_) => DemoSfx.instance.drop(),
-      onPass: DemoSfx.instance.invalid,
+  late final CheckersStyle _boardStyle = CheckersStyle(
+    darkPieceColor: DemoColors.ink,
+    lightPieceColor: DemoColors.coral,
+    darkSquareColor: const Color(0xFF5D4037),
+    lightSquareColor: const Color(0xFFD7CCC8),
+    sounds: CheckersSounds(
+      onSelect: DemoSfx.instance.mark,
+      onMove: DemoSfx.instance.drop,
+      onCapture: () => DemoSfx.instance.drop(longDrop: true),
+      onKing: DemoSfx.instance.mark,
       onWin: DemoSfx.instance.win,
       onDraw: DemoSfx.instance.draw,
     ),
@@ -47,10 +49,10 @@ class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
   Future<void> _startNewGame() async {
     await _controller?.dispose();
     final controller =
-        await MatchController.create<ReversiState, ReversiMove>(
+        await MatchController.create<CheckersState, CheckersMove>(
       game: _game,
       transport: _session.transport,
-      matchId: 'local-rev-$_round',
+      matchId: 'local-chk-$_round',
       playerIds: const ['p1', 'p2'],
       localPlayerId: 'p1',
       hotSeat: _session.hotSeat,
@@ -80,7 +82,7 @@ class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
               GameTopBar(onBack: () => Navigator.of(context).maybePop()),
               const SizedBox(height: 8),
               GameScreenHeader(
-                title: 'Reversi',
+                title: 'Checkers',
                 subtitle: _session.hotSeat ? 'Pass and play' : 'Online',
               ),
               const Spacer(),
@@ -89,7 +91,7 @@ class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
               else
                 GamePanel(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  child: ReversiBoard(
+                  child: CheckersBoard(
                     key: ValueKey(_round),
                     controller: controller,
                     style: _boardStyle,

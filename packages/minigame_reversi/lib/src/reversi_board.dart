@@ -248,8 +248,10 @@ class _ReversiBoardState extends State<ReversiBoard>
           passToast: _passToast.value,
         ),
         const SizedBox(height: 12),
+        // 8×8 reads huge at the shared 400 cap used by sparser boards —
+        // keep classic rules, just give the green tray less screen real estate.
         ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
+          constraints: const BoxConstraints(maxWidth: 312),
           child: AspectRatio(
             aspectRatio: 1,
             child: LayoutBuilder(
@@ -561,7 +563,7 @@ class _BoardGrid extends StatelessWidget {
           ),
         ],
       ),
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(6),
       child: GridView.builder(
         physics: const NeverScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -649,7 +651,7 @@ class _Disc extends StatelessWidget {
     return AspectRatio(
       aspectRatio: 1,
       child: Padding(
-        padding: const EdgeInsets.all(3),
+        padding: const EdgeInsets.all(2.5),
         child: DecoratedBox(
           decoration: BoxDecoration(
             shape: BoxShape.circle,

@@ -19,6 +19,8 @@ packages/
   minigame_connect_four/    # connect four: gravity drops + animated board
   minigame_dots_and_boxes/   # dots and boxes: edges, box chains, extra turns
   minigame_reversi/           # reversi/othello: flips, passes, scores
+  minigame_checkers/           # checkers: optional captures, multi-jump, kings
+  minigame_mancala/            # mancala (kalah): sow, capture, extra turns
   minigames_firebase/        # GameTransport backed by Firebase Realtime Database
   example_app/               # GP-style launcher + local hot-seat; multiplayer seam ready
 ```
@@ -86,6 +88,9 @@ the same catalog + play screens; multiplayer injects via
 (cd packages/minigame_tictactoe    && flutter test) # tic-tac-toe logic
 (cd packages/minigame_connect_four    && flutter test) # connect four
 (cd packages/minigame_dots_and_boxes  && flutter test) # dots and boxes
+(cd packages/minigame_reversi         && flutter test) # reversi
+(cd packages/minigame_checkers        && flutter test) # checkers
+(cd packages/minigame_mancala         && flutter test) # mancala
 (cd packages/example_app              && flutter test test/)  # widget smoke
 ```
 
