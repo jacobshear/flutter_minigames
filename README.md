@@ -21,6 +21,8 @@ packages/
   minigame_reversi/           # reversi/othello: flips, passes, scores
   minigame_checkers/           # checkers: optional captures, multi-jump, kings
   minigame_mancala/            # mancala (kalah): sow, capture, extra turns
+  minigame_gomoku/             # gomoku: five in a row on a 15×15 board
+  minigame_chess/              # chess: full rules via the `chess` package (BSD), vector pieces
   minigames_firebase/        # GameTransport backed by Firebase Realtime Database
   example_app/               # GP-style launcher + local hot-seat; multiplayer seam ready
 ```

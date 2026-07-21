@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../screens/checkers_play_screen.dart';
+import '../screens/chess_play_screen.dart';
 import '../screens/connect_four_play_screen.dart';
 import '../screens/dots_and_boxes_play_screen.dart';
+import '../screens/gomoku_play_screen.dart';
 import '../screens/mancala_play_screen.dart';
 import '../screens/reversi_play_screen.dart';
 import '../screens/tictactoe_play_screen.dart';
@@ -64,5 +66,17 @@ List<GameCatalogEntry> get gameCatalog => [
         title: 'Mancala',
         art: GameTileKind.mancala,
         builder: (_) => const MancalaPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'gomoku',
+        title: 'Gomoku',
+        art: GameTileKind.gomoku,
+        builder: (_) => const GomokuPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'chess',
+        title: 'Chess',
+        art: GameTileKind.chess,
+        builder: (_) => const ChessPlayScreen(),
       ),
     ];

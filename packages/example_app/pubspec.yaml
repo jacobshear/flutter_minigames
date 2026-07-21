@@ -23,6 +23,8 @@ dependencies:
   minigame_reversi: ^0.1.0
   minigame_checkers: ^0.1.0
   minigame_mancala: ^0.1.0
+  minigame_gomoku: ^0.1.0
+  minigame_chess: ^0.1.0
   # Firebase transport — used by the integration test (and future networked mode).
   firebase_core: ^3.13.0
   firebase_database: ^11.3.4

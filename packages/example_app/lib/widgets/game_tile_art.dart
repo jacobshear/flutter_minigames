@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:minigame_chess/minigame_chess.dart' show ChessPieceArt;
 
 import '../theme/demo_theme.dart';
 
@@ -13,6 +14,8 @@ enum GameTileKind {
   reversi,
   checkers,
   mancala,
+  gomoku,
+  chess,
 }
 
 /// Colorful toy diorama that plays complete short matches on a smooth loop,
@@ -44,6 +47,8 @@ class _GameTileArtState extends State<GameTileArt>
       GameTileKind.reversi => const Duration(milliseconds: 9600),
       GameTileKind.checkers => const Duration(milliseconds: 7200),
       GameTileKind.mancala => const Duration(milliseconds: 6800),
+      GameTileKind.gomoku => const Duration(milliseconds: 7400),
+      GameTileKind.chess => const Duration(milliseconds: 7600),
     },
   )..repeat();
 
@@ -89,6 +94,10 @@ class _GameTileArtState extends State<GameTileArt>
               _CheckersTilePainter(t: t, script: _script),
             GameTileKind.mancala =>
               _MancalaTilePainter(t: t, script: _script),
+            GameTileKind.gomoku =>
+              _GomokuTilePainter(t: t, script: _script),
+            GameTileKind.chess =>
+              _ChessTilePainter(t: t, script: _script),
           },
         );
       },
@@ -1975,5 +1984,339 @@ class _MancalaTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MancalaTilePainter old) =>
+      old.t != t || old.script != script;
+}
+
+// ---------------------------------------------------------------------------
+// Gomoku tile — birch grid, stones click in until five line up
+// ---------------------------------------------------------------------------
+
+class _GmkScript {
+  /// Alternating placements starting with black.
+  final List<(int row, int col)> moves;
+
+  /// Indices into [moves] forming the winning five.
+  final List<int> winMoves;
+  final bool blackWins;
+
+  const _GmkScript(this.moves, this.winMoves, {this.blackWins = true});
+}
+
+const _gmkScripts = <_GmkScript>[
+  // Black horizontal on the middle row.
+  _GmkScript(
+    [
+      (4, 2), (2, 2), (4, 3), (3, 5), (4, 4), (5, 3), (4, 5), (6, 6), (4, 6),
+    ],
+    [0, 2, 4, 6, 8],
+  ),
+  // White main diagonal.
+  _GmkScript(
+    [
+      (2, 6), (2, 2), (3, 2), (3, 3), (6, 3), (4, 4), (5, 6), (5, 5),
+      (7, 4), (6, 6),
+    ],
+    [1, 3, 5, 7, 9],
+    blackWins: false,
+  ),
+  // Black anti-diagonal climbing right.
+  _GmkScript(
+    [
+      (6, 2), (3, 2), (5, 3), (4, 2), (4, 4), (5, 6), (3, 5), (6, 6), (2, 6),
+    ],
+    [0, 2, 4, 6, 8],
+  ),
+  // Black vertical on the right side.
+  _GmkScript(
+    [
+      (2, 6), (3, 3), (3, 6), (4, 4), (4, 6), (5, 5), (5, 6), (2, 3), (6, 6),
+    ],
+    [0, 2, 4, 6, 8],
+  ),
+];
+
+class _GomokuTilePainter extends CustomPainter {
+  final double t;
+  final int script;
+  _GomokuTilePainter({required this.t, required this.script});
+
+  static const int n = 9;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _gmkScripts);
+    final presence = _boardPresence(t);
+
+    // Birch slab tile.
+    final outer = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.width * 0.22),
+    );
+    canvas.drawRRect(
+      outer,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFEDE0C3), Color(0xFFD9C69E)],
+        ).createShader(Offset.zero & size),
+    );
+
+    final side = size.shortestSide * 0.80;
+    final board = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: side,
+      height: side,
+    );
+    final gap = board.width / (n - 1);
+
+    Offset at(int r, int c) => Offset(board.left + c * gap, board.top + r * gap);
+
+    final line = Paint()
+      ..color = const Color(0xFF6B5233).withValues(alpha: 0.5)
+      ..strokeWidth = math.max(1.0, gap * 0.06);
+    for (var i = 0; i < n; i++) {
+      canvas.drawLine(at(i, 0), at(i, n - 1), line);
+      canvas.drawLine(at(0, i), at(n - 1, i), line);
+    }
+    canvas.drawCircle(
+      at(4, 4),
+      gap * 0.14,
+      Paint()..color = const Color(0xFF6B5233).withValues(alpha: 0.6),
+    );
+
+    void paintStone(int r, int c, bool isBlack, double p) {
+      final rad = gap * 0.42 * p * presence;
+      if (rad < 0.4) return;
+      final face =
+          isBlack ? const Color(0xFF26262B) : const Color(0xFFF2F1EC);
+      final o = at(r, c);
+      canvas.drawCircle(
+        o.translate(0, rad * 0.14),
+        rad * 0.9,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.2 * presence)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, rad * 0.2),
+      );
+      canvas.drawCircle(
+        o,
+        rad,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.35, -0.4),
+            colors: [
+              Color.lerp(face, Colors.white, isBlack ? 0.32 : 0.6)!,
+              face,
+              Color.lerp(face, Colors.black, isBlack ? 0.35 : 0.16)!,
+            ],
+          ).createShader(Rect.fromCircle(center: o, radius: rad)),
+      );
+    }
+
+    final moveCount = s.moves.length;
+    for (var i = 0; i < moveCount; i++) {
+      final p = _piece(t, i, moveCount, drawShare: 0.5);
+      if (p <= 0) break;
+      final (r, c) = s.moves[i];
+      paintStone(r, c, i.isEven, Curves.easeOutBack.transform(p));
+    }
+
+    // Gold rings pop over the winning five.
+    final winP = _celebrate(t);
+    if (winP > 0.001) {
+      final ring = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1.4, gap * 0.14)
+        ..color = DemoColors.gold.withValues(alpha: 0.9 * winP);
+      for (final m in s.winMoves) {
+        final (r, c) = s.moves[m];
+        canvas.drawCircle(at(r, c), gap * 0.42 * (0.7 + 0.4 * winP), ring);
+      }
+      // Winner glow at the top edge, matching the other tiles.
+      final glow = s.blackWins ? DemoColors.ink : const Color(0xFFF2F1EC);
+      canvas.drawCircle(
+        Offset(size.width * 0.5, size.height * 0.10),
+        size.shortestSide * 0.08 * winP,
+        Paint()
+          ..color = glow.withValues(alpha: 0.4 * winP)
+          ..maskFilter =
+              MaskFilter.blur(BlurStyle.normal, size.shortestSide * 0.04),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GomokuTilePainter old) =>
+      old.t != t || old.script != script;
+}
+
+// ---------------------------------------------------------------------------
+// Chess tile — two-tone board, a quick scripted miniature ending in mate
+// ---------------------------------------------------------------------------
+
+class _ChsScript {
+  /// UCI moves from the standard start, alternating white/black.
+  final List<String> moves;
+  final bool whiteWins;
+
+  const _ChsScript(this.moves, {this.whiteWins = true});
+}
+
+const _chsScripts = <_ChsScript>[
+  // Scholar's mate.
+  _ChsScript(
+      ['e2e4', 'e7e5', 'f1c4', 'b8c6', 'd1h5', 'g8f6', 'h5f7']),
+  // Fool's mate — black delivers.
+  _ChsScript(['f2f3', 'e7e5', 'g2g4', 'd8h4'], whiteWins: false),
+  // Scholar's with the bishop line.
+  _ChsScript(
+      ['e2e4', 'e7e5', 'f1c4', 'f8c5', 'd1h5', 'g8f6', 'h5f7']),
+];
+
+class _ChessTilePainter extends CustomPainter {
+  final double t;
+  final int script;
+  _ChessTilePainter({required this.t, required this.script});
+
+  static int _sq(String a) =>
+      (8 - int.parse(a[1])) * 8 + (a.codeUnitAt(0) - 97);
+
+  static List<String?> _startCells() {
+    const back = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
+    final cells = List<String?>.filled(64, null);
+    for (var c = 0; c < 8; c++) {
+      cells[c] = back[c];
+      cells[8 + c] = 'p';
+      cells[48 + c] = 'P';
+      cells[56 + c] = back[c].toUpperCase();
+    }
+    return cells;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = _pick(script, _chsScripts);
+    final presence = _boardPresence(t);
+
+    final outer = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.width * 0.22),
+    );
+    canvas.drawRRect(
+      outer,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFEDE0C3), Color(0xFFD9C69E)],
+        ).createShader(Offset.zero & size),
+    );
+
+    final side = size.shortestSide * 0.86;
+    final board = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: side,
+      height: side,
+    );
+    final cell = board.width / 8;
+
+    for (var r = 0; r < 8; r++) {
+      for (var c = 0; c < 8; c++) {
+        canvas.drawRect(
+          Rect.fromLTWH(
+              board.left + c * cell, board.top + r * cell, cell + 0.5, cell + 0.5),
+          Paint()
+            ..color = (r + c).isOdd
+                ? const Color(0xFFB08A5F)
+                : const Color(0xFFEBDDBE),
+        );
+      }
+    }
+
+    Offset at(int sq) => Offset(
+          board.left + (sq % 8 + 0.5) * cell,
+          board.top + (sq ~/ 8 + 0.5) * cell,
+        );
+
+    // Apply committed moves; capture the in-flight one.
+    final cells = _startCells();
+    final moveCount = s.moves.length;
+    String? flying;
+    var flyFrom = -1, flyTo = -1;
+    var flyP = 0.0;
+    String? fadingVictim;
+    var fadeAt = -1;
+
+    for (var i = 0; i < moveCount; i++) {
+      final raw = _beat(t, i, moveCount, drawShare: 0.6);
+      if (raw <= 0) break;
+      final from = _sq(s.moves[i].substring(0, 2));
+      final to = _sq(s.moves[i].substring(2, 4));
+      if (raw < 1) {
+        flying = cells[from];
+        flyFrom = from;
+        flyTo = to;
+        flyP = Curves.easeInOutCubic.transform(raw);
+        fadingVictim = cells[to];
+        fadeAt = to;
+        cells[from] = null;
+        break;
+      }
+      cells[to] = cells[from];
+      cells[from] = null;
+    }
+
+    void piece(String p, Offset o, {double opacity = 1}) {
+      final h = cell * 0.92 * presence;
+      if (h < 1) return;
+      ChessPieceArt.paint(
+        canvas,
+        center: o,
+        height: h,
+        piece: p,
+        opacity: opacity,
+      );
+    }
+
+    if (fadingVictim != null && flyP > 0) {
+      piece(fadingVictim, at(fadeAt),
+          opacity: (1 - flyP).clamp(0.0, 1.0) * presence);
+    }
+    for (var i = 0; i < 64; i++) {
+      final p = cells[i];
+      if (p == null) continue;
+      piece(p, at(i), opacity: presence);
+    }
+    if (flying != null) {
+      final o = Offset.lerp(at(flyFrom), at(flyTo), flyP)!;
+      piece(flying, o, opacity: presence);
+    }
+
+    final winP = _celebrate(t);
+    if (winP > 0.001) {
+      final glow = s.whiteWins ? const Color(0xFFF4F1E8) : DemoColors.ink;
+      canvas.drawCircle(
+        Offset(size.width * 0.5, size.height * 0.10),
+        size.shortestSide * 0.08 * winP,
+        Paint()
+          ..color = glow.withValues(alpha: 0.45 * winP)
+          ..maskFilter =
+              MaskFilter.blur(BlurStyle.normal, size.shortestSide * 0.04),
+      );
+      // Gold ring on the mating square.
+      final mate = _sq(s.moves.last.substring(2, 4));
+      canvas.drawCircle(
+        at(mate),
+        cell * 0.55 * (0.7 + 0.4 * winP),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1.4, cell * 0.12)
+          ..color = DemoColors.gold.withValues(alpha: 0.9 * winP),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ChessTilePainter old) =>
       old.t != t || old.script != script;
 }
