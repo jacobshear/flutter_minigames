@@ -20,5 +20,12 @@ workspace:
   - packages/minigame_mancala
   - packages/minigame_gomoku
   - packages/minigame_chess
+  - packages/minigame_sea_battle
+  - packages/minigame_filler
+  - packages/minigame_crazy_eights
+  - packages/minigames_words
+  - packages/minigame_anagrams
+  - packages/minigame_word_hunt
+  - packages/minigame_word_bites
   - packages/minigames_firebase
   - packages/example_app

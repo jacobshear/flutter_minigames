@@ -41,7 +41,9 @@ class _GomokuPlayScreenState extends State<GomokuPlayScreen> {
   }
 
   Future<void> _startNewGame() async {
-    await _controller?.dispose();
+    // Create + swap first, dispose after: the board unsubscribes from the old
+    // controller when it rebinds, which lets the old stream close cleanly.
+    final old = _controller;
     final controller = await MatchController.create<GomokuState, GomokuMove>(
       game: _game,
       transport: _session.transport,
@@ -52,6 +54,7 @@ class _GomokuPlayScreenState extends State<GomokuPlayScreen> {
       seed: _round,
     );
     if (mounted) setState(() => _controller = controller);
+    await old?.dispose();
   }
 
   @override

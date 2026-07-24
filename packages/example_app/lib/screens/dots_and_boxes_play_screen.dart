@@ -47,7 +47,9 @@ class _DotsAndBoxesPlayScreenState extends State<DotsAndBoxesPlayScreen> {
   }
 
   Future<void> _startNewGame() async {
-    await _controller?.dispose();
+    // Create + swap first, dispose after: the board unsubscribes from the old
+    // controller when it rebinds, which lets the old stream close cleanly.
+    final old = _controller;
     final controller =
         await MatchController.create<DotsAndBoxesState, DotsAndBoxesMove>(
       game: _game,
@@ -59,6 +61,7 @@ class _DotsAndBoxesPlayScreenState extends State<DotsAndBoxesPlayScreen> {
       seed: _round,
     );
     if (mounted) setState(() => _controller = controller);
+    await old?.dispose();
   }
 
   @override

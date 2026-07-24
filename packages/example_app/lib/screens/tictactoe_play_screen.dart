@@ -44,7 +44,9 @@ class _TicTacToePlayScreenState extends State<TicTacToePlayScreen> {
   }
 
   Future<void> _startNewGame() async {
-    await _controller?.dispose();
+    // Create + swap first, dispose after: the board unsubscribes from the old
+    // controller when it rebinds, which lets the old stream close cleanly.
+    final old = _controller;
     final controller =
         await MatchController.create<TicTacToeState, TicTacToeMove>(
       game: _game,
@@ -56,6 +58,7 @@ class _TicTacToePlayScreenState extends State<TicTacToePlayScreen> {
       seed: _round,
     );
     if (mounted) setState(() => _controller = controller);
+    await old?.dispose();
   }
 
   @override

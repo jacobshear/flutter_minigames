@@ -1,0 +1,28 @@
+name: minigames_words
+description: >-
+  Shared word dictionary for flutter_minigames word games — bundled ENABLE
+  word list (public domain) with fast contains/prefix lookup and word picking.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+topics:
+  - games
+  - dictionary
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.10.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  assets:
+    - assets/enable1.txt

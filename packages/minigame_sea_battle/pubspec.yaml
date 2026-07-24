@@ -1,0 +1,27 @@
+name: minigame_sea_battle
+description: >-
+  Sea Battle (battleship) for flutter_minigames — pure TurnGame logic plus a
+  Flutter board with fleet placement and shot juice.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+topics:
+  - games
+  - turn-based
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.10.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  minigames_core: ^0.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:

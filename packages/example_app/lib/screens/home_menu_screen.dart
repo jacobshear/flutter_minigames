@@ -141,10 +141,12 @@ class _LauncherTileState extends State<_LauncherTile> {
                     borderRadius: BorderRadius.circular(22),
                     child: Opacity(
                       opacity: enabled ? 1 : 0.45,
-                      child: GameTileArt(
-                        kind: entry.art,
-                        phase: widget.phase,
-                      ),
+                      child: entry.artBuilder != null
+                          ? entry.artBuilder!(context, widget.phase)
+                          : GameTileArt(
+                              kind: entry.art!,
+                              phase: widget.phase,
+                            ),
                     ),
                   ),
                 ),

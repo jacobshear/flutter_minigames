@@ -43,7 +43,9 @@ class _ChessPlayScreenState extends State<ChessPlayScreen> {
   }
 
   Future<void> _startNewGame() async {
-    await _controller?.dispose();
+    // Create + swap first, dispose after: the board unsubscribes from the old
+    // controller when it rebinds, which lets the old stream close cleanly.
+    final old = _controller;
     final controller = await MatchController.create<ChessState, ChessMove>(
       game: _game,
       transport: _session.transport,
@@ -54,6 +56,7 @@ class _ChessPlayScreenState extends State<ChessPlayScreen> {
       seed: _round,
     );
     if (mounted) setState(() => _controller = controller);
+    await old?.dispose();
   }
 
   @override

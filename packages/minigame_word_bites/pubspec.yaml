@@ -1,0 +1,28 @@
+name: minigame_word_bites
+description: >-
+  Word Bites for flutter_minigames — drag letter pieces to build words,
+  pure TurnGame logic plus a Flutter board with drag-and-snap tiles.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+topics:
+  - games
+  - turn-based
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.10.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  minigames_core: ^0.1.0
+  minigames_words: ^0.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
