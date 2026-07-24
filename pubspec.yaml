@@ -27,5 +27,7 @@ workspace:
   - packages/minigame_anagrams
   - packages/minigame_word_hunt
   - packages/minigame_word_bites
+  - packages/minigames_flame
+  - packages/minigame_shuffleboard
   - packages/minigames_firebase
   - packages/example_app

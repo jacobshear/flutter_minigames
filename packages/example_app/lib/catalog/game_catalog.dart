@@ -3,6 +3,7 @@ import 'package:minigame_anagrams/minigame_anagrams.dart' show AnagramsTileArt;
 import 'package:minigame_crazy_eights/minigame_crazy_eights.dart';
 import 'package:minigame_filler/minigame_filler.dart';
 import 'package:minigame_sea_battle/minigame_sea_battle.dart' show SeaBattleTileArt;
+import 'package:minigame_shuffleboard/minigame_shuffleboard.dart' show ShuffleboardTileArt;
 import 'package:minigame_word_bites/minigame_word_bites.dart' show WordBitesTileArt;
 import 'package:minigame_word_hunt/minigame_word_hunt.dart' show WordHuntTileArt;
 
@@ -17,6 +18,7 @@ import '../screens/gomoku_play_screen.dart';
 import '../screens/mancala_play_screen.dart';
 import '../screens/reversi_play_screen.dart';
 import '../screens/sea_battle_play_screen.dart';
+import '../screens/shuffleboard_play_screen.dart';
 import '../screens/tictactoe_play_screen.dart';
 import '../screens/word_bites_play_screen.dart';
 import '../screens/word_hunt_play_screen.dart';
@@ -135,5 +137,11 @@ List<GameCatalogEntry> get gameCatalog => [
         title: 'Word Hunt',
         artBuilder: (_, phase) => WordHuntTileArt(phase: phase),
         builder: (_) => const WordHuntPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'shuffleboard',
+        title: 'Shuffleboard',
+        artBuilder: (_, phase) => ShuffleboardTileArt(phase: phase),
+        builder: (_) => const ShuffleboardPlayScreen(),
       ),
     ];

@@ -64,11 +64,12 @@ class _GameGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverGrid(
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+        crossAxisCount: 4,
         mainAxisSpacing: 14,
         crossAxisSpacing: 12,
-        // Tile + caption.
-        childAspectRatio: 0.78,
+        // Tile + caption. Narrower tiles at 4-up need a touch more height so
+        // two-line captions don't clip.
+        childAspectRatio: 0.72,
       ),
       delegate: SliverChildBuilderDelegate(
         (context, i) => _LauncherTile(
