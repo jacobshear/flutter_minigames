@@ -1,21 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:minigame_anagrams/minigame_anagrams.dart' show AnagramsTileArt;
+import 'package:minigame_archery/minigame_archery.dart' show ArcheryTileArt;
+import 'package:minigame_basketball/minigame_basketball.dart' show BasketballTileArt;
 import 'package:minigame_crazy_eights/minigame_crazy_eights.dart';
+import 'package:minigame_darts/minigame_darts.dart' show DartsTileArt;
+import 'package:minigame_cup_pong/minigame_cup_pong.dart' show CupPongTileArt;
+import 'package:minigame_eight_ball/minigame_eight_ball.dart' show EightBallTileArt;
 import 'package:minigame_filler/minigame_filler.dart';
+import 'package:minigame_knockout/minigame_knockout.dart' show KnockoutTileArt;
+import 'package:minigame_mini_golf/minigame_mini_golf.dart' show MiniGolfTileArt;
 import 'package:minigame_sea_battle/minigame_sea_battle.dart' show SeaBattleTileArt;
 import 'package:minigame_shuffleboard/minigame_shuffleboard.dart' show ShuffleboardTileArt;
 import 'package:minigame_word_bites/minigame_word_bites.dart' show WordBitesTileArt;
 import 'package:minigame_word_hunt/minigame_word_hunt.dart' show WordHuntTileArt;
 
 import '../screens/anagrams_play_screen.dart';
+import '../screens/archery_play_screen.dart';
+import '../screens/basketball_play_screen.dart';
 import '../screens/checkers_play_screen.dart';
 import '../screens/crazy_eights_play_screen.dart';
 import '../screens/filler_play_screen.dart';
 import '../screens/chess_play_screen.dart';
 import '../screens/connect_four_play_screen.dart';
+import '../screens/cup_pong_play_screen.dart';
+import '../screens/darts_play_screen.dart';
 import '../screens/dots_and_boxes_play_screen.dart';
+import '../screens/eight_ball_play_screen.dart';
 import '../screens/gomoku_play_screen.dart';
+import '../screens/knockout_play_screen.dart';
 import '../screens/mancala_play_screen.dart';
+import '../screens/mini_golf_play_screen.dart';
 import '../screens/reversi_play_screen.dart';
 import '../screens/sea_battle_play_screen.dart';
 import '../screens/shuffleboard_play_screen.dart';
@@ -143,5 +157,47 @@ List<GameCatalogEntry> get gameCatalog => [
         title: 'Shuffleboard',
         artBuilder: (_, phase) => ShuffleboardTileArt(phase: phase),
         builder: (_) => const ShuffleboardPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'knockout',
+        title: 'Knockout',
+        artBuilder: (_, phase) => KnockoutTileArt(phase: phase),
+        builder: (_) => const KnockoutPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'eight_ball',
+        title: '8-Ball',
+        artBuilder: (_, phase) => EightBallTileArt(phase: phase),
+        builder: (_) => const EightBallPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'mini_golf',
+        title: 'Mini Golf',
+        artBuilder: (_, phase) => MiniGolfTileArt(phase: phase),
+        builder: (_) => const MiniGolfPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'basketball',
+        title: 'Basketball',
+        artBuilder: (_, phase) => BasketballTileArt(phase: phase),
+        builder: (_) => const BasketballPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'cup_pong',
+        title: 'Cup Pong',
+        artBuilder: (_, phase) => CupPongTileArt(phase: phase),
+        builder: (_) => const CupPongPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'archery',
+        title: 'Archery',
+        artBuilder: (_, phase) => ArcheryTileArt(phase: phase),
+        builder: (_) => const ArcheryPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'darts',
+        title: 'Darts',
+        artBuilder: (_, phase) => DartsTileArt(phase: phase),
+        builder: (_) => const DartsPlayScreen(),
       ),
     ];

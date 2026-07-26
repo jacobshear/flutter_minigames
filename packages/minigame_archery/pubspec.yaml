@@ -1,0 +1,29 @@
+name: minigame_archery
+description: >-
+  Archery for flutter_minigames — a first-person 3-D bow game with wind
+  and ranged targets, built on the minigames_3d harness.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+topics:
+  - games
+  - turn-based
+  - physics
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.10.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  minigames_3d: ^0.1.0
+  minigames_core: ^0.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:

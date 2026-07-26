@@ -44,6 +44,11 @@ class TableSimConfig {
   /// Seconds advanced per fixed step. Physics is always stepped at this rate.
   final double fixedDt;
 
+  /// Downward acceleration (world units/s²). 0 keeps the default top-down
+  /// "sliding" table; a positive value makes it a side-view world with gravity
+  /// pulling toward +y, for arc games (cup pong, basketball) that throw a ball.
+  final double gravityY;
+
   const TableSimConfig({
     this.linearDamping = 1.7,
     this.angularDamping = 2.2,
@@ -56,6 +61,7 @@ class TableSimConfig {
     this.settleFrames = 14,
     this.maxSteps = 1400,
     this.fixedDt = 1 / 60,
+    this.gravityY = 0,
   });
 }
 
@@ -152,7 +158,7 @@ class TableSimulation {
   Completer<SimOutcome>? _settleCompleter;
 
   TableSimulation({this.config = const TableSimConfig(), this.shouldRemove})
-      : world = World(Vector2.zero()) {
+      : world = World(Vector2(0, config.gravityY)) {
     world.setContactListener(_DiscContactListener(this));
   }
 

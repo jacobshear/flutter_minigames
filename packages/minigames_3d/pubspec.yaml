@@ -1,0 +1,29 @@
+name: minigames_3d
+description: >-
+  Perspective-3D harness for flutter_minigames throw games (cup pong,
+  basketball): 3-axis ballistics, a pinhole camera, analytic collision
+  primitives and depth-sorted painting. Pure Dart maths, Canvas rendering —
+  no engine dependency, fully headless-testable.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+topics:
+  - games
+  - 3d
+  - physics
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.10.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:

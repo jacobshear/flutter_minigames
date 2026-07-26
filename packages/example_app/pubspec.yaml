@@ -32,6 +32,15 @@ dependencies:
   minigame_anagrams: ^0.1.0
   minigame_word_hunt: ^0.1.0
   minigame_shuffleboard: ^0.1.0
+  minigame_eight_ball: ^0.1.0
+  minigame_knockout: ^0.1.0
+  minigame_mini_golf: ^0.1.0
+  # These two are mid-rebuild on the 3-D harness and rev their own
+  # versions; workspace deps resolve by path, so don't pin them.
+  minigame_cup_pong: any
+  minigame_basketball: any
+  minigame_darts: ^0.1.0
+  minigame_archery: ^0.1.0
   minigame_word_bites: ^0.1.0
   # Firebase transport — used by the integration test (and future networked mode).
   firebase_core: ^3.13.0
