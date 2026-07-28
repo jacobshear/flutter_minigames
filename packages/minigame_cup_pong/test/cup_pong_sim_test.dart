@@ -245,6 +245,105 @@ void main() {
     });
   });
 
+  group('a miss behaves like a ping-pong ball', () {
+    /// A deliberately soft throw: it lands on the felt well short of the rack,
+    /// which is the case the player sees most often.
+    CupPongThrowSim shortThrow() {
+      final aim = CupPongAim(tuning: tuning);
+      final apex = fullRack().first;
+      return CupPongThrowSim(
+        cups: fullRack(),
+        velocity: launch(
+          aim.solvedSpeedFor(apex) * 0.72,
+          tuning.loft,
+          CupPongAim.yawTo(CupPongWorld.mouthOf(apex)),
+        ),
+        tuning: tuning,
+      );
+    }
+
+    test('it bounces, rolls on after landing, and comes to rest', () {
+      final sim = shortThrow();
+      double? touchdownZ;
+      var bounces = 0;
+      var steps = 0;
+      while (!sim.finished && steps++ < 20000) {
+        final e = sim.step();
+        if (e == CupPongEvent.tableBounce) {
+          bounces++;
+          touchdownZ ??= sim.position.z;
+        }
+      }
+      expect(sim.finished, isTrue);
+      expect(bounces, greaterThan(0), reason: 'it has to arrive with weight');
+      expect(touchdownZ, isNotNull);
+      // The regression this guards: the old table branch bounced every grounded
+      // step and scrubbed friction on each one, so the ball stopped within a
+      // few frames of landing. It must now carry.
+      expect(sim.position.z - touchdownZ!, greaterThan(0.05),
+          reason: 'a ball that stops dead where it lands is the bug');
+    });
+
+    test('a ball that settles on the felt reports itself at rest', () {
+      final sim = shortThrow();
+      expect(sim.run(), CupPongEvent.missed);
+      expect(sim.atRest, isTrue,
+          reason: 'it stopped on the table, so the board may leave it lying');
+      expect(sim.position.y, closeTo(CupPongWorld.ballRadius, 1e-6));
+      expect(sim.position.z, inInclusiveRange(
+        CupPongWorld.nearZ,
+        CupPongWorld.farZ,
+      ));
+    });
+
+    test('a ball that leaves the table is NOT reported at rest', () {
+      // Thrown far too hard: it clears the rack and goes over the far edge.
+      final aim = CupPongAim(tuning: tuning);
+      final apex = fullRack().first;
+      final sim = CupPongThrowSim(
+        cups: const [],
+        velocity: launch(
+          aim.solvedSpeedFor(apex) * 2.2,
+          tuning.loft,
+          CupPongAim.yawTo(CupPongWorld.mouthOf(apex)),
+        ),
+        tuning: tuning,
+      );
+      expect(sim.run(), CupPongEvent.missed);
+      expect(sim.atRest, isFalse,
+          reason: 'nothing should be left lying out past the rail');
+    });
+
+    test('spin accumulates with travel, in flight and on the roll', () {
+      final sim = shortThrow();
+      final samples = <double>[];
+      var lastZ = sim.position.z;
+      var rolledSpin = 0.0;
+      var rolledDistance = 0.0;
+      while (!sim.finished) {
+        final beforeSpin = sim.spin;
+        final rolling = sim.rolling;
+        sim.step();
+        if (samples.length < 40 && sim.position.z > lastZ + 0.02) {
+          samples.add(sim.spin);
+          lastZ = sim.position.z;
+        }
+        if (rolling) {
+          rolledSpin += (sim.spin - beforeSpin).abs();
+          rolledDistance += (sim.position.z - lastZ).abs();
+        }
+      }
+      expect(samples.length, greaterThan(3));
+      for (var i = 1; i < samples.length; i++) {
+        expect(samples[i], greaterThan(samples[i - 1]),
+            reason: 'the ball must keep turning as it travels');
+      }
+      expect(rolledSpin, greaterThan(0),
+          reason: 'a rolling ball turns at v/r, it does not slide');
+      expect(rolledDistance, greaterThanOrEqualTo(0));
+    });
+  });
+
   group('make rate (regression guard for the tuning)', () {
     // These numbers are the whole reason CupPongAim exists. A naive absolute
     // speed range scores essentially never; the solved-speed band plus the

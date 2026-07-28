@@ -12,6 +12,16 @@ class CupPongSounds {
   /// The ball bounced off the table, a rim, or the outside of a cup.
   final void Function()? onBounce;
 
+  /// The same contacts as [onBounce], but carrying the **impact speed** in
+  /// world units/s so a host can shape pitch and gain with it — a ball
+  /// trickling into a cup wall and one slamming the felt at 5 m/s are not the
+  /// same sound.
+  ///
+  /// Separate from [onBounce] rather than a parameter on it, because widening
+  /// that signature would break every host already passing a zero-argument
+  /// callback. Wire whichever suits; the board fires both.
+  final void Function(double speed)? onImpact;
+
   /// The ball dropped into a cup.
   final void Function()? onHit;
 
@@ -33,6 +43,7 @@ class CupPongSounds {
   const CupPongSounds({
     this.onThrow,
     this.onBounce,
+    this.onImpact,
     this.onHit,
     this.onMiss,
     this.onBallsBack,

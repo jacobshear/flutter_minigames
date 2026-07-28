@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:minigames_core/minigames_core.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'mancala_game.dart';
+import 'mancala_marble.dart';
+import 'mancala_pile.dart';
+import 'mancala_sow.dart';
 import 'mancala_style.dart';
 
 /// Vertical 3D Mancala board with arcing marble sow physics.
@@ -42,18 +47,9 @@ class _MancalaBoardState extends State<MancalaBoard>
     with TickerProviderStateMixin {
   static const _logic = MancalaGame();
 
-  late final AnimationController _entrance = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 560),
-  );
-  late final AnimationController _sowCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2400),
-  );
-  late final AnimationController _confettiCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  );
+  late AnimationController _entrance;
+  late AnimationController _sowCtrl;
+  late AnimationController _confettiCtrl;
 
   final math.Random _rnd = math.Random();
   StreamSubscription<MancalaState>? _sub;
@@ -84,10 +80,10 @@ class _MancalaBoardState extends State<MancalaBoard>
   /// Outcome that arrived mid-sow; celebrated when the animation lands.
   GameOutcome? _pendingOutcome;
 
-  /// "AGAIN!" pill lingers briefly after an extra-turn sow, then fades so
-  /// the highlighted pits are unobstructed for the bonus pick.
+  /// "AGAIN!" is raised after an extra-turn sow. [GameNotice] owns the fade —
+  /// it retracts itself via `autoDismiss` and stays down while this flag is
+  /// still set, so the highlighted pits are unobstructed for the bonus pick.
   bool _showExtraPill = false;
-  Timer? _pillTimer;
 
   List<_Confetto> _confetti = const [];
   _BoardGeom? _geom;
@@ -95,6 +91,20 @@ class _MancalaBoardState extends State<MancalaBoard>
   @override
   void initState() {
     super.initState();
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 560),
+    );
+    _sowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    );
+    _confettiCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+    // Record the twelve marble pictures now rather than mid-hop.
+    primeMarbles();
     _state = widget.controller.state;
     _outcome = _state == null ? null : _logic.outcome(_state!);
     _entrance.forward();
@@ -105,7 +115,6 @@ class _MancalaBoardState extends State<MancalaBoard>
   @override
   void dispose() {
     _sub?.cancel();
-    _pillTimer?.cancel();
     _entrance.dispose();
     _sowCtrl.dispose();
     _confettiCtrl.dispose();
@@ -141,13 +150,12 @@ class _MancalaBoardState extends State<MancalaBoard>
       _dropsFired = 0;
       _captureCueFired = false;
       _extraCueFired = false;
-      _pillTimer?.cancel();
       _showExtraPill = false;
       // Constant speed: every hop costs the same wall-clock time (no base
       // overhead amortized over hop count — that made short turns feel slow
       // and long turns feel rushed). GP-brisk: stones land in quick
       // succession; long relay chains stay watchable instead of draggy.
-      const hopMs = 400;
+      const hopMs = 400; // == _kHopSeconds, the clock the drop is solved for.
       const captureMs = 620;
       const sweepMs = 780;
       final hops = math.max(1, _hopSteps.length);
@@ -160,15 +168,9 @@ class _MancalaBoardState extends State<MancalaBoard>
         if (!mounted) return;
         setState(() {
           _sowing = false;
-          // Flash "AGAIN!" briefly, then fade so the highlighted pits are
-          // clear for the bonus pick.
-          if (_sowExtra) {
-            _showExtraPill = true;
-            _pillTimer?.cancel();
-            _pillTimer = Timer(const Duration(milliseconds: 900), () {
-              if (mounted) setState(() => _showExtraPill = false);
-            });
-          }
+          // Raise "AGAIN!". The notice fades itself; the flag is cleared by
+          // the next sow, so no timer is needed here.
+          if (_sowExtra) _showExtraPill = true;
         });
         final done = _pendingOutcome;
         _pendingOutcome = null;
@@ -292,8 +294,10 @@ class _MancalaBoardState extends State<MancalaBoard>
     widget.controller.submitMove(MancalaMove(pit));
   }
 
-  /// Point within a hop where the front stone lands in its cup.
-  static const double _dropPoint = 0.72;
+  /// Point within a hop where the front stone crosses the pit mouth. Not a
+  /// tuned constant: [SowPhysics.mouthFraction] reports where the simulated
+  /// drop actually gets there, so the cue and the visual cannot drift apart.
+  static final double _dropPoint = _kSow.mouthFraction(_kHopSeconds);
 
   /// Replay sow logic to build per-hop hand sizes for stack animation, plus
   /// the end-of-game sweep (leftover stones flying to the store), if any.
@@ -411,7 +415,6 @@ class _MancalaBoardState extends State<MancalaBoard>
     final maxBeat = totalBeats > 0 ? totalBeats - 1 : 0;
     final beat = pos.floor().clamp(0, maxBeat);
     final localRaw = (pos - beat).clamp(0.0, 1.0);
-    final local = _hopCurve(localRaw);
 
     final from = _sowFrom!;
     final display = List<int>.of(_fromPits)..[from] = 0;
@@ -434,82 +437,44 @@ class _MancalaBoardState extends State<MancalaBoard>
       final hop = hops[beat];
       highlight = hop.toCup;
       final handN = hop.handFlying;
-      const dropT = _dropPoint; // when the front marble peels into the pit
+      final release = _kSow.releaseAt;
 
       // Cluster offsets for the hand (tight pack in flight).
       final cluster = _handClusterOffsets(handN);
 
       for (var i = 0; i < handN; i++) {
-        final isDropping = i == 0; // front stone drops this hop
-        final staysInHand = !isDropping || localRaw < dropT;
+        // The front stone is the one this hop lets go of.
+        final isDropping = i == 0;
+        final released = isDropping && localRaw >= release;
 
-        // Dropping marble peels toward nest late in the hop.
-        double t = local;
-        double tRaw = localRaw;
-        var nest = -1;
-        var toCup = hop.toCup;
-        var fromCup = hop.fromCup;
         var clusterOff = cluster[i];
-        var opacity = 1.0;
-        var scaleX = 1.0;
-        var scaleY = 1.0;
-
-        if (isDropping && localRaw >= dropT) {
-          // Peel-off: remaining motion is into the nest.
-          final peel = ((localRaw - dropT) / (1 - dropT)).clamp(0.0, 1.0);
-          t = _hopCurve(dropT + peel * (1 - dropT));
-          tRaw = localRaw;
-          nest = hop.nestIndex;
-          // Shrink cluster offset to nest.
-          clusterOff = Offset.lerp(cluster[i], Offset.zero, peel)!;
-          final squash = 1.0 -
-              0.16 * math.sin(peel.clamp(0.0, 1.0) * math.pi);
-          scaleX = 1.05 / squash;
-          scaleY = squash;
-        } else if (!isDropping) {
-          // Rest of hand continues as a unit; slight lag by index.
-          final lag = (i * 0.012).clamp(0.0, 0.08);
-          final raw = ((localRaw - lag) / (1 - lag)).clamp(0.0, 1.0);
-          t = _hopCurve(raw);
-          tRaw = raw;
-          nest = -1; // stays mid-air / follows arc end without depositing
-          // After drop point, hand shrinks toward center (one less stone).
-          if (localRaw >= dropT) {
-            final peel = ((localRaw - dropT) / (1 - dropT)).clamp(0.0, 1.0);
-            final remaining = _handClusterOffsets(handN - 1);
-            final ri = i - 1;
-            if (ri >= 0 && ri < remaining.length) {
-              clusterOff = Offset.lerp(cluster[i], remaining[ri], peel)!;
-            }
+        if (!isDropping && localRaw >= release) {
+          // The hand closes up around the gap the released stone left.
+          final peel = ((localRaw - release) / (1 - release)).clamp(0.0, 1.0);
+          final remaining = _handClusterOffsets(handN - 1);
+          final ri = i - 1;
+          if (ri >= 0 && ri < remaining.length) {
+            clusterOff = Offset.lerp(cluster[i], remaining[ri], peel)!;
           }
         }
 
-        // Specs stable for hand members.
-        final spec = _MarbleSpec.at(
-          cup: hop.fromCup,
-          slot: i,
-          salt: beat * 17,
-        );
-
         flyers.add(
           _Flyer(
-            fromCup: fromCup,
-            toCup: toCup,
-            t: t,
-            tRaw: tRaw,
-            spec: spec,
-            scaleX: scaleX * (1.0 + 0.06 * math.sin(math.pi * tRaw)),
-            scaleY: scaleY * (1.0 + 0.06 * math.sin(math.pi * tRaw)),
-            opacity: opacity,
-            nestIndex: nest,
-            liftMul: 0.58,
-            clusterOffset: clusterOff,
-            isDropping: isDropping && localRaw >= dropT,
+            fromCup: hop.fromCup,
+            toCup: hop.toCup,
+            u: localRaw,
+            spec: MarbleSpec.at(
+              cup: hop.fromCup,
+              slot: i,
+              salt: beat * 17,
+            ),
+            opacity: 1,
+            nestIndex: released ? hop.nestIndex : -1,
+            clusterOffset: released ? Offset.zero : clusterOff,
+            released: released,
+            ballistic: true,
           ),
         );
-
-        // Suppress unused warning if staysInHand needed later.
-        assert(staysInHand || isDropping);
       }
     } else if (_sowCapture && pos < hopCount + captureBeat) {
       final capLocal =
@@ -545,7 +510,7 @@ class _MancalaBoardState extends State<MancalaBoard>
             toCup: moverStore,
             t: u,
             tRaw: raw,
-            spec: _MarbleSpec.at(
+            spec: MarbleSpec.at(
               cup: moverStore,
               slot: storeBase + i,
               salt: fromCup,
@@ -556,7 +521,6 @@ class _MancalaBoardState extends State<MancalaBoard>
             nestIndex: storeBase + i,
             liftMul: 0.68,
             clusterOffset: cluster[i] * (1 - raw),
-            isDropping: true,
           ),
         );
       }
@@ -605,14 +569,13 @@ class _MancalaBoardState extends State<MancalaBoard>
               toCup: store,
               t: _hopCurve(raw),
               tRaw: raw,
-              spec: _MarbleSpec.at(cup: store, slot: nest, salt: cup),
+              spec: MarbleSpec.at(cup: store, slot: nest, salt: cup),
               scaleX: 1.05 / squash,
               scaleY: squash,
               opacity: 1,
               nestIndex: nest,
               liftMul: 0.68,
               clusterOffset: cluster[k] * (1 - raw),
-              isDropping: true,
             ),
           );
         }
@@ -761,20 +724,9 @@ class _MancalaBoardState extends State<MancalaBoard>
         );
 
         // Felt table the board sits on.
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
+        return DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(26),
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.35),
-              radius: 1.5,
-              colors: [
-                Color.lerp(table, Colors.white, 0.07)!,
-                table,
-                Color.lerp(table, Colors.black, 0.26)!,
-              ],
-              stops: const [0.0, 0.45, 1.0],
-            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.18),
@@ -783,6 +735,12 @@ class _MancalaBoardState extends State<MancalaBoard>
               ),
             ],
           ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: CustomPaint(
+              painter: _FeltPainter(table),
+              child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -804,31 +762,25 @@ class _MancalaBoardState extends State<MancalaBoard>
                   Positioned.fill(
                     child: IgnorePointer(
                       child: Center(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          child: pillMsg == null
-                              ? const SizedBox.shrink()
-                              : Container(
-                                  key: ValueKey(pillMsg),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 9,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black
-                                        .withValues(alpha: 0.58),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    pillMsg,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                      letterSpacing: 1.1,
-                                    ),
-                                  ),
-                                ),
+                        // Single animating node. "AGAIN!" fires on consecutive
+                        // extra turns, so the message genuinely repeats inside
+                        // one exit — an AnimatedSwitcher keyed on the text put
+                        // two live 'AGAIN!' children in its Stack and threw.
+                        // No accent override: the seat colours are dark on the
+                        // notice's dark fill, so passing one to say *who* just
+                        // erased the underline that says *what*. The side
+                        // players already carry the seat.
+                        child: GameNotice(
+                          message: pillMsg,
+                          tone: showOutcome != null
+                              ? GameNoticeTone.win
+                              : GameNoticeTone.score,
+                          strong: showOutcome != null,
+                          // Sticky on a result; the extra-turn call retracts
+                          // itself, which is what the old _pillTimer did.
+                          autoDismiss: showOutcome != null
+                              ? null
+                              : const Duration(milliseconds: 900),
                         ),
                       ),
                     ),
@@ -847,92 +799,20 @@ class _MancalaBoardState extends State<MancalaBoard>
               ),
             ],
           ),
+              ),
+            ),
+          ),
         );
       },
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Glossy glass marbles — white / black / blue (GP palette), near-round
-// ---------------------------------------------------------------------------
-
-enum _PebbleColor { white, black, blue }
-
-class _MarbleSpec {
-  final _PebbleColor color;
-  final double sizeMul;
-  /// Horizontal scale (ellipse).
-  final double squashX;
-  /// Vertical scale (ellipse).
-  final double squashY;
-  /// Rotation of the oval (radians).
-  final double rotation;
-  final int seed;
-
-  const _MarbleSpec({
-    required this.color,
-    required this.sizeMul,
-    required this.squashX,
-    required this.squashY,
-    required this.rotation,
-    required this.seed,
-  });
-
-  /// Body color — glass-bead reads on pale wood: cool silvery white,
-  /// charcoal black, medium azure blue.
-  Color get base => switch (color) {
-        _PebbleColor.white => const Color(0xFFEDEDE8),
-        _PebbleColor.black => const Color(0xFF45454B),
-        _PebbleColor.blue => const Color(0xFF4C7FD9),
-      };
-
-  Color get shade => switch (color) {
-        _PebbleColor.white => const Color(0xFFA5A099),
-        _PebbleColor.black => const Color(0xFF1E1E22),
-        _PebbleColor.blue => const Color(0xFF23477F),
-      };
-
-  Color get hi => switch (color) {
-        _PebbleColor.white => const Color(0xFFFFFFFF),
-        _PebbleColor.black => const Color(0xFF94949C),
-        _PebbleColor.blue => const Color(0xFFBBD4F8),
-      };
-
-  /// Stable pebble for a cup slot. Color is interleaved across cups so both
-  /// board sides get an even white/black/blue mix (not hash clumps).
-  factory _MarbleSpec.at({
-    required int cup,
-    required int slot,
-    int salt = 0,
-  }) {
-    // Coprime steps: within a cup and across neighboring cups, colors cycle.
-    final color = _PebbleColor.values[(cup * 2 + slot * 5 + salt) % 3];
-
-    // Shape variety from a mixed seed (independent of color index).
-    // GP marbles are near-perfect spheres — only a whisper of squash.
-    var s = (cup * 73856093) ^ (slot * 19349663) ^ (salt * 83492791);
-    s &= 0x7fffffff;
-    s ^= s >> 13;
-    final sizeMul = 0.92 + ((s >> 3) % 9) * 0.015;
-    final shapeRoll = (s >> 5) % 4;
-    final (sx, sy) = switch (shapeRoll) {
-      0 => (1.05, 0.95),
-      1 => (0.96, 1.04),
-      2 => (1.07, 0.94),
-      _ => (1.0, 1.0),
-    };
-    final rotation = (((s >> 8) % 17) - 8) * 0.04;
-    return _MarbleSpec(
-      color: color,
-      sizeMul: sizeMul,
-      squashX: sx,
-      squashY: sy,
-      rotation: rotation,
-      seed: s,
-    );
-  }
-}
+/// Wall clock of a single sow hop, and the physics the drop is solved against.
+/// Both live here so the timing the controller schedules and the trajectory the
+/// painter draws come from one place.
+const double _kHopSeconds = 0.400;
+const SowPhysics _kSow = SowPhysics();
 
 /// One hop of a sow: [handFlying] stones leave [fromCup] for [toCup]; one drops.
 class _HopStep {
@@ -956,35 +836,55 @@ class _HopStep {
   });
 }
 
+/// A stone in the air.
+///
+/// Two kinds, deliberately not unified. [ballistic] flyers are the sow itself —
+/// the hand and the stone it lets go of, driven by [SowPhysics]. The others are
+/// the capture and end-of-game sweeps, which are a flourish rather than a hand
+/// sowing, and keep the eased screen arc that suits them.
 class _Flyer {
   final int fromCup;
   final int toCup;
+  final MarbleSpec spec;
+  final double opacity;
+
+  /// Landing slot in the destination pit; -1 while still in the hand.
+  final int nestIndex;
+
+  /// Offset within the flying hand cluster (screen px).
+  final Offset clusterOffset;
+
+  // --- ballistic sow ---
+  final bool ballistic;
+
+  /// 0..1 through the hop.
+  final double u;
+
+  /// The hand has opened and this stone is falling.
+  final bool released;
+
+  // --- eased arc (capture / sweep) ---
   final double t; // eased along arc 0..1
-  final double tRaw; // raw hop time for squash
-  final _MarbleSpec spec;
+  final double tRaw; // raw time for squash
   final double scaleX;
   final double scaleY;
-  final double opacity;
-  /// Landing nest when [isDropping]; -1 means stays in the hand cluster.
-  final int nestIndex;
   final double liftMul;
-  /// Offset within the flying hand cluster (screen-ish units).
-  final Offset clusterOffset;
-  final bool isDropping;
 
   const _Flyer({
     required this.fromCup,
     required this.toCup,
-    required this.t,
-    required this.tRaw,
     required this.spec,
-    required this.scaleX,
-    required this.scaleY,
     required this.opacity,
     required this.nestIndex,
-    required this.liftMul,
     this.clusterOffset = Offset.zero,
-    this.isDropping = false,
+    this.ballistic = false,
+    this.u = 0,
+    this.released = false,
+    this.t = 0,
+    this.tRaw = 0,
+    this.scaleX = 1,
+    this.scaleY = 1,
+    this.liftMul = 0.58,
   });
 }
 
@@ -1002,67 +902,6 @@ class _SowFrame {
     required this.captureFlash,
     required this.extraFlash,
   });
-}
-
-/// Pack [count] marble centers inside an elliptical well ([wellRx] × [wellRy])
-/// with simple collision resolution. Stores pass a wide ellipse so stones
-/// spread along the oval instead of bunching in a center circle.
-List<Offset> _packNests({
-  required int count,
-  required Offset center,
-  required double wellRx,
-  required double wellRy,
-  required double marbleR,
-  required int cupSeed,
-}) {
-  if (count <= 0) return const [];
-  final nestY = wellRy * 0.08;
-  final c = center + Offset(0, nestY);
-  if (count == 1) return [c];
-
-  final maxRx = math.max(1.0, wellRx - marbleR * 1.2);
-  final maxRy = math.max(1.0, wellRy - marbleR * 1.2);
-  final out = <Offset>[];
-  // Golden-angle spiral seed, then push-apart iterations.
-  for (var i = 0; i < count; i++) {
-    final ang = i * 2.399963 + cupSeed * 0.17;
-    final frac = math.sqrt((i + 0.35) / count);
-    out.add(c +
-        Offset(
-          math.cos(ang) * maxRx * frac,
-          math.sin(ang) * maxRy * frac * 0.9,
-        ));
-  }
-
-  final minDist = marbleR * 2.08;
-  for (var iter = 0; iter < 12; iter++) {
-    for (var i = 0; i < out.length; i++) {
-      for (var j = i + 1; j < out.length; j++) {
-        var d = out[j] - out[i];
-        var dist = d.distance;
-        if (dist < 1e-5) {
-          d = Offset(minDist * 0.5, 0);
-          dist = d.distance;
-        }
-        if (dist < minDist) {
-          final push = d / dist * (minDist - dist) * 0.52;
-          out[i] = out[i] - push;
-          out[j] = out[j] + push;
-        }
-      }
-      // Clamp into the elliptical bowl.
-      final fromC = out[i] - c;
-      final q = Offset(fromC.dx / maxRx, fromC.dy / maxRy);
-      if (q.distance > 1 && q.distance > 1e-5) {
-        out[i] = c +
-            Offset(
-              q.dx / q.distance * maxRx,
-              q.dy / q.distance * maxRy,
-            );
-      }
-    }
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,6 +1024,395 @@ class _BoardGeom {
 }
 
 // ---------------------------------------------------------------------------
+// Materials
+//
+// One committed light for the whole board: a soft key from the upper left.
+// Raised forms get their highlight up-left and cast down-right; the carved
+// wells reverse both, so their shadow pools under the top-left rim and the
+// light catches the far bottom-right lip.
+// ---------------------------------------------------------------------------
+
+/// The board and the marbles must obey the *same* light or neither reads as
+/// solid, so this is [kBoardLight] — the direction the sphere shader evaluates
+/// against — rather than a second, independently tuned number.
+const Offset _kLight = kBoardLight;
+
+/// Deterministic hash in `[0, 1)` — the grain and nap must be identical on
+/// every rebuild, so nothing in painting uses `Random`.
+double _noise(int x, int y, int seed) {
+  var n = (x * 374761393) ^ (y * 668265263) ^ (seed * 1274126177);
+  n = (n ^ (n >> 13)) * 1274126177;
+  n = n ^ (n >> 16);
+  return (n & 0x3fffffff) / 0x3fffffff;
+}
+
+/// The rounded rect of a side pit's scoop.
+RRect _pitWellRRect(Rect rect) {
+  final r = rect.shortestSide / 2;
+  return RRect.fromRectAndRadius(
+    Rect.fromCenter(center: rect.center, width: r * 2, height: r * 1.92),
+    Radius.circular(r),
+  );
+}
+
+/// The rounded rect of an end store's scoop.
+RRect _storeWellRRect(Rect rect) => RRect.fromRectAndRadius(
+      rect,
+      Radius.circular(rect.shortestSide * 0.48),
+    );
+
+/// Cached carved slab (grain, wells, rims), keyed on size and palette.
+class _Tray {
+  final double w;
+  final double h;
+  final int board;
+  final int pit;
+  final ui.Picture picture;
+
+  _Tray(this.w, this.h, this.board, this.pit, this.picture);
+
+  bool matches(Size s, Color b, Color p) =>
+      w == s.width &&
+      h == s.height &&
+      // ignore: deprecated_member_use
+      board == b.value &&
+      // ignore: deprecated_member_use
+      pit == p.value;
+}
+
+final List<_Tray> _trays = [];
+
+ui.Picture _trayFor(Size size, _BoardGeom geom, Color board, Color pit) {
+  for (final t in _trays) {
+    if (t.matches(size, board, pit)) return t.picture;
+  }
+  final recorder = ui.PictureRecorder();
+  _paintTray(Canvas(recorder), geom, board, pit);
+  final made = _Tray(
+    size.width,
+    size.height,
+    // ignore: deprecated_member_use
+    board.value,
+    // ignore: deprecated_member_use
+    pit.value,
+    recorder.endRecording(),
+  );
+  _trays.insert(0, made);
+  while (_trays.length > 3) {
+    _trays.removeLast().picture.dispose();
+  }
+  return made.picture;
+}
+
+/// A single piece of carved hardwood: the slab with its thickness and grain,
+/// then every well scooped out of it.
+void _paintTray(Canvas canvas, _BoardGeom geom, Color board, Color pit) {
+  final tray = geom.tray;
+  final edge = tray.width * 0.075;
+  final radius = Radius.circular(geom.cornerR);
+  final top = RRect.fromRectAndRadius(tray, radius);
+  final sideFace = RRect.fromRectAndRadius(
+    Rect.fromLTWH(tray.left, tray.top + edge, tray.width, tray.height),
+    radius,
+  );
+  final edgeWood = Color.lerp(board, const Color(0xFF6B4A22), 0.46)!;
+
+  // Contact shadow: tight dark core at the seam plus a wide ambient falloff,
+  // both pushed away from the key light.
+  canvas.drawRRect(
+    sideFace.shift(Offset(tray.width * 0.020, tray.width * 0.030)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.30)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, tray.width * 0.055),
+  );
+  canvas.drawRRect(
+    sideFace.shift(Offset(tray.width * 0.008, tray.width * 0.012)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.26)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, tray.width * 0.016),
+  );
+
+  // Side face — the board's thickness.
+  canvas.drawRRect(
+    sideFace,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [edgeWood, Color.lerp(edgeWood, Colors.black, 0.40)!],
+      ).createShader(sideFace.outerRect),
+  );
+
+  // Top face.
+  canvas.save();
+  canvas.clipRRect(top);
+  canvas.drawRect(tray, Paint()..color = board);
+
+  // Broad growth bands drifting across the grain.
+  for (var i = 0; i < 16; i++) {
+    final j = _noise(i, 3, 11);
+    final x = tray.left + (i / 16) * tray.width + (j - 0.5) * tray.width * 0.03;
+    final w = tray.width * (0.03 + j * 0.07);
+    final d = (_noise(i, 3, 23) - 0.5) * 0.10;
+    canvas.drawRect(
+      Rect.fromLTWH(x, tray.top, w, tray.height),
+      Paint()
+        ..color = (d < 0
+                ? Color.lerp(board, Colors.white, -d)!
+                : Color.lerp(board, const Color(0xFF6B4A22), d)!)
+            .withValues(alpha: 0.5)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, tray.width * 0.03),
+    );
+  }
+
+  // Fine fibres running the length of the slab.
+  final fibre = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round;
+  final count = (tray.width / 2.6).round().clamp(30, 140);
+  for (var i = 0; i < count; i++) {
+    final j = _noise(i, 5, 37);
+    final k = _noise(i, 5, 53);
+    final x = tray.left + ((i + j) / count) * tray.width;
+    final bend = (k - 0.5) * tray.width * 0.05;
+    fibre
+      ..strokeWidth = 0.5 + j * 0.9
+      ..color = (k > 0.6
+              ? Color.lerp(board, const Color(0xFF4A3315), 0.42)!
+              : Color.lerp(board, Colors.white, 0.30)!)
+          .withValues(alpha: 0.04 + j * 0.07);
+    canvas.drawPath(
+      Path()
+        ..moveTo(x, tray.top)
+        ..quadraticBezierTo(
+            x + bend, tray.center.dy, x + bend * 0.3, tray.bottom),
+      fibre,
+    );
+  }
+
+  // Key-light wash across the face.
+  canvas.drawRect(
+    tray,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment(_kLight.dx * 2.2, _kLight.dy * 2.0),
+        end: Alignment(-_kLight.dx * 2.2, -_kLight.dy * 2.0),
+        colors: [
+          Colors.white.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.16),
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(tray),
+  );
+  canvas.restore();
+
+  // Chamfer: lit lip up-left, dark lip down-right.
+  canvas.drawRRect(
+    top.deflate(tray.width * 0.006),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = tray.width * 0.012
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.36),
+          Colors.white.withValues(alpha: 0.04),
+          Colors.black.withValues(alpha: 0.20),
+        ],
+      ).createShader(tray),
+  );
+
+  // Wells, scooped out of the same stock.
+  for (var i = 0; i < 6; i++) {
+    _paintCarvedWell(canvas, _pitWellRRect(geom.cups[i]), geom, board, pit);
+    _paintCarvedWell(canvas, _pitWellRRect(geom.cups[7 + i]), geom, board, pit);
+  }
+  _paintCarvedWell(
+      canvas, _storeWellRRect(geom.northStore), geom, board, pit);
+  _paintCarvedWell(
+      canvas, _storeWellRRect(geom.southStore), geom, board, pit);
+}
+
+/// A scoop routed into the slab. Depth comes from three stacked cues: the
+/// occluded wall under the top-left rim, the lit far wall at bottom-right,
+/// and a rim that is dark where it is undercut and bright where it catches
+/// the key.
+void _paintCarvedWell(
+  Canvas canvas,
+  RRect well,
+  _BoardGeom geom,
+  Color board,
+  Color pit,
+) {
+  final rect = well.outerRect;
+  final lip = math.max(1.2, geom.pitD * 0.05);
+
+  // Cast shadow of the rim onto the wood just outside the well, opposite the
+  // key — a routed edge throws a little shade of its own.
+  canvas.drawRRect(
+    well.shift(Offset(-_kLight.dx * lip * 0.8, -_kLight.dy * lip * 0.8)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.10)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, lip * 1.2),
+  );
+
+  // Scoop floor: same wood, one step cooler, dark under the near wall.
+  canvas.drawRRect(
+    well,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment(_kLight.dx * 1.6, _kLight.dy * 1.6),
+        end: Alignment(-_kLight.dx * 1.6, -_kLight.dy * 1.6),
+        colors: [
+          Color.lerp(pit, const Color(0xFF4A3315), 0.42)!,
+          Color.lerp(pit, const Color(0xFF6B573A), 0.14)!,
+          pit,
+          Color.lerp(pit, Colors.white, 0.22)!,
+        ],
+        stops: const [0.0, 0.34, 0.72, 1.0],
+      ).createShader(rect),
+  );
+
+  canvas.save();
+  canvas.clipRRect(well);
+  // Occlusion pooling against the near wall.
+  canvas.drawOval(
+    Rect.fromLTWH(
+      rect.left - rect.width * 0.14,
+      rect.top - rect.height * 0.40,
+      rect.width * 1.28,
+      rect.height * 0.72,
+    ),
+    Paint()
+      ..color = const Color(0xFF3A2A14).withValues(alpha: 0.34)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, lip * 2.6),
+  );
+  // Light climbing the far wall.
+  canvas.drawOval(
+    Rect.fromLTWH(
+      rect.left + rect.width * 0.06,
+      rect.bottom - rect.height * 0.26,
+      rect.width * 0.88,
+      rect.height * 0.36,
+    ),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.26)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, lip * 2.0),
+  );
+  canvas.restore();
+
+  // Rim: undercut and dark on the key side, catching light on the far side.
+  canvas.drawRRect(
+    well,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = lip * 0.75
+      ..shader = LinearGradient(
+        begin: Alignment(_kLight.dx * 1.6, _kLight.dy * 1.6),
+        end: Alignment(-_kLight.dx * 1.6, -_kLight.dy * 1.6),
+        colors: [
+          const Color(0xFF4A3315).withValues(alpha: 0.42),
+          const Color(0xFF6B573A).withValues(alpha: 0.14),
+          Colors.white.withValues(alpha: 0.34),
+        ],
+      ).createShader(rect),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Felt table
+// ---------------------------------------------------------------------------
+
+class _FeltCache {
+  final double w;
+  final double h;
+  final int felt;
+  final ui.Picture picture;
+
+  _FeltCache(this.w, this.h, this.felt, this.picture);
+
+  bool matches(Size s, Color f) =>
+      w == s.width &&
+      h == s.height &&
+      // ignore: deprecated_member_use
+      felt == f.value;
+}
+
+final List<_FeltCache> _felts = [];
+
+/// Napped felt: a lit wash from the key, a deterministic fibre speckle, and a
+/// vignette that seats the panel in the surrounding dark.
+class _FeltPainter extends CustomPainter {
+  final Color felt;
+
+  const _FeltPainter(this.felt);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final f in _felts) {
+      if (f.matches(size, felt)) {
+        canvas.drawPicture(f.picture);
+        return;
+      }
+    }
+    final recorder = ui.PictureRecorder();
+    _record(Canvas(recorder), size);
+    final made = _FeltCache(
+      size.width,
+      size.height,
+      // ignore: deprecated_member_use
+      felt.value,
+      recorder.endRecording(),
+    );
+    _felts.insert(0, made);
+    while (_felts.length > 3) {
+      _felts.removeLast().picture.dispose();
+    }
+    canvas.drawPicture(made.picture);
+  }
+
+  void _record(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(_kLight.dx, _kLight.dy),
+          radius: 1.35,
+          colors: [
+            Color.lerp(felt, Colors.white, 0.10)!,
+            felt,
+            Color.lerp(felt, Colors.black, 0.34)!,
+          ],
+          stops: const [0.0, 0.42, 1.0],
+        ).createShader(rect),
+    );
+    final nap = Paint()
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+    final cols = (size.width / 5).ceil();
+    final rows = (size.height / 5).ceil();
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        final j = _noise(x, y, 7);
+        if (j < 0.45) continue;
+        final k = _noise(x, y, 19);
+        nap.color = (j > 0.78 ? Colors.white : Colors.black)
+            .withValues(alpha: 0.012 + k * 0.016);
+        final px = x * 5.0 + k * 5;
+        final py = y * 5.0 + j * 5;
+        canvas.drawLine(Offset(px, py), Offset(px + 1.6 + k, py + 0.8), nap);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FeltPainter old) => old.felt != felt;
+}
+
+// ---------------------------------------------------------------------------
 // Painter
 // ---------------------------------------------------------------------------
 
@@ -1215,12 +1443,21 @@ class _MancalaPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    _paintTray(canvas);
-    _paintStoreWell(canvas, geom.northStore, MancalaState.northStore);
-    _paintStoreWell(canvas, geom.southStore, MancalaState.southStore);
+    // The carved slab never moves: grain, wells and rims come from one cached
+    // picture, leaving only the state rings and the stones per frame.
+    canvas.drawPicture(_trayFor(size, geom, boardColor, pitColor));
     for (var i = 0; i < 6; i++) {
-      _paintPitWell(canvas, geom.cups[i], i);
-      _paintPitWell(canvas, geom.cups[7 + i], 7 + i);
+      _paintWellRing(canvas, _pitWellRRect(geom.cups[i]),
+          hi: highlight == i, legal: legal.contains(i));
+      _paintWellRing(canvas, _pitWellRRect(geom.cups[7 + i]),
+          hi: highlight == 7 + i, legal: legal.contains(7 + i));
+    }
+    for (final cup in const [
+      MancalaState.northStore,
+      MancalaState.southStore,
+    ]) {
+      _paintWellRing(canvas, _storeWellRRect(geom.cups[cup]),
+          hi: highlight == cup, legal: false);
     }
     for (var i = 0; i < 14; i++) {
       _paintMarblesInCup(canvas, i, pits[i]);
@@ -1229,342 +1466,249 @@ class _MancalaPainter extends CustomPainter {
     for (var i = 0; i < 14; i++) {
       _paintCountBadge(canvas, i, pits[i]);
     }
-    // Flying hand: cluster rides the arc; dropping stone peels into nest.
     for (final f in flyers) {
-      final r0 = _baseMarbleR * f.spec.sizeMul;
-      final start = geom.center(f.fromCup);
-      final end = f.isDropping && f.nestIndex >= 0
-          ? _nestPoint(
-              f.toCup,
-              f.nestIndex,
-              math.max(pits[f.toCup], f.nestIndex) + 1,
-            )
-          : geom.center(f.toCup);
-      final mid = Offset.lerp(start, end, f.t)!;
-      final dist = (end - start).distance;
-      final lift =
-          dist * f.liftMul * math.sin(math.pi * f.tRaw.clamp(0.0, 1.0));
-      // Cluster offset in flight; shrink toward path for droppers.
-      final cluster = f.clusterOffset * (f.isDropping ? 0.35 : 1.0);
-      final p = Offset(mid.dx + cluster.dx, mid.dy - lift + cluster.dy);
-      final shadowY = 2.5 + 11 * math.sin(math.pi * f.tRaw.clamp(0.0, 1.0));
-      canvas.save();
-      canvas.translate(p.dx, p.dy);
-      canvas.scale(f.scaleX, f.scaleY);
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(0, r0 * 0.55 + shadowY * 0.15),
-          width: r0 * 1.7,
-          height: r0 * 0.55,
-        ),
-        Paint()
-          ..color = Colors.black.withValues(alpha: 0.20 * f.opacity)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, r0 * 0.45),
-      );
-      _paintMarble3d(canvas, Offset.zero, r0, f.spec, opacity: f.opacity);
-      canvas.restore();
+      if (f.ballistic) {
+        _paintSownStone(canvas, f);
+      } else {
+        _paintArcedStone(canvas, f);
+      }
     }
   }
 
-  Offset _nestPoint(int cup, int index, int total) {
+  /// A stone in the hand, or falling out of it into a pit.
+  ///
+  /// The hand's travel is an eased carry — a hand is not a projectile. The
+  /// moment it opens, the stone becomes one: position, altitude and the frame
+  /// it enters the pit all come from the simulation in [dropFor].
+  void _paintSownStone(Canvas canvas, _Flyer f) {
+    final pitD = geom.pitD;
+    final origin = geom.center(f.fromCup);
+    final to = (geom.center(f.toCup) - origin) / pitD;
+
+    late Offset ground;
+    late double height;
+    var r = _baseMarbleR * f.spec.sizeMul;
+
+    if (f.released && f.nestIndex >= 0) {
+      final total = math.max(pits[f.toCup], f.nestIndex) + 1;
+      final slot = _nestSlot(f.toCup, f.nestIndex, total);
+      final drop = dropFor(
+        from: Offset.zero,
+        to: to,
+        rest: (slot.centre - origin) / pitD,
+        hopSeconds: _kHopSeconds,
+        physics: _kSow,
+      );
+      final t = (f.u - _kSow.releaseAt) * _kHopSeconds;
+      ground = origin + drop.groundAt(t) * pitD;
+      height = drop.heightAt(t) * pitD;
+      // Ease into the slot's pile scale as it settles, so it does not pop.
+      final k = (t / math.max(drop.totalTime, 1e-3)).clamp(0.0, 1.0);
+      r *= 1.0 + (slot.scale - 1.0) * k;
+    } else {
+      ground = origin +
+          handGroundAt(Offset.zero, to, f.u, _kSow) * pitD +
+          Offset(f.clusterOffset.dx, 0);
+      height = handHeightAt(f.u, _kSow) * pitD - f.clusterOffset.dy;
+    }
+
+    // The cast shadow tracks the stone's real altitude: tight and dark on the
+    // floor, wide and faint at carry height.
+    final lift = (height / (pitD * _kSow.handHeight)).clamp(0.0, 1.4);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(
+          ground.dx - _kLight.dx * r * 0.4,
+          ground.dy + r * 0.42,
+        ),
+        width: r * (1.5 + 0.9 * lift),
+        height: r * (0.48 + 0.30 * lift),
+      ),
+      Paint()
+        ..color = Colors.black
+            .withValues(alpha: (0.34 - 0.18 * lift) * f.opacity)
+        ..maskFilter =
+            MaskFilter.blur(BlurStyle.normal, r * (0.18 + 0.5 * lift)),
+    );
+
+    paintMarble(
+      canvas,
+      Offset(ground.dx, ground.dy - height),
+      r,
+      f.spec,
+      opacity: f.opacity,
+    );
+  }
+
+  /// Capture and end-of-game sweeps: an eased screen arc into the store.
+  void _paintArcedStone(Canvas canvas, _Flyer f) {
+    final r0 = _baseMarbleR * f.spec.sizeMul;
+    final start = geom.center(f.fromCup);
+    final end = f.nestIndex >= 0
+        ? _nestSlot(
+            f.toCup,
+            f.nestIndex,
+            math.max(pits[f.toCup], f.nestIndex) + 1,
+          ).centre
+        : geom.center(f.toCup);
+    final mid = Offset.lerp(start, end, f.t)!;
+    final dist = (end - start).distance;
+    final lift = dist * f.liftMul * math.sin(math.pi * f.tRaw.clamp(0.0, 1.0));
+    final cluster = f.clusterOffset * 0.35;
+    final p = Offset(mid.dx + cluster.dx, mid.dy - lift + cluster.dy);
+    final shadowY = 2.5 + 11 * math.sin(math.pi * f.tRaw.clamp(0.0, 1.0));
+    canvas.save();
+    canvas.translate(p.dx, p.dy);
+    canvas.scale(f.scaleX, f.scaleY);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(0, r0 * 0.55 + shadowY * 0.15),
+        width: r0 * 1.7,
+        height: r0 * 0.55,
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.20 * f.opacity)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r0 * 0.45),
+    );
+    paintMarble(canvas, Offset.zero, r0, f.spec, opacity: f.opacity);
+    canvas.restore();
+  }
+
+  /// The well a pile occupies, in the ellipse [pileLayout] packs into.
+  ({Offset centre, double rx, double ry}) _well(int cup) {
     final rect = geom.cups[cup];
     final isStore =
         cup == MancalaState.southStore || cup == MancalaState.northStore;
-    final nests = _packNests(
-      count: math.max(total, index + 1),
-      center: rect.center,
-      wellRx: isStore ? rect.width * 0.36 : rect.shortestSide * 0.40,
-      wellRy: isStore ? rect.height * 0.34 : rect.shortestSide * 0.40,
+    return (
+      centre: rect.center,
+      rx: isStore ? rect.width * 0.38 : rect.shortestSide * 0.40,
+      ry: isStore ? rect.height * 0.36 : rect.shortestSide * 0.40,
+    );
+  }
+
+  PileLayout _pile(int cup, int count) {
+    final w = _well(cup);
+    return pileLayout(
+      count: count,
+      centre: w.centre,
+      wellRx: w.rx,
+      wellRy: w.ry,
       marbleR: _baseMarbleR,
-      cupSeed: cup * 19,
+      seed: cup * 19,
     );
-    if (nests.isEmpty) return rect.center;
-    return nests[index.clamp(0, nests.length - 1)];
   }
 
-  void _paintTray(Canvas canvas) {
-    final tray = geom.tray;
-    final r = RRect.fromRectAndRadius(tray, Radius.circular(geom.cornerR));
-
-    // Ground shadow — soft and close; the pale slab floats just above the felt.
-    canvas.drawRRect(
-      r.shift(const Offset(0, 6)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.28)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11),
-    );
-
-    // Pale birch slab — stronger corner-to-corner drift for definition.
-    final woodTop = Color.lerp(boardColor, Colors.white, 0.26)!;
-    final woodMid = boardColor;
-    final woodBot = Color.lerp(boardColor, const Color(0xFF7A6647), 0.24)!;
-    canvas.drawRRect(
-      r,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [woodTop, woodMid, woodBot],
-          stops: const [0.0, 0.48, 1.0],
-        ).createShader(tray),
-    );
-
-    // Plank tone bands — broad soft vertical stripes of warmer wood.
-    final band = Paint()
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
-    band.color = const Color(0xFF8A7350).withValues(alpha: 0.06);
-    canvas.drawRect(
-      Rect.fromLTWH(
-        tray.left + tray.width * 0.28,
-        tray.top,
-        tray.width * 0.17,
-        tray.height,
-      ),
-      band,
-    );
-    band.color = const Color(0xFF8A7350).withValues(alpha: 0.045);
-    canvas.drawRect(
-      Rect.fromLTWH(
-        tray.left + tray.width * 0.64,
-        tray.top,
-        tray.width * 0.12,
-        tray.height,
-      ),
-      band,
-    );
-
-    // Sun-bleached worn patches so the face isn't a uniform fill.
-    final patch = Paint()
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
-    patch.color = Colors.white.withValues(alpha: 0.10);
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(
-          tray.center.dx - tray.width * 0.16,
-          tray.top + tray.height * 0.20,
-        ),
-        width: tray.width * 0.72,
-        height: tray.height * 0.16,
-      ),
-      patch,
-    );
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(
-          tray.center.dx + tray.width * 0.14,
-          tray.bottom - tray.height * 0.24,
-        ),
-        width: tray.width * 0.66,
-        height: tray.height * 0.14,
-      ),
-      patch,
-    );
-
-    // Long-grain: wavy bezier streaks with varied weight — real figure,
-    // not ruler lines.
-    final grain = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < 12; i++) {
-      final x = tray.left + tray.width * (0.09 + i * 0.075);
-      final bend = (((i * 37) % 11) - 5) * tray.width * 0.008;
-      final heavy = i % 3 == 0;
-      grain.color = const Color(0xFF8A7350)
-          .withValues(alpha: heavy ? 0.10 : (i.isEven ? 0.06 : 0.04));
-      grain.strokeWidth = heavy ? 1.5 : 1.0;
-      final path = Path()
-        ..moveTo(x, tray.top + tray.height * 0.03)
-        ..quadraticBezierTo(
-          x + bend,
-          tray.top + tray.height * 0.5,
-          x + bend * 0.35,
-          tray.bottom - tray.height * 0.03,
-        );
-      canvas.drawPath(path, grain);
+  PileSlot _nestSlot(int cup, int index, int total) {
+    final pile = _pile(cup, math.max(total, index + 1));
+    if (pile.slots.isEmpty) {
+      return PileSlot(
+        centre: geom.cups[cup].center,
+        scale: 1,
+        nearness: 0.5,
+        course: 0,
+        occlusion: 0,
+        occlusionFrom: Offset.zero,
+      );
     }
-
-    // Edge bevel: firmer dark outline + brighter inner top light so the
-    // slab reads as a cut piece of wood, not a flat sticker.
-    canvas.drawRRect(
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.4, geom.pitD * 0.042)
-        ..color = const Color(0xFF5E4C32).withValues(alpha: 0.40),
-    );
-    canvas.drawRRect(
-      r.deflate(math.max(1.2, geom.pitD * 0.034)),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.0, geom.pitD * 0.026)
-        ..color = Colors.white.withValues(alpha: 0.42),
-    );
+    return pile.slots[index.clamp(0, pile.slots.length - 1)];
   }
 
-  /// Elongated end-store carved into the slab (GP/real: fat oval at each end).
-  void _paintStoreWell(Canvas canvas, Rect rect, int cup) {
-    final rr = RRect.fromRectAndRadius(
-      rect,
-      Radius.circular(rect.shortestSide * 0.48),
-    );
-    final hi = highlight == cup || (captureFlash && cup == highlight);
-    _paintCarvedWell(canvas, rr, hi: hi, legal: false);
-  }
-
-  /// Round side-pit carved into the slab.
-  void _paintPitWell(Canvas canvas, Rect rect, int cup) {
-    final r = rect.shortestSide / 2;
-    final c = rect.center;
-    // Slight vertical squash so wells sit “into” the board face.
-    final well = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: c,
-        width: r * 2,
-        height: r * 1.92,
-      ),
-      Radius.circular(r),
-    );
-    _paintCarvedWell(
-      canvas,
-      well,
-      hi: highlight == cup,
-      legal: legal.contains(cup),
-    );
-  }
-
-  /// Shallow scoop pressed into the same pale wood (GP read) — the depth cue
-  /// is an inner top shadow + bottom lip light, not a dark bowl.
-  void _paintCarvedWell(
+  /// Just the state ring on a well rim; everything else is in the cached
+  /// picture. Kept quiet on purpose — GP shows nothing, hot-seat needs a hint.
+  void _paintWellRing(
     Canvas canvas,
     RRect well, {
     required bool hi,
     required bool legal,
   }) {
-    final rect = well.outerRect;
+    if (!hi && !legal) return;
     final lip = math.max(1.2, geom.pitD * 0.05);
-
-    // Scoop base: darker toward the top wall, lighter at the bottom lip
-    // (light from above on a shallow depression).
     canvas.drawRRect(
-      well,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color.lerp(pitColor, const Color(0xFF6B573A), 0.30)!,
-            pitColor,
-            Color.lerp(pitColor, Colors.white, 0.16)!,
-          ],
-          stops: const [0.0, 0.55, 1.0],
-        ).createShader(rect),
-    );
-
-    // Gentle floor shading so the middle reads deepest.
-    canvas.drawRRect(
-      well.deflate(lip),
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(0, -0.05),
-          radius: 0.9,
-          colors: [
-            Colors.black.withValues(alpha: 0.08),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.85],
-        ).createShader(rect),
-    );
-
-    // Inner top shadow + bottom inner light — the strongest depth cues.
-    canvas.save();
-    canvas.clipRRect(well);
-    canvas.drawOval(
-      Rect.fromLTWH(
-        rect.left - rect.width * 0.10,
-        rect.top - rect.height * 0.34,
-        rect.width * 1.20,
-        rect.height * 0.55,
-      ),
-      Paint()
-        ..color = const Color(0xFF4A3B24).withValues(alpha: 0.26)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, lip * 2.2),
-    );
-    canvas.drawOval(
-      Rect.fromLTWH(
-        rect.left + rect.width * 0.08,
-        rect.bottom - rect.height * 0.22,
-        rect.width * 0.84,
-        rect.height * 0.30,
-      ),
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.20)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, lip * 1.8),
-    );
-    canvas.restore();
-
-    // Rim: hairline dark crest above, light catch below (pressed-in edge).
-    canvas.drawRRect(
-      well,
+      well.inflate(lip * 0.3),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = lip * 0.6
-        ..shader = SweepGradient(
-          center: Alignment.center,
-          colors: [
-            Colors.white.withValues(alpha: 0.20),
-            const Color(0xFF6B573A).withValues(alpha: 0.10),
-            const Color(0xFF6B573A).withValues(alpha: 0.26),
-            const Color(0xFF6B573A).withValues(alpha: 0.10),
-            Colors.white.withValues(alpha: 0.16),
-          ],
-          stops: const [0.0, 0.2, 0.5, 0.75, 1.0],
-        ).createShader(rect),
+        ..strokeWidth = hi ? lip * 1.0 : lip * 0.7
+        ..color = const Color(0xFF8B6F47).withValues(alpha: hi ? 0.85 : 0.42),
     );
-
-    // Selection / legal cue: quiet wood-toned ring on the rim (GP shows
-    // nothing; hot-seat needs a hint, so keep it barely-there).
-    if (hi || legal) {
-      canvas.drawRRect(
-        well.inflate(lip * 0.3),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = hi ? lip * 1.0 : lip * 0.7
-          ..color = const Color(0xFF8B6F47)
-              .withValues(alpha: hi ? 0.85 : 0.42),
-      );
-    }
   }
 
   void _paintMarblesInCup(Canvas canvas, int cup, int count) {
     if (count <= 0) return;
-    final rect = geom.cups[cup];
     final isStore =
         cup == MancalaState.southStore || cup == MancalaState.northStore;
     final show = count.clamp(1, isStore ? 20 : 10);
-    final nests = _packNests(
-      count: show,
-      center: rect.center,
-      wellRx: isStore ? rect.width * 0.36 : rect.shortestSide * 0.40,
-      wellRy: isStore ? rect.height * 0.34 : rect.shortestSide * 0.40,
-      marbleR: _baseMarbleR,
-      cupSeed: cup * 19,
+    final pile = _pile(cup, show);
+    if (pile.slots.isEmpty) return;
+
+    // 1 — the pile's own shade pooled on the scoop floor. One soft mass, not
+    // a shadow per stone: a heap of stones darkens the wood as one object.
+    final well = _well(cup);
+    canvas.save();
+    canvas.clipRRect(
+      isStore
+          ? _storeWellRRect(geom.cups[cup])
+          : _pitWellRRect(geom.cups[cup]),
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: well.centre +
+            Offset(-_kLight.dx * _baseMarbleR * 0.5, _baseMarbleR * 0.55),
+        width: well.rx * (1.1 + 0.5 * (show / 6).clamp(0.0, 1.0)),
+        height: well.ry * (0.9 + 0.5 * (show / 6).clamp(0.0, 1.0)),
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.16)
+        ..maskFilter =
+            MaskFilter.blur(BlurStyle.normal, _baseMarbleR * 0.9),
     );
 
-    for (var i = 0; i < nests.length; i++) {
-      final spec = _MarbleSpec.at(cup: cup, slot: i);
-      final r = _baseMarbleR * spec.sizeMul;
-      final pos = nests[i];
+    // 2 — crevice occlusion where stones touch. Drawn under the stones so it
+    // only survives in the gaps, which is exactly where a real pile is darkest
+    // and what stops the heap reading as overlapping cutouts.
+    for (final c in pile.contacts) {
+      canvas.drawCircle(
+        c.at,
+        c.radius,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.42 * c.strength)
+          ..maskFilter =
+              MaskFilter.blur(BlurStyle.normal, c.radius * 0.55),
+      );
+    }
+    canvas.restore();
+
+    // 3 — the stones themselves, far wall of the scoop first.
+    for (final i in pile.order) {
+      final slot = pile.slots[i];
+      final spec = MarbleSpec.at(cup: cup, slot: i);
+      final r = _baseMarbleR * spec.sizeMul * slot.scale;
+
+      // Contact shadow: a tight dark core where the stone meets what is under
+      // it, softening outward. Stones riding a course cast onto the stones
+      // below rather than the wood, so theirs is tighter and darker.
+      final tight = slot.course > 0 ? 0.34 : 0.26;
       canvas.drawOval(
         Rect.fromCenter(
-          center: Offset(pos.dx, pos.dy + r * 0.48),
-          width: r * 1.55,
-          height: r * 0.52,
+          center: Offset(
+            slot.centre.dx - _kLight.dx * r * 0.26,
+            slot.centre.dy + r * (slot.course > 0 ? 0.62 : 0.48),
+          ),
+          width: r * 1.42,
+          height: r * 0.46,
         ),
         Paint()
-          ..color = Colors.black.withValues(alpha: 0.22)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.35),
+          ..color = Colors.black.withValues(alpha: tight)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.20),
       );
-      _paintMarble3d(canvas, pos, r, spec);
+
+      paintMarble(
+        canvas,
+        slot.centre,
+        r,
+        spec,
+        occlusion: slot.occlusion,
+        occlusionFrom: slot.occlusionFrom,
+      );
     }
 
     // Overflow count is handled by the side badge, not an overlay on stones.
@@ -1623,203 +1767,6 @@ class _MancalaPainter extends CustomPainter {
       canvas,
       Offset(anchor.dx - tp.width / 2, anchor.dy - tp.height / 2),
     );
-  }
-
-  /// Smooth glossy pebble: perfect rounded oval with readable lighting.
-  void _paintMarble3d(
-    Canvas canvas,
-    Offset c,
-    double r,
-    _MarbleSpec spec, {
-    double opacity = 1,
-  }) {
-    if (r < 0.5 || opacity <= 0.01) return;
-    final isWhite = spec.color == _PebbleColor.white;
-    final isBlack = spec.color == _PebbleColor.black;
-
-    canvas.save();
-    canvas.translate(c.dx, c.dy);
-    canvas.rotate(spec.rotation);
-    canvas.scale(spec.squashX, spec.squashY);
-
-    final oval = Rect.fromCircle(center: Offset.zero, radius: r);
-
-    // Soft contact rim — quiet on pale wood; the drop shadow separates stones.
-    canvas.drawOval(
-      oval.inflate(r * 0.06),
-      Paint()
-        ..color = Colors.white.withValues(
-          alpha: (isBlack ? 0.10 : (isWhite ? 0.04 : 0.06)) * opacity,
-        ),
-    );
-
-    // Body volume — more stops so whites show form, not a flat blob.
-    canvas.drawOval(
-      oval,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.40, -0.45),
-          radius: 1.15,
-          colors: [
-            spec.hi.withValues(alpha: opacity),
-            Color.lerp(spec.hi, spec.base, 0.45)!.withValues(alpha: opacity),
-            spec.base.withValues(alpha: opacity),
-            Color.lerp(spec.base, spec.shade, 0.55)!.withValues(alpha: opacity),
-            spec.shade.withValues(alpha: opacity),
-          ],
-          stops: const [0.0, 0.22, 0.48, 0.78, 1.0],
-        ).createShader(oval),
-    );
-
-    // Environment-ish cool reflection strip (reads on white/grey especially).
-    final envAlpha = isWhite
-        ? 0.28
-        : isBlack
-            ? 0.12
-            : 0.18;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(r * 0.18, r * 0.05),
-        width: r * 0.55,
-        height: r * 0.70,
-      ),
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF8EADCF).withValues(alpha: envAlpha * opacity),
-            const Color(0xFF8EADCF).withValues(alpha: 0),
-          ],
-        ).createShader(
-          Rect.fromCenter(
-            center: Offset(r * 0.18, r * 0.05),
-            width: r * 0.55,
-            height: r * 0.70,
-          ),
-        ),
-    );
-
-    // Warm bounce from the wood board (grounds white stones).
-    final woodAlpha = isWhite ? 0.22 : (isBlack ? 0.08 : 0.10);
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(r * 0.05, r * 0.38),
-        width: r * 1.15,
-        height: r * 0.55,
-      ),
-      Paint()
-        ..shader = RadialGradient(
-          center: Alignment.bottomCenter,
-          radius: 1.0,
-          colors: [
-            const Color(0xFFC4A574).withValues(alpha: woodAlpha * opacity),
-            const Color(0xFFC4A574).withValues(alpha: 0),
-          ],
-        ).createShader(
-          Rect.fromCenter(
-            center: Offset(r * 0.05, r * 0.38),
-            width: r * 1.15,
-            height: r * 0.55,
-          ),
-        ),
-    );
-
-    // Broad primary sheen.
-    final sheenA = isWhite ? 0.72 : (isBlack ? 0.45 : 0.58);
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(-r * 0.24, -r * 0.32),
-        width: r * 0.78,
-        height: r * 0.50,
-      ),
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            Colors.white.withValues(alpha: sheenA * opacity),
-            Colors.white.withValues(alpha: 0),
-          ],
-        ).createShader(
-          Rect.fromCenter(
-            center: Offset(-r * 0.24, -r * 0.32),
-            width: r * 0.78,
-            height: r * 0.50,
-          ),
-        ),
-    );
-
-    // Tight specular.
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(-r * 0.30, -r * 0.36),
-        width: r * 0.30,
-        height: r * 0.22,
-      ),
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            Colors.white.withValues(alpha: 0.92 * opacity),
-            Colors.white.withValues(alpha: 0),
-          ],
-        ).createShader(
-          Rect.fromCenter(
-            center: Offset(-r * 0.30, -r * 0.36),
-            width: r * 0.30,
-            height: r * 0.22,
-          ),
-        ),
-    );
-
-    // Secondary glint (opposite side).
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(r * 0.32, r * 0.18),
-        width: r * 0.22,
-        height: r * 0.14,
-      ),
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            Colors.white.withValues(alpha: (isWhite ? 0.35 : 0.22) * opacity),
-            Colors.white.withValues(alpha: 0),
-          ],
-        ).createShader(
-          Rect.fromCenter(
-            center: Offset(r * 0.32, r * 0.18),
-            width: r * 0.22,
-            height: r * 0.14,
-          ),
-        ),
-    );
-
-    // Bottom rim light.
-    canvas.drawArc(
-      oval.deflate(r * 0.06),
-      0.4,
-      math.pi * 0.9,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.08
-        ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(
-          alpha: (isBlack ? 0.22 : (isWhite ? 0.28 : 0.14)) * opacity,
-        ),
-    );
-
-    // Silhouette — a whisper; GP marbles have no drawn outline, shadow and
-    // shading do the separating.
-    canvas.drawOval(
-      oval,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(0.7, r * 0.045)
-        ..color = Colors.black.withValues(
-          alpha: (isWhite ? 0.10 : (isBlack ? 0.14 : 0.12)) * opacity,
-        ),
-    );
-
-    canvas.restore();
   }
 
   @override

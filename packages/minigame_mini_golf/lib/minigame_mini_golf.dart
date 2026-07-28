@@ -24,5 +24,5 @@ export 'src/mini_golf_sounds.dart' show MiniGolfSounds;
 export 'src/mini_golf_style.dart' show MiniGolfStyle;
 export 'src/mini_golf_tile_art.dart' show MiniGolfTileArt;
 export 'src/mini_golf_view.dart'
-    show MiniGolfAimView, MiniGolfBallView, MiniGolfView;
-export 'src/mini_golf_world.dart' show MiniGolfWorld;
+    show MiniGolfAimView, MiniGolfBallView, MiniGolfImpactView, MiniGolfView;
+export 'src/mini_golf_world.dart' show BallRoll, MiniGolfWorld;

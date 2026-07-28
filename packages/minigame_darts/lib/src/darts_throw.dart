@@ -363,6 +363,16 @@ class DartsImpact {
   /// Unit direction the dart was travelling at impact — the angle it sticks at.
   final Vec3 direction;
 
+  /// Arrival speed, m/s. Pure presentation: how hard the thud is, how far the
+  /// beds are pushed and how much the shaft rings. Nothing in the rules reads
+  /// it.
+  final double speed;
+
+  /// True when the point landed on a wire and was kicked clear of it — see
+  /// [DartsWire]. The score is the bed it was kicked *into*, which is the bed
+  /// it is drawn sitting in.
+  final bool deflected;
+
   const DartsImpact({
     required this.point,
     required this.boardX,
@@ -371,10 +381,106 @@ class DartsImpact {
     required this.onBoard,
     required this.onFloor,
     required this.direction,
+    this.speed = 0,
+    this.deflected = false,
   });
 
   /// Distance from the bullseye on the board face, metres.
   double get radius => math.sqrt(boardX * boardX + boardY * boardY);
+
+  /// Arrival speed as 0..1 over the band a throw can actually produce. Used to
+  /// scale the impact's whole presentation — sound, haptic, wobble, quiver.
+  double get strength =>
+      ((speed - DartsWire.softArrival) /
+              (DartsWire.hardArrival - DartsWire.softArrival))
+          .clamp(0.0, 1.0);
+}
+
+/// The spider, as an obstacle rather than as paint.
+///
+/// A dart cannot come to rest balanced on a wire: it is thrown off into one of
+/// the two beds the wire divides. Before this, a point that landed on a wire
+/// silently resolved to whichever bed the floating-point angle happened to fall
+/// in — the dart was drawn sitting *on* the wire while the scoreboard quietly
+/// claimed the bed next to it. Now the point is kicked clear first and the
+/// score is read afterwards, so the dart is always in the bed it scored.
+///
+/// The scoring geometry itself is untouched: [DartsBoardGeometry.hitAt] still
+/// decides everything, it is simply asked about a point no dart could balance
+/// on.
+abstract final class DartsWire {
+  /// Half the spider's thickness, in board-face metres. A dart whose point
+  /// lands inside this band of a wire has struck the wire.
+  static const double halfWidth = 0.0012;
+
+  /// How far clear of the wire's centre line a deflected dart ends up. Wide
+  /// enough that the dart is visibly beside the wire rather than under it.
+  static const double clearance = 0.0052;
+
+  /// Arrival speeds that read as a floated dart and as a rifled one, m/s.
+  static const double softArrival = 5.4;
+  static const double hardArrival = 7.4;
+
+  /// The ring wires, as fractions of the scoring radius.
+  static const List<double> ringRatios = [
+    DartsBoardGeometry.innerBullRatio,
+    DartsBoardGeometry.outerBullRatio,
+    DartsBoardGeometry.innerTrebleRatio,
+    DartsBoardGeometry.outerTrebleRatio,
+    DartsBoardGeometry.innerDoubleRatio,
+    1.0,
+  ];
+
+  /// ([x], [y]) kicked clear of any wire it landed on, plus whether it was.
+  ///
+  /// Deterministic: a point sitting exactly on a wire goes to the outer /
+  /// clockwise side every time, so the same throw always scores the same. The
+  /// outermost ring wire is the one exception — it always kicks *inward*,
+  /// because a dart deflected off the outer edge of the double stays in the
+  /// board rather than being promoted to a miss.
+  static (double, double, bool) deflect(double x, double y,
+      {required double boardRadius}) {
+    if (boardRadius <= 0) return (x, y, false);
+    var px = x;
+    var py = y;
+    var hit = false;
+
+    final r = math.sqrt(px * px + py * py);
+    if (r > 1e-9 && r <= boardRadius + halfWidth) {
+      for (final ratio in ringRatios) {
+        final wire = ratio * boardRadius;
+        final d = r - wire;
+        if (d.abs() >= halfWidth) continue;
+        final outward = ratio >= 1.0 ? -1.0 : (d >= 0 ? 1.0 : -1.0);
+        final target = wire + outward * clearance;
+        px *= target / r;
+        py *= target / r;
+        hit = true;
+        break;
+      }
+    }
+
+    // Sector wires only exist outside the outer bull — inside it the board is
+    // one continuous bed and there is nothing to strike.
+    final r2 = math.sqrt(px * px + py * py);
+    final bull = DartsBoardGeometry.outerBullRatio * boardRadius;
+    if (r2 > bull && r2 <= boardRadius) {
+      const span = DartsBoardGeometry.sectorSpan;
+      final angle = math.atan2(px, py);
+      // Wires sit at the half-sector offsets, so they are the integers of this.
+      final n = (angle / span - 0.5).roundToDouble();
+      final wireAngle = (n + 0.5) * span;
+      final delta = angle - wireAngle;
+      if ((delta * r2).abs() < halfWidth) {
+        final side = delta >= 0 ? 1.0 : -1.0;
+        final kicked = wireAngle + side * clearance / r2;
+        px = math.sin(kicked) * r2;
+        py = math.cos(kicked) * r2;
+        hit = true;
+      }
+    }
+    return (px, py, hit);
+  }
 }
 
 /// One dart in flight: a fixed-step [Projectile] plus swept board detection.
@@ -442,19 +548,32 @@ class DartsFlight {
   }
 
   DartsImpact _impactAt(Vec3 at, {required bool onFloor}) {
-    final bx = at.x;
-    final by = at.y - DartsWorld.boardCentreY;
+    var bx = at.x;
+    var by = at.y - DartsWorld.boardCentreY;
+    var deflected = false;
+    if (!onFloor) {
+      // The wire gets its say before the scorer does: a dart never rests on a
+      // wire, so the point handed to [DartsBoardGeometry.hitAt] is one a dart
+      // could actually be standing on.
+      final (dx, dy, kicked) =
+          DartsWire.deflect(bx, by, boardRadius: DartsWorld.boardRadius);
+      bx = dx;
+      by = dy;
+      deflected = kicked;
+    }
     final hit = onFloor
         ? DartHit.miss
         : DartsBoardGeometry.hitAt(bx, by, radius: DartsWorld.boardRadius);
     return DartsImpact(
-      point: at,
+      point: onFloor ? at : Vec3(bx, by + DartsWorld.boardCentreY, at.z),
       boardX: bx,
       boardY: by,
       hit: hit,
       onBoard: !onFloor && !hit.isMiss,
       onFloor: onFloor,
       direction: _projectile.velocity.normalized,
+      speed: _projectile.velocity.length,
+      deflected: deflected,
     );
   }
 

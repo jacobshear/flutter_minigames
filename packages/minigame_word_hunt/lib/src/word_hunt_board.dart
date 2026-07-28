@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:minigames_core/minigames_core.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'word_hunt_game.dart';
 import 'word_hunt_style.dart';
@@ -11,7 +12,7 @@ import 'word_hunt_style.dart';
 /// Hot-seat Word Hunt round flow wired to a [MatchController].
 ///
 /// Self-contains the GP chrome: pine felt table, player chips above and below
-/// the parchment slab, translucent black pills for transient messages.
+/// the parchment slab, and a [GameNotice] for the word you just traced.
 /// Flow: "Player 1 ready?" cover → timed round with live drag-trace feedback
 /// → handoff cover → player 2 round → results (word lists, solution list,
 /// winner banner). Timing is enforced here, client-side, GamePigeon-style;
@@ -38,34 +39,17 @@ class WordHuntBoard extends StatefulWidget {
 
 enum _TraceStatus { neutral, valid, duplicate }
 
-enum _PopupKind { scored, duplicate, invalid }
-
 class _WordHuntBoardState extends State<WordHuntBoard>
     with TickerProviderStateMixin {
   WordHuntState? _state;
   StreamSubscription<WordHuntState>? _sub;
 
-  late final AnimationController _roundCtrl = AnimationController(
-    vsync: this,
-    duration: Duration(seconds: widget.style.roundSeconds),
-  )..addStatusListener((status) {
-      if (status == AnimationStatus.completed) _endRound();
-    });
-
-  late final AnimationController _popupCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1100),
-  );
-
-  late final AnimationController _flashCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 420),
-  );
-
-  late final AnimationController _entrance = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 500),
-  )..forward();
+  // Assigned in initState, never from a field initialiser: a `late final x =
+  // AnimationController(...)` that first runs during dispose() looks up a
+  // deactivated element's ancestor and throws.
+  late final AnimationController _roundCtrl;
+  late final AnimationController _flashCtrl;
+  late final AnimationController _entrance;
 
   bool _roundActive = false;
   bool _submitting = false;
@@ -78,9 +62,15 @@ class _WordHuntBoardState extends State<WordHuntBoard>
   final Set<String> _roundWordSet = {};
   int _roundScore = 0;
 
-  String _popupText = '';
-  String _popupPoints = '';
-  _PopupKind _popupKind = _PopupKind.scored;
+  /// The word just traced, and how it landed. Transient by nature, so it is a
+  /// notice rather than a pill: it arrives, says its piece and retracts.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.score;
+
+  /// How long a traced word stays up. [GameNotice] owns the countdown and
+  /// will not re-present a line it has already dismissed, so the board runs no
+  /// timer of its own.
+  static const Duration _kNoticeLife = Duration(milliseconds: 1400);
 
   List<String>? _solutions;
 
@@ -90,6 +80,20 @@ class _WordHuntBoardState extends State<WordHuntBoard>
   @override
   void initState() {
     super.initState();
+    _roundCtrl = AnimationController(
+      vsync: this,
+      duration: Duration(seconds: widget.style.roundSeconds),
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.completed) _endRound();
+      });
+    _flashCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..forward();
     _state = widget.controller.state;
     _sub = widget.controller.stateStream.listen(_onState);
   }
@@ -98,7 +102,6 @@ class _WordHuntBoardState extends State<WordHuntBoard>
   void dispose() {
     _sub?.cancel();
     _roundCtrl.dispose();
-    _popupCtrl.dispose();
     _flashCtrl.dispose();
     _entrance.dispose();
     super.dispose();
@@ -179,6 +182,11 @@ class _WordHuntBoardState extends State<WordHuntBoard>
       _trace
         ..clear()
         ..add(cell);
+      // Starting a new trace clears the last verdict. It also lets the same
+      // verdict be raised again — a notice will not re-present a message it
+      // already dismissed unless the caller lets go of it first, and tracing
+      // the same duplicate twice is routine here.
+      _notice = null;
     });
     _style.sounds.onTilePick?.call();
     if (_style.haptics) HapticFeedback.selectionClick();
@@ -221,33 +229,30 @@ class _WordHuntBoardState extends State<WordHuntBoard>
         _roundWords.add(TracedWord(word, path));
         _roundWordSet.add(word);
         _roundScore += points;
-        _popupText = word.toUpperCase();
-        _popupPoints = '+$points';
-        _popupKind = _PopupKind.scored;
+        _raise('${word.toUpperCase()}  +$points', GameNoticeTone.score);
       });
-      _popupCtrl.forward(from: 0);
       _style.sounds.onWordFound?.call();
       if (_style.haptics) HapticFeedback.lightImpact();
     } else if (status == _TraceStatus.duplicate) {
       setState(() {
-        _popupText = word.toUpperCase();
-        _popupPoints = 'Already found';
-        _popupKind = _PopupKind.duplicate;
+        _raise('${word.toUpperCase()} — already found', GameNoticeTone.info);
       });
-      _popupCtrl.forward(from: 0);
       _style.sounds.onInvalid?.call();
     } else if (word.length >= WordHuntGame.minWordLength) {
       setState(() {
         _flashPath = path;
-        _popupText = word.toUpperCase();
-        _popupPoints = 'Not a word';
-        _popupKind = _PopupKind.invalid;
+        // A refusal shakes, which is exactly the read wanted here.
+        _raise('${word.toUpperCase()} — not a word', GameNoticeTone.warn);
       });
       _flashCtrl.forward(from: 0);
-      _popupCtrl.forward(from: 0);
       _style.sounds.onInvalid?.call();
       if (_style.haptics) HapticFeedback.selectionClick();
     }
+  }
+
+  void _raise(String message, GameNoticeTone tone) {
+    _notice = message;
+    _noticeTone = tone;
   }
 
   // -------------------------------------------------------------------------
@@ -345,27 +350,13 @@ class _WordHuntBoardState extends State<WordHuntBoard>
     final trailing = outcome != null || done
         ? ' · ${state.scoreOf(id)}'
         : (active && _roundActive ? ' · $_roundScore' : '');
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: active || winner ? 0.34 : 0.18),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: winner
-              ? const Color(0xFFF4B740)
-              : Colors.white.withValues(alpha: active ? 0.45 : 0.12),
-          width: winner ? 2 : 1,
-        ),
-      ),
-      child: Text(
-        '$label$trailing',
-        style: TextStyle(
-          color: Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
-          fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
-          fontSize: 13,
-        ),
-      ),
+    // Whose seat this is and what they have scored is a state, not an event:
+    // the static pill, never a notice.
+    return GamePill(
+      text: '$label$trailing',
+      strong: active || winner,
+      accent: winner ? const Color(0xFFF4B740) : null,
+      dot: winner,
     );
   }
 
@@ -492,7 +483,76 @@ class _WordHuntBoardState extends State<WordHuntBoard>
             },
           ),
         ),
+        _buildFoundRail(scheme),
       ],
+    );
+  }
+
+  /// The words taken so far this round, newest first.
+  ///
+  /// The counter alone told you *how many* you had while the board sat over a
+  /// strip of empty felt; the words themselves are what stops you retracing
+  /// one you already have, and they earn the space.
+  Widget _buildFoundRail(ColorScheme scheme) {
+    final valid = _style.resolveValid(scheme);
+    return SizedBox(
+      height: 44,
+      child: _roundWords.isEmpty
+          ? Center(
+              child: Text(
+                'Trace three letters or more',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.42),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            )
+          : ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              itemCount: _roundWords.length,
+              itemBuilder: (context, i) {
+                final w = _roundWords[_roundWords.length - 1 - i].word;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 5),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      // The newest sits brightest, so the eye lands on what
+                      // just happened without re-reading the row.
+                      color: valid.withValues(alpha: i == 0 ? 0.60 : 0.22),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          w.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${WordHuntGame.scoreForLength(w.length)}',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.72),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 
@@ -565,6 +625,16 @@ class _WordHuntBoardState extends State<WordHuntBoard>
             ),
           ),
         ),
+        // Grain. A flat gradient reads as a coloured rectangle; laid paper has
+        // fibre in it and dirties toward its edges where hands have held it.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(geom.side * 0.05),
+              child: CustomPaint(painter: _ParchmentPainter(board)),
+            ),
+          ),
+        ),
         // Tiles.
         for (var i = 0; i < state.letters.length; i++)
           _tile(state, i, geom, traceColor, scheme),
@@ -586,12 +656,12 @@ class _WordHuntBoardState extends State<WordHuntBoard>
             ),
           ),
         ),
-        // Word/score popup.
+        // The word you just traced.
         Positioned(
-          top: geom.side * 0.03,
+          top: geom.side * 0.035,
           left: 0,
           right: 0,
-          child: IgnorePointer(child: _popup()),
+          child: IgnorePointer(child: Center(child: _noticeWidget())),
         ),
       ],
     );
@@ -649,63 +719,17 @@ class _WordHuntBoardState extends State<WordHuntBoard>
     );
   }
 
-  Widget _popup() {
-    return AnimatedBuilder(
-      animation: _popupCtrl,
-      builder: (context, _) {
-        final t = _popupCtrl.value;
-        if (t <= 0 || t >= 1 || _popupText.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        final inT = Curves.easeOutBack.transform((t / 0.18).clamp(0.0, 1.0));
-        final fade = t < 0.75 ? 1.0 : 1 - (t - 0.75) / 0.25;
-        final pointsColor = switch (_popupKind) {
-          _PopupKind.scored => const Color(0xFFF4B740),
-          _PopupKind.duplicate => Colors.white70,
-          _PopupKind.invalid => const Color(0xFFFF8A75),
-        };
-        return Center(
-          child: Opacity(
-            opacity: (fade * inT).clamp(0.0, 1.0),
-            child: Transform.scale(
-              scale: 0.8 + 0.2 * inT,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.58),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _popupText,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _popupPoints,
-                      style: TextStyle(
-                        color: pointsColor,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
+  /// The traced-word message.
+  ///
+  /// One animating node, never an [AnimatedSwitcher]: the same word is traced
+  /// again constantly in this game — a duplicate, then the same duplicate
+  /// again — and a switcher keyed on the text would mount the repeat beside
+  /// its own still-leaving copy and throw "Duplicate keys found".
+  Widget _noticeWidget() => GameNotice(
+        message: _notice,
+        tone: _noticeTone,
+        autoDismiss: _kNoticeLife,
+      );
 
   // -------------------------------------------------------------------------
   // Results
@@ -728,21 +752,12 @@ class _WordHuntBoardState extends State<WordHuntBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.58),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            banner,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
-              letterSpacing: 1.1,
-            ),
-          ),
+        // The result is not news by the time this screen is up — it is the
+        // heading of a page you sit and read. A pill, not a notice.
+        GamePill(
+          text: banner,
+          strong: true,
+          accent: outcome.isDraw ? null : const Color(0xFFF4B740),
         ),
         const SizedBox(height: 12),
         Row(
@@ -959,6 +974,67 @@ class _GridGeom {
     final d = (local - center(index)).distance;
     return d <= cell * 0.44 ? index : null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Parchment
+// ---------------------------------------------------------------------------
+
+/// Deterministic hash in `[0, 1)` — no `Random` anywhere in painting, so the
+/// same slab renders identically every frame and in every test.
+double _grain(int x, int y, int seed) {
+  var n = (x * 374761393) ^ (y * 668265263) ^ (seed * 1274126177);
+  n = (n ^ (n >> 13)) * 1274126177;
+  n = n ^ (n >> 16);
+  return (n & 0x3fffffff) / 0x3fffffff;
+}
+
+/// Laid paper: short fibres running with the grain, plus a soft dirty edge.
+class _ParchmentPainter extends CustomPainter {
+  final Color board;
+
+  const _ParchmentPainter(this.board);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fibre = Paint()
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+    final cols = (size.width / 5).ceil();
+    final rows = (size.height / 5).ceil();
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        final j = _grain(x, y, 11);
+        if (j < 0.55) continue;
+        final k = _grain(x, y, 29);
+        fibre.color = (j > 0.82 ? Colors.white : const Color(0xFF6B5A33))
+            .withValues(alpha: 0.03 + k * 0.05);
+        final px = x * 5.0 + k * 5;
+        final py = y * 5.0 + j * 5;
+        canvas.drawLine(Offset(px, py), Offset(px + 2.2 + k, py), fibre);
+      }
+    }
+
+    // Edges darken the way a much-handled sheet does.
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.2, -0.3),
+          radius: 0.95,
+          colors: [
+            const Color(0x00000000),
+            Color.lerp(board, const Color(0xFF6B5A33), 0.30)!
+                .withValues(alpha: 0.20),
+          ],
+          stops: const [0.62, 1.0],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ParchmentPainter old) => old.board != board;
 }
 
 // ---------------------------------------------------------------------------

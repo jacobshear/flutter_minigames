@@ -2,170 +2,259 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:minigame_mancala/minigame_mancala.dart';
 import 'package:minigames_core/minigames_core.dart';
 
+const capture = MancalaGame(seedsPerPit: 4, mode: MancalaMode.capture);
+const avalanche = MancalaGame(seedsPerPit: 4, mode: MancalaMode.avalanche);
+
+MancalaState fresh([MancalaGame g = capture, int seed = 0]) =>
+    g.initialState(seed: seed, playerIds: const ['s', 'n']);
+
+/// A board built from explicit pit counts, so a rule can be tested in isolation
+/// rather than by playing into the situation.
+MancalaState board(Map<int, int> counts, {String turn = 's'}) {
+  final pits = List<int>.filled(MancalaState.pitCount, 0);
+  counts.forEach((k, v) => pits[k] = v);
+  return MancalaState(
+    pits: pits,
+    playerIds: const ['s', 'n'],
+    currentPlayerId: turn,
+  );
+}
+
 void main() {
-  const game = MancalaGame(seedsPerPit: 4);
-  MancalaState fresh() =>
-      game.initialState(seed: 0, playerIds: const ['s', 'n']);
-
-  group('MancalaGame', () {
-    test('opening: south to move, 4 in each side pit, empty stores', () {
+  group('opening', () {
+    test('is scattered, not four flat', () {
       final s = fresh();
-      expect(game.currentPlayer(s), 's');
-      expect(s.pits[MancalaState.southStore], 0);
-      expect(s.pits[MancalaState.northStore], 0);
-      for (var i = 0; i < 6; i++) {
-        expect(s.pits[i], 4);
-        expect(s.pits[7 + i], 4);
+      final south = [for (var i = 0; i < 6; i++) s.pits[i]];
+      expect(south.toSet().length, greaterThan(1),
+          reason: 'a flat opening is the old behaviour');
+    });
+
+    test('both sides get the same counts, so nobody starts ahead', () {
+      for (final seed in [0, 1, 7, 42, 1234]) {
+        final s = fresh(capture, seed);
+        for (var i = 0; i < 6; i++) {
+          expect(s.pits[i], s.pits[7 + i],
+              reason: 'seed $seed: pit $i is not mirrored');
+        }
       }
-      expect(game.legalPits(s, 's'), [0, 1, 2, 3, 4, 5]);
     });
 
-    test('sow distributes and skips opponent store', () {
-      // Isolated sow that ends on empty: no relay.
-      final pits = List<int>.filled(14, 0);
-      pits[0] = 2; // → 1, then 2 (empty land)
-      pits[8] = 1; // keep north alive
-      var s = MancalaState(
-        pits: pits,
-        playerIds: const ['s', 'n'],
-        currentPlayerId: 's',
-      );
-      s = game.applyMove(s, const MancalaMove(0));
-      expect(s.pits[0], 0);
-      expect(s.pits[1], 1);
-      expect(s.pits[2], 1);
-      expect(s.lastPath, [1, 2]);
-      expect(game.currentPlayer(s), 'n');
+    test('the total is preserved and every pit is playable', () {
+      for (final seed in [0, 3, 9, 77, 5000]) {
+        final s = fresh(capture, seed);
+        var south = 0;
+        for (var i = 0; i < 6; i++) {
+          expect(s.pits[i], greaterThan(0),
+              reason: 'seed $seed: pit $i is empty at the start');
+          south += s.pits[i];
+        }
+        expect(south, 24, reason: 'seed $seed: side total drifted');
+        expect(s.pits[MancalaState.southStore], 0);
+        expect(s.pits[MancalaState.northStore], 0);
+      }
     });
 
-    test('last seed in own store grants free re-pick (extra turn)', () {
-      var s = fresh();
-      // Pit 2 with 4 seeds: 3,4,5,6 — last in store.
-      s = game.applyMove(s, const MancalaMove(2));
-      expect(s.lastExtraTurn, isTrue);
-      expect(game.currentPlayer(s), 's');
+    test('is deterministic per seed and differs between seeds', () {
+      expect(MancalaGame.scatterOpening(seed: 5),
+          MancalaGame.scatterOpening(seed: 5));
+      var different = 0;
+      for (var seed = 1; seed <= 30; seed++) {
+        if (MancalaGame.scatterOpening(seed: seed).toString() !=
+            MancalaGame.scatterOpening(seed: 0).toString()) {
+          different++;
+        }
+      }
+      expect(different, greaterThan(20), reason: 'seeds barely vary the board');
+    });
+
+    test('south is to move and may play any pit', () {
+      final s = fresh();
+      expect(capture.currentPlayer(s), 's');
+      expect(capture.legalPits(s, 's'), [0, 1, 2, 3, 4, 5]);
+    });
+  });
+
+  group('shared by both modes', () {
+    test('sowing skips the opponent store', () {
+      // South sows 3 from pit 5: store(6), 7, 8 — never 13.
+      // Pit 0 keeps south alive; emptying a whole side triggers the sweep and
+      // would clear north before we could look at it.
+      var s = board({5: 3, 0: 1, 9: 1}, turn: 's');
+      s = capture.applyMove(s, const MancalaMove(5));
       expect(s.pits[MancalaState.southStore], 1);
+      expect(s.pits[7], 1);
+      expect(s.pits[8], 1);
+      expect(s.pits[MancalaState.northStore], 0);
     });
 
-    test('last seed in occupied pit picks up stack and keeps sowing', () {
-      // South pit 0 has 1 → lands on pit 1 which already has 2.
-      // After land, pit 1 has 3 → pick up all 3 and continue → 2,3,4.
-      final pits = List<int>.filled(14, 0);
-      pits[0] = 1;
-      pits[1] = 2;
-      pits[9] = 1; // keep north alive (not opposite of final land 4→8)
-      var s = MancalaState(
-        pits: pits,
-        playerIds: const ['s', 'n'],
-        currentPlayerId: 's',
-      );
-      s = game.applyMove(s, const MancalaMove(0));
-      // Path: deposit 1, pick up 3 from 1, deposit 2,3,4.
-      expect(s.lastPath, [1, 2, 3, 4]);
-      expect(s.pits[0], 0);
-      expect(s.pits[1], 0); // emptied when picked up
+    test('last seed in your own store grants an extra turn', () {
+      for (final g in [capture, avalanche]) {
+        var s = board({4: 2, 9: 1}, turn: 's'); // 5, then store
+        s = g.applyMove(s, const MancalaMove(4));
+        expect(s.pits[MancalaState.southStore], 1, reason: '${g.mode}');
+        expect(s.lastExtraTurn, isTrue, reason: '${g.mode}');
+        expect(g.currentPlayer(s), 's', reason: '${g.mode}');
+      }
+    });
+
+    test('a side running dry sweeps the other side and ends the game', () {
+      // South plays its last seed into its store; north still holds seeds.
+      var s = board({5: 1, 8: 2, 10: 3}, turn: 's');
+      s = capture.applyMove(s, const MancalaMove(5));
+      for (var i = 7; i < 13; i++) {
+        expect(s.pits[i], 0, reason: 'north should have been swept');
+      }
+      expect(s.pits[MancalaState.northStore], 5);
+      expect(capture.outcome(s), isNotNull);
+    });
+
+    test('higher store wins once both sides are empty', () {
+      final s = board({
+        MancalaState.southStore: 20,
+        MancalaState.northStore: 10,
+      });
+      expect(capture.outcome(s), const GameOutcome.win('s'));
+    });
+
+    test('rejects an empty pit, opponent pits, and out-of-turn play', () {
+      final s = board({0: 0, 1: 3, 8: 2}, turn: 's');
+      expect(capture.validateMove(s, const MancalaMove(0), 's'), isFalse);
+      expect(capture.validateMove(s, const MancalaMove(8), 's'), isFalse);
+      expect(capture.validateMove(s, const MancalaMove(1), 'n'), isFalse);
+      expect(capture.validateMove(s, const MancalaMove(1), 's'), isTrue);
+    });
+  });
+
+  group('capture mode', () {
+    test('landing in an empty own pit takes it and the pit opposite', () {
+      // Pit 0 has 1 → lands in empty pit 1. Opposite of 1 is 11.
+      var s = board({0: 1, 11: 4, 9: 1}, turn: 's');
+      s = capture.applyMove(s, const MancalaMove(0));
+      expect(s.lastWasCapture, isTrue);
+      expect(s.lastCaptured, 5, reason: '4 opposite + the landing seed');
+      expect(s.pits[MancalaState.southStore], 5);
+      expect(s.pits[1], 0);
+      expect(s.pits[11], 0);
+      expect(capture.currentPlayer(s), 'n', reason: 'a capture ends the turn');
+    });
+
+    test('an empty own pit with nothing opposite is not a capture', () {
+      var s = board({0: 1, 11: 0, 9: 1}, turn: 's');
+      s = capture.applyMove(s, const MancalaMove(0));
+      expect(s.lastWasCapture, isFalse);
+      expect(s.pits[1], 1, reason: 'the seed stays put');
+      expect(capture.currentPlayer(s), 'n');
+    });
+
+    test('landing in an occupied pit does NOT relay — one sow, one pass', () {
+      // Pit 0 has 1 → lands on pit 1 which already holds 2, making it 3.
+      // Avalanche would scoop those 3 and carry on; capture must not.
+      var s = board({0: 1, 1: 2, 9: 1}, turn: 's');
+      s = capture.applyMove(s, const MancalaMove(0));
+      expect(s.pits[1], 3, reason: 'the stack was scooped — that is avalanche');
+      expect(s.pits[2], 0);
+      expect(s.lastPath, [1]);
+      expect(capture.currentPlayer(s), 'n');
+    });
+
+    test('landing on the opponent side never captures', () {
+      // Pit 5 has 3: store, 7, 8. Pit 8 is empty and belongs to north.
+      var s = board({5: 3, 2: 1, 8: 0}, turn: 's');
+      s = capture.applyMove(s, const MancalaMove(5));
+      expect(s.lastWasCapture, isFalse);
+      expect(s.pits[8], 1);
+    });
+  });
+
+  group('avalanche mode', () {
+    test('landing on an occupied pit scoops it and keeps sowing', () {
+      // Pit 0 has 1 → pit 1 (2 → 3) → scoop 3 → pits 2, 3, 4.
+      var s = board({0: 1, 1: 2, 9: 1}, turn: 's');
+      s = avalanche.applyMove(s, const MancalaMove(0));
+      expect(s.pits[1], 0, reason: 'the landing pit was scooped');
       expect(s.pits[2], 1);
       expect(s.pits[3], 1);
       expect(s.pits[4], 1);
-      // Ended on empty 4 → no free re-pick; turn passes.
-      expect(s.lastExtraTurn, isFalse);
-      expect(game.currentPlayer(s), 'n');
+      expect(s.lastPath, [1, 2, 3, 4]);
     });
 
-    test('relay does not grant free re-pick mid-chain', () {
-      var s = fresh();
-      // Opening 5: first hand ends on occupied 9 → auto-picks 9 and continues;
-      // must not just "Again!" without continuing the sow.
-      s = game.applyMove(s, const MancalaMove(5));
-      expect(s.lastPath.length, greaterThan(4)); // longer than single hand
-      expect(s.pits[9], 0); // stack was picked up
-    });
-
-    test('last seed in empty pit ends turn (no extra) when no capture', () {
-      final pits = List<int>.filled(14, 0);
-      pits[0] = 1;
-      pits[8] = 2; // keep north alive, not opposite of landing
-      // 0 → lands on empty 1; no stones opposite (12 empty) → turn passes.
-      var s = MancalaState(
-        pits: pits,
-        playerIds: const ['s', 'n'],
-        currentPlayerId: 's',
-      );
-      s = game.applyMove(s, const MancalaMove(0));
+    test('the chain ends when a seed lands in an empty pit', () {
+      var s = board({0: 1, 1: 0, 9: 1}, turn: 's');
+      s = avalanche.applyMove(s, const MancalaMove(0));
       expect(s.pits[1], 1);
-      expect(s.lastExtraTurn, isFalse);
+      expect(avalanche.currentPlayer(s), 'n');
+    });
+
+    test('it relays off the opponent pits too, not just your own', () {
+      // Pit 5 has 2: store(6) then 7. Pit 7 holds 1 → 2 → scoop → 8, 9.
+      // Pit 0 keeps south alive so the sweep doesn't fire mid-assertion.
+      var s = board({5: 2, 0: 1, 7: 1, 11: 1}, turn: 's');
+      s = avalanche.applyMove(s, const MancalaMove(5));
+      expect(s.pits[7], 0, reason: 'north pit should have been scooped');
+      expect(s.pits[8], 1);
+      expect(s.pits[9], 1);
+    });
+
+    test('there is no capturing at all', () {
+      // The capture-mode setup: lands in an empty own pit with 4 opposite.
+      var s = board({0: 1, 11: 4, 9: 1}, turn: 's');
+      s = avalanche.applyMove(s, const MancalaMove(0));
       expect(s.lastWasCapture, isFalse);
-      expect(game.currentPlayer(s), 'n');
+      expect(s.lastCaptured, 0);
+      expect(s.pits[11], 4, reason: 'the opposite pit must be untouched');
+      expect(s.pits[MancalaState.southStore], 0);
     });
 
-    test('capture from empty own pit takes opposite', () {
-      // Craft: south pit 0 has 1 stone, opposite 12 has 3, rest empty on south.
-      final pits = List<int>.filled(14, 0);
-      pits[0] = 1;
-      pits[12] = 3;
-      pits[7] = 1; // north still has a move source if needed
-      var s = MancalaState(
-        pits: pits,
+    test('a chain conserves seeds — nothing is created or lost', () {
+      var s = board({4: 3, 1: 2, 9: 1}, turn: 's');
+      final before = s.pits.reduce((a, b) => a + b);
+      s = avalanche.applyMove(s, const MancalaMove(4));
+      expect(s.pits.reduce((a, b) => a + b), before);
+    });
+  });
+
+  group('serialization', () {
+    test('state survives encode/decode in both modes', () {
+      for (final g in [capture, avalanche]) {
+        var s = fresh(g);
+        s = g.applyMove(s, MancalaMove(g.legalPits(s, 's').first));
+        final back = g.decodeState(g.encodeState(s), g.stateSchemaVersion);
+        expect(back.pits, s.pits, reason: '${g.mode}');
+        expect(back.currentPlayerId, s.currentPlayerId);
+        expect(back.lastPath, s.lastPath);
+        expect(back.lastWasCapture, s.lastWasCapture);
+        expect(back.lastCaptured, s.lastCaptured);
+      }
+    });
+
+    test('move round-trips', () {
+      expect(
+          capture.decodeMove(capture.encodeMove(const MancalaMove(3))).pit, 3);
+    });
+  });
+
+  test('a full match runs to a result in either mode', () async {
+    for (final g in [capture, avalanche]) {
+      final controller =
+          await MatchController.create<MancalaState, MancalaMove>(
+        game: g,
+        transport: LocalTransport(),
+        matchId: 'mc-${g.mode.name}',
         playerIds: const ['s', 'n'],
-        currentPlayerId: 's',
+        localPlayerId: 's',
+        hotSeat: true,
+        seed: 4,
       );
-      s = game.applyMove(s, const MancalaMove(0));
-      // 1 seed goes to pit 1 — wait, from 0 with 1 seed goes to cup 1, not capture.
-      // Need last land on empty own: pit 0 with 1 → lands on 1 if 1 empty.
-      // For land on 0: need to sow into 0 as last — e.g. from somewhere.
-      // Simpler: pit 5 has 1 seed, land on store? that's extra turn.
-      // pit 4 has 1 seed → lands on 5 if 5 empty → capture opposite 7.
-      final pits2 = List<int>.filled(14, 0);
-      pits2[4] = 1;
-      pits2[7] = 4; // opposite of 5
-      // keep north playable so not terminal weirdness — actually after move
-      // south pits all empty except we land on 5 then capture clears 5 and 7.
-      pits2[8] = 2;
-      s = MancalaState(
-        pits: pits2,
-        playerIds: const ['s', 'n'],
-        currentPlayerId: 's',
-      );
-      s = game.applyMove(s, const MancalaMove(4));
-      expect(s.lastWasCapture, isTrue);
-      expect(s.pits[5], 0);
-      expect(s.pits[7], 0);
-      expect(s.pits[MancalaState.southStore], 5); // 4 opposite + 1
-      expect(s.lastCaptured, 5);
-    });
-
-    test('rejects empty pit and opponent pit', () {
-      final s = fresh();
-      expect(game.validateMove(s, const MancalaMove(7), 's'), isFalse);
-      final empty = MancalaState(
-        pits: List<int>.of(s.pits)..[3] = 0,
-        playerIds: s.playerIds,
-        currentPlayerId: 's',
-      );
-      expect(game.validateMove(empty, const MancalaMove(3), 's'), isFalse);
-    });
-
-    test('side empty ends game; higher store wins', () {
-      final pits = List<int>.filled(14, 0);
-      pits[MancalaState.southStore] = 20;
-      pits[MancalaState.northStore] = 10;
-      // all side pits empty
-      final s = MancalaState(
-        pits: pits,
-        playerIds: const ['s', 'n'],
-        currentPlayerId: 's',
-      );
-      expect(game.outcome(s), const GameOutcome.win('s'));
-    });
-
-    test('state survives encode/decode', () {
-      var s = fresh();
-      s = game.applyMove(s, const MancalaMove(2));
-      final back = game.decodeState(game.encodeState(s), 1);
-      expect(back.pits, s.pits);
-      expect(back.currentPlayerId, s.currentPlayerId);
-      expect(back.lastPath, s.lastPath);
-      expect(back.lastExtraTurn, s.lastExtraTurn);
-    });
+      var guard = 0;
+      while (g.outcome(controller.state!) == null && guard < 400) {
+        guard++;
+        final s = controller.state!;
+        final legal = g.legalPits(s, s.currentPlayerId);
+        if (legal.isEmpty) break;
+        await controller.submitMove(MancalaMove(legal.first));
+      }
+      expect(g.outcome(controller.state!), isNotNull,
+          reason: '${g.mode} never terminated');
+    }
   });
 }

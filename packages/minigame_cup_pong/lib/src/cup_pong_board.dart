@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:minigames_3d/minigames_3d.dart';
 import 'package:minigames_core/minigames_core.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'cup_pong_game.dart';
 import 'cup_pong_painter.dart';
@@ -78,6 +79,21 @@ class _CupPongBoardState extends State<CupPongBoard>
   final Map<int, Vec3> _ghostMouth = {};
   final Map<int, double> _splash = {};
 
+  /// Cups with a ball dropping into them: id → 0..1 through the drop, plus the
+  /// ball's spin so it keeps turning on the way down.
+  final Map<int, double> _drop = {};
+  final Map<int, double> _dropSpin = {};
+
+  /// Seconds a made ball takes to sink from the rim to the beer and settle.
+  static const double _dropSeconds = 0.40;
+
+  /// Seconds a sunk cup takes to leave. Longer than the drop, and held
+  /// stationary for the first [_removalHold] of it — a cup that starts
+  /// dissolving the instant the ball crosses the rim swallows the one animation
+  /// the player actually wants to watch.
+  static const double _removalSeconds = 0.85;
+  static const double _removalHold = 0.45;
+
   /// Re-rack slide: id → the mouth position the cup is sliding from.
   final Map<int, Vec3> _rerackFrom = {};
   double _rerackT = 1;
@@ -85,8 +101,22 @@ class _CupPongBoardState extends State<CupPongBoard>
   /// The last miss, left lying on the table until the next throw.
   BallView? _resting;
 
-  String _pill = '';
-  Timer? _pillTimer;
+  /// The transient message over the table. [GameNotice] retracts it on its own
+  /// via [_noticeDismiss] — no [Timer] here, and no ticker bookkeeping either.
+  ///
+  /// The notice keys on the message text plus [_noticeSeq]. 'MISS' twice
+  /// running is ordinary play, so the sequence number is what makes the second
+  /// one a distinct event rather than a repeat of the first — the board does
+  /// not have to rely on clearing the field between throws to be seen.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.info;
+  bool _noticeStrong = false;
+  int _noticeSeq = 0;
+
+  /// Null for a message that stays up until something replaces it — only the
+  /// end of the match earns that.
+  Duration? _noticeDismiss;
+
   Timer? _armTimer;
   bool _celebrated = false;
 
@@ -125,7 +155,6 @@ class _CupPongBoardState extends State<CupPongBoard>
   @override
   void dispose() {
     _sub?.cancel();
-    _pillTimer?.cancel();
     _armTimer?.cancel();
     _ticker.dispose();
     _confettiCtrl.dispose();
@@ -134,11 +163,15 @@ class _CupPongBoardState extends State<CupPongBoard>
 
   void _bind() {
     _celebrated = false;
-    _pill = '';
+    _notice = null;
+    _noticeDismiss = null;
+    _noticeStrong = false;
     _confetti = const [];
     _removal.clear();
     _ghostMouth.clear();
     _splash.clear();
+    _drop.clear();
+    _dropSpin.clear();
     _rerackFrom.clear();
     _rerackT = 1;
     _resting = null;
@@ -147,7 +180,6 @@ class _CupPongBoardState extends State<CupPongBoard>
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
-    if (s != null && _outcome == null) _showPill(_turnLabel(s));
     _sub = widget.controller.stateStream.listen(_onState);
   }
 
@@ -166,7 +198,13 @@ class _CupPongBoardState extends State<CupPongBoard>
       _sim != null ||
       _removal.values.any((v) => v < 1) ||
       _splash.isNotEmpty ||
+      _drop.isNotEmpty ||
       _rerackT < 1;
+
+  /// Removal progress the painter sees: zero until the ball has had time to
+  /// land in the beer, then a full sink over what is left.
+  static double _visualRemoval(double raw) =>
+      ((raw - _removalHold) / (1 - _removalHold)).clamp(0.0, 1.0);
 
   void _onTick(Duration elapsed) {
     final dt = _lastTick == Duration.zero
@@ -178,7 +216,18 @@ class _CupPongBoardState extends State<CupPongBoard>
     _advanceSim(step);
 
     for (final id in _removal.keys.toList()) {
-      _removal[id] = math.min(1, _removal[id]! + step / 0.45);
+      _removal[id] = math.min(1, _removal[id]! + step / _removalSeconds);
+    }
+    for (final id in _drop.keys.toList()) {
+      final next = _drop[id]! + step / _dropSeconds;
+      // The ball keeps turning as it falls and is stilled by the beer, so the
+      // spin decays with the drop rather than stopping the instant it is in.
+      _dropSpin[id] = (_dropSpin[id] ?? 0) + step * 9.0 * (1 - next).clamp(0.0, 1.0);
+      if (next >= 1) {
+        _drop[id] = 1;
+      } else {
+        _drop[id] = next;
+      }
     }
     for (final id in _splash.keys.toList()) {
       final next = _splash[id]! + step / 0.5;
@@ -219,12 +268,16 @@ class _CupPongBoardState extends State<CupPongBoard>
       case CupPongEvent.tableBounce:
       case CupPongEvent.rimBounce:
       case CupPongEvent.cupBounce:
-        _bounceCue();
+        _bounceCue(sim.lastImpactSpeed);
       case CupPongEvent.made:
         widget.style.sounds.onHit?.call();
         if (widget.style.haptics) HapticFeedback.mediumImpact();
         final id = sim.hitCupId;
-        if (id != null) _splash[id] = 0;
+        if (id != null) {
+          _splash[id] = 0;
+          _drop[id] = 0;
+          _dropSpin[id] = sim.spin;
+        }
       case CupPongEvent.missed:
         break;
     }
@@ -233,15 +286,32 @@ class _CupPongBoardState extends State<CupPongBoard>
   Duration _lastBounce = Duration.zero;
   final Stopwatch _clock = Stopwatch()..start();
 
-  void _bounceCue() {
+  /// Fired from a real swept-surface contact, never a timer, and scaled by how
+  /// hard the contact actually was: a graze below [_audibleImpact] makes no
+  /// sound at all, and only a genuine slam earns the heavier haptic.
+  void _bounceCue(double speed) {
+    if (speed < _audibleImpact) return;
     // Rim rattles can report several steps running; throttle so it reads as one
     // impact rather than a buzz.
     final now = _clock.elapsed;
     if (now - _lastBounce < const Duration(milliseconds: 80)) return;
     _lastBounce = now;
     widget.style.sounds.onBounce?.call();
-    if (widget.style.haptics) HapticFeedback.selectionClick();
+    widget.style.sounds.onImpact?.call(speed);
+    if (widget.style.haptics) {
+      if (speed > _hardImpact) {
+        HapticFeedback.lightImpact();
+      } else {
+        HapticFeedback.selectionClick();
+      }
+    }
   }
+
+  /// Below this, a contact is a graze and is silent.
+  static const double _audibleImpact = 0.35;
+
+  /// Above this, a contact is worth a heavier haptic than a tick.
+  static const double _hardImpact = 2.4;
 
   void _resolve(CupPongThrowSim sim) {
     final state = _state;
@@ -260,20 +330,41 @@ class _CupPongBoardState extends State<CupPongBoard>
 
     if (sim.hitCupId == null) {
       widget.style.sounds.onMiss?.call();
-      _resting = BallView(
-        position: Vec3(
-          sim.position.x,
-          CupPongWorld.ballRadius,
-          sim.position.z,
-        ),
-        radius: CupPongWorld.ballRadius,
-      );
+      // Only a ball that actually stopped on the felt is left lying there. One
+      // that rolled off an edge, or timed out mid-flight, is gone — clamping
+      // its last position onto the table plane used to strand it hovering out
+      // past the rail with no shadow under it.
+      _resting = sim.atRest
+          ? BallView(
+              position: Vec3(
+                sim.position.x,
+                CupPongWorld.ballRadius,
+                sim.position.z,
+              ),
+              radius: CupPongWorld.ballRadius,
+              spin: sim.spin,
+            )
+          : null;
     } else {
       _resting = null;
     }
     _sim = null;
     _phase = _Phase.resolving;
-    _showPill(sim.hitCupId != null ? 'Hit!' : 'Miss');
+    // "MISS" twice running is ordinary play, and the turn label used to stomp
+    // it a frame later — hence a notice, and no competing turn announcement.
+    if (sim.hitCupId != null) {
+      _showNotice(
+        'CUP!',
+        tone: GameNoticeTone.score,
+        after: const Duration(milliseconds: 1200),
+      );
+    } else {
+      _showNotice(
+        'MISS',
+        tone: GameNoticeTone.warn,
+        after: const Duration(milliseconds: 1200),
+      );
+    }
     widget.controller.submitMove(move);
 
     _armTimer?.cancel();
@@ -292,8 +383,11 @@ class _CupPongBoardState extends State<CupPongBoard>
   String _acting(CupPongState s) =>
       _hotSeat ? s.currentPlayerId : widget.controller.localPlayerId;
 
+  /// Whose throw it is and which of their balls is in hand. Persistent state,
+  /// not an event — it rides in a [GamePill] in the corner of the table rather
+  /// than flashing over the middle of it.
   String _turnLabel(CupPongState s) =>
-      '${_labelFor(s.currentPlayerId)} — ball ${s.ballNumber} of '
+      '${_labelFor(s.currentPlayerId)} · ball ${s.ballNumber}/'
       '${CupPongGame.ballsPerTurn}';
 
   void _onState(CupPongState next) {
@@ -329,19 +423,25 @@ class _CupPongBoardState extends State<CupPongBoard>
           }
           _rerackT = 0;
           widget.style.sounds.onRerack?.call();
-          _showPill('Re-rack');
+          _showNotice('RE-RACK', after: const Duration(milliseconds: 1600));
         }
       } else if (next.ballsBack) {
         widget.style.sounds.onBallsBack?.call();
         if (widget.style.haptics) HapticFeedback.heavyImpact();
-        _showPill('Balls back!');
+        _showNotice(
+          'BALLS BACK!',
+          tone: GameNoticeTone.score,
+          after: const Duration(milliseconds: 1600),
+          strong: true,
+        );
       }
     }
 
+    // No turn announcement: whose ball it is now lives permanently in the
+    // turn pill over the table, and a handover notice fired one frame after
+    // 'MISS' — killing the one message the thrower actually wanted to read.
     if (outcome != null && !_celebrated) {
       _celebrate(outcome);
-    } else if (outcome == null && next.throws == 0) {
-      _showPill(_turnLabel(next));
     }
 
     setState(() {
@@ -364,15 +464,20 @@ class _CupPongBoardState extends State<CupPongBoard>
     return null;
   }
 
-  void _showPill(String text, {bool sticky = false}) {
-    _pillTimer?.cancel();
-    _pill = text;
-    if (!sticky && text.isNotEmpty) {
-      _pillTimer = Timer(const Duration(milliseconds: 1800), () {
-        if (!mounted) return;
-        setState(() => _pill = '');
-      });
-    }
+  /// Raise a transient message over the table. [sticky] keeps it up for good —
+  /// only the end of the match earns that.
+  void _showNotice(
+    String text, {
+    GameNoticeTone tone = GameNoticeTone.info,
+    Duration after = const Duration(milliseconds: 1500),
+    bool strong = false,
+    bool sticky = false,
+  }) {
+    _notice = text;
+    _noticeTone = tone;
+    _noticeStrong = strong;
+    _noticeDismiss = sticky ? null : after;
+    _noticeSeq++;
   }
 
   void _celebrate(GameOutcome outcome) {
@@ -384,10 +489,12 @@ class _CupPongBoardState extends State<CupPongBoard>
       style.sounds.onWin?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    _showPill(
+    _showNotice(
       outcome.isDraw
           ? 'DRAW'
           : '${_labelFor(outcome.winnerId!)} wins'.toUpperCase(),
+      tone: GameNoticeTone.win,
+      strong: true,
       sticky: true,
     );
     if (style.confetti && !outcome.isDraw) {
@@ -486,6 +593,8 @@ class _CupPongBoardState extends State<CupPongBoard>
     if (widget.style.haptics) HapticFeedback.mediumImpact();
     setState(() {
       _resting = null;
+      _drop.clear();
+      _dropSpin.clear();
       _phase = _Phase.flying;
       _simCarry = 0;
       _sim = CupPongThrowSim(
@@ -493,9 +602,12 @@ class _CupPongBoardState extends State<CupPongBoard>
         velocity: sol.velocity,
         tuning: widget.tuning,
       );
-      _pill = '';
+      // The table clears as the ball leaves the hand. This is also what lets
+      // the next 'MISS' show at all: the notice latches a message it has
+      // auto-dismissed, and nulling the field is what releases the latch.
+      _notice = null;
+      _noticeDismiss = null;
     });
-    _pillTimer?.cancel();
     _wake();
   }
 
@@ -526,6 +638,8 @@ class _CupPongBoardState extends State<CupPongBoard>
         baseRadius: CupPongWorld.cupBaseRadius,
         height: CupPongWorld.cupHeight,
         splash: _splash[c.id] ?? 0,
+        drop: _drop[c.id],
+        dropSpin: _dropSpin[c.id] ?? 0,
       ));
     }
     // Cups that were sunk keep drawing, sinking and fading, until done.
@@ -539,8 +653,10 @@ class _CupPongBoardState extends State<CupPongBoard>
         mouthRadius: CupPongWorld.cupMouthRadius,
         baseRadius: CupPongWorld.cupBaseRadius,
         height: CupPongWorld.cupHeight,
-        removal: e.value,
+        removal: _visualRemoval(e.value),
         splash: _splash[e.key] ?? 0,
+        drop: _drop[e.key],
+        dropSpin: _dropSpin[e.key] ?? 0,
       ));
     }
 
@@ -675,14 +791,35 @@ class _CupPongBoardState extends State<CupPongBoard>
                         ),
                       ),
                     ),
+                  if (_outcome == null)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: IgnorePointer(
+                        child: GamePill(
+                          text: _turnLabel(state),
+                          accent: style.colorFor(
+                            scheme,
+                            state.currentPlayerId,
+                            state.playerIds,
+                          ),
+                          dot: true,
+                        ),
+                      ),
+                    ),
                   Positioned.fill(
                     child: IgnorePointer(
                       child: Center(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 200),
-                          child: _pill.isEmpty
-                              ? const SizedBox.shrink()
-                              : _Pill(key: ValueKey(_pill), text: _pill),
+                        // One animating node. 'MISS' twice running is ordinary
+                        // play, and an AnimatedSwitcher keyed on the text put
+                        // two live 'MISS' children in its Stack and threw
+                        // "Duplicate keys found" on the second one.
+                        child: GameNotice(
+                          message: _notice,
+                          tone: _noticeTone,
+                          strong: _noticeStrong,
+                          autoDismiss: _noticeDismiss,
+                          token: _noticeSeq,
                         ),
                       ),
                     ),
@@ -764,32 +901,6 @@ class _CupPongPainter extends CustomPainter {
 // ---------------------------------------------------------------------------
 // Chrome
 // ---------------------------------------------------------------------------
-
-class _Pill extends StatelessWidget {
-  final String text;
-
-  const _Pill({super.key, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 1.0,
-        ),
-      ),
-    );
-  }
-}
 
 /// Two dots showing how many of this turn's balls are still in hand.
 class _BallDots extends StatelessWidget {

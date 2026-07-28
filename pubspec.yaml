@@ -27,6 +27,7 @@ workspace:
   - packages/minigame_anagrams
   - packages/minigame_word_hunt
   - packages/minigame_word_bites
+  - packages/minigames_ui
   - packages/minigames_flame
   - packages/minigames_3d
   - packages/minigame_shuffleboard
@@ -37,5 +38,8 @@ workspace:
   - packages/minigame_basketball
   - packages/minigame_darts
   - packages/minigame_archery
+  - packages/minigames_cards
+  - packages/minigame_gin_rummy
+  - packages/minigame_go_fish
   - packages/minigames_firebase
   - packages/example_app

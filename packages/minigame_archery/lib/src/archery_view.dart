@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:minigames_3d/minigames_3d.dart';
@@ -22,6 +23,48 @@ class ArrowInFlight {
     required this.position,
     required this.direction,
     this.trail = const [],
+  });
+}
+
+/// The one light on the range, and everything that obeys it.
+///
+/// A morning sun, high and to the **left**. Every shadow in the frame — the
+/// butt's on the grass, the stand's legs, an arrow's on the ground, the crease
+/// down the right of the straw — falls down and to the **right** of its caster,
+/// and every lit edge faces up-left. Nothing in this file is allowed to
+/// disagree with it.
+abstract final class ArcheryLight {
+  /// Unit direction the sunlight travels.
+  static final Vec3 direction = const Vec3(0.42, -0.86, 0.29).normalized;
+
+  /// Where the sun sits in the frame, as a fraction of the viewport.
+  static const Offset sunAt = Offset(0.19, 0.10);
+
+  /// Ground-shadow offset for a prop of unit height, in world metres.
+  static const double shadowRun = 0.49;
+}
+
+/// An arrow that never reached the face, left where it finished.
+///
+/// A miss used to simply vanish when the flight animation ended, which quietly
+/// told the player their arrow was never real. Now it stays: stuck in the turf
+/// short of the butt, or sailing past and planting itself beyond it. Seeing
+/// where it went is how you correct the next one.
+@immutable
+class StrayArrow {
+  /// Where the point came to rest.
+  final Vec3 position;
+
+  /// Unit direction it was travelling — the angle it stands at.
+  final Vec3 direction;
+
+  /// True when it planted in the turf rather than passing out of the world.
+  final bool inGround;
+
+  const StrayArrow({
+    required this.position,
+    required this.direction,
+    this.inGround = true,
   });
 }
 
@@ -81,7 +124,24 @@ class ArcheryView {
   final double time;
 
   /// 0..1 impact wobble, decaying.
+  ///
+  /// Drives two things that are not the same: the whole butt rocking on its
+  /// stand, and — through [_FaceDent] — a local **compression** of the straw
+  /// around ([impactX], [impactY]), so the target visibly takes the arrow
+  /// instead of merely shivering.
   final double targetWobble;
+
+  /// Where the last arrow struck, metres from the face centre. Only meaningful
+  /// while [targetWobble] is running.
+  final double impactX;
+  final double impactY;
+
+  /// 0..1 decaying quiver of the arrow that just landed — 1 the instant it
+  /// bites, 0 once the shaft has stopped ringing.
+  final double arrowSettle;
+
+  /// An arrow that missed the face and is lying in the range.
+  final StrayArrow? stray;
 
   /// Arrows the shooter has left at this target.
   final int arrowsLeft;
@@ -105,9 +165,22 @@ class ArcheryView {
     this.swayAmplitude = ArcheryDraw.maxSway,
     this.time = 0,
     this.targetWobble = 0,
+    this.impactX = 0,
+    this.impactY = 0,
+    this.arrowSettle = 0,
+    this.stray,
     this.arrowsLeft = ArcheryGame.arrowsPerTarget,
     this.accent = const Color(0xFFD8443C),
   });
+
+  /// The live compression of the face, or null when the straw is at rest.
+  _FaceDent? get dent => targetWobble <= 0
+      ? null
+      : _FaceDent(
+          amount: targetWobble.clamp(0.0, 1.0),
+          x: impactX,
+          y: impactY,
+        );
 
   ArcheryView copyWith({
     TargetConditions? conditions,
@@ -126,6 +199,11 @@ class ArcheryView {
     double? swayAmplitude,
     double? time,
     double? targetWobble,
+    double? impactX,
+    double? impactY,
+    double? arrowSettle,
+    StrayArrow? stray,
+    bool clearStray = false,
     int? arrowsLeft,
     Color? accent,
   }) =>
@@ -145,6 +223,10 @@ class ArcheryView {
         swayAmplitude: swayAmplitude ?? this.swayAmplitude,
         time: time ?? this.time,
         targetWobble: targetWobble ?? this.targetWobble,
+        impactX: impactX ?? this.impactX,
+        impactY: impactY ?? this.impactY,
+        arrowSettle: arrowSettle ?? this.arrowSettle,
+        stray: clearStray ? null : (stray ?? this.stray),
         arrowsLeft: arrowsLeft ?? this.arrowsLeft,
         accent: accent ?? this.accent,
       );
@@ -163,6 +245,50 @@ class ArcheryView {
             drawBias,
         conditions.distance,
       );
+}
+
+/// A local compression of the target face where an arrow just went in.
+///
+/// A butt is a bale of straw, not a plate: an arrow arriving at fifty metres a
+/// second pushes it in and the ring lines around the hole are dragged toward
+/// the shaft before the straw pushes back. Applied to the *face geometry*
+/// itself — the rings are drawn through it — so the target absorbs the arrow
+/// rather than having an effect drawn on top of it.
+@immutable
+class _FaceDent {
+  /// 1 at the moment of contact, decaying to 0.
+  final double amount;
+
+  /// Contact point, metres from the centre of the face.
+  final double x;
+  final double y;
+
+  const _FaceDent({required this.amount, required this.x, required this.y});
+
+  /// How far out the straw is dragged in, metres — about a ring and a half.
+  static const double reach = 0.21;
+
+  /// Peak pull toward the hole, metres.
+  static const double peak = 0.018;
+
+  /// Face-relative offset ([dx], [dy]) pulled toward the impact point.
+  ///
+  /// The profile is a half-sine, not a bump: it is **zero at the hole itself**
+  /// and peaks a ring out. That is not a detail — a profile that peaks at the
+  /// centre drags points on the near side straight past the impact point and
+  /// the face folds in on itself, which is what a dent must never look like.
+  (double, double) apply(double dx, double dy) {
+    final ox = dx - x;
+    final oy = dy - y;
+    final d = math.sqrt(ox * ox + oy * oy);
+    if (d < 1e-6 || d > reach) return (dx, dy);
+    final profile = math.sin(math.pi * d / reach);
+    // Mostly a steady dent that relaxes, with a little ring in it: straw
+    // absorbs, it does not resonate.
+    final ringing = 0.82 + 0.18 * math.sin((1 - amount) * 16);
+    final pull = peak * amount * profile * ringing;
+    return (dx - ox / d * pull, dy - oy / d * pull);
+  }
 }
 
 /// Builds the camera for a frame.
@@ -269,14 +395,14 @@ Path? verticalCirclePath(
   Vec3 centre,
   double radius, {
   int segments = 48,
+  _FaceDent? dent,
 }) {
   final path = Path();
   for (var i = 0; i < segments; i++) {
     final a = 2 * math.pi * i / segments;
-    final p = camera.project(
-      Vec3(centre.x + math.cos(a) * radius, centre.y + math.sin(a) * radius,
-          centre.z),
-    );
+    final (ox, oy) = dent?.apply(math.cos(a) * radius, math.sin(a) * radius) ??
+        (math.cos(a) * radius, math.sin(a) * radius);
+    final p = camera.project(Vec3(centre.x + ox, centre.y + oy, centre.z));
     if (!p.visible) return null;
     if (i == 0) {
       path.moveTo(p.screen.dx, p.screen.dy);
@@ -350,46 +476,141 @@ void _paintSky(
       ).createShader(rect),
   );
 
-  // A couple of soft clouds, parked (the camera never travels).
-  final cloud = Paint()..color = Colors.white.withValues(alpha: 0.55);
-  for (var i = 0; i < 4; i++) {
-    final cx = (_hash01(i, 11) * 1.6 - 0.3) * size.width;
-    final cy = horizon - size.height * (0.18 + _hash01(i, 12) * 0.42);
-    final w = size.width * (0.16 + _hash01(i, 13) * 0.2);
-    final h = w * 0.26;
-    canvas.drawOval(Rect.fromCenter(center: Offset(cx, cy), width: w, height: h),
-        cloud);
-    canvas.drawOval(
-      Rect.fromCenter(
-          center: Offset(cx + w * 0.18, cy - h * 0.35),
-          width: w * 0.6,
-          height: h * 0.95),
-      cloud,
+  // The sun, up and to the left — the thing every shadow in the frame points
+  // away from. Drawn as glow rather than a disc: a disc in the corner of a
+  // sports scene reads as a sticker.
+  final sun = Offset(
+    ArcheryLight.sunAt.dx * size.width,
+    -shift.dy + ArcheryLight.sunAt.dy * size.height,
+  );
+  final sunR = size.width * 0.62;
+  canvas.drawCircle(
+    sun,
+    sunR,
+    Paint()
+      ..shader = ui.Gradient.radial(
+        sun,
+        sunR,
+        [
+          const Color(0xFFFFF6DC).withValues(alpha: 0.55),
+          const Color(0xFFFFEFC8).withValues(alpha: 0.16),
+          Colors.transparent,
+        ],
+        const [0.0, 0.22, 1.0],
+      ),
+  );
+
+  // Clouds, in two banks: high and small near the top, flatter and hazier as
+  // they approach the horizon, which is the whole of aerial perspective in a
+  // sky.
+  for (var i = 0; i < 9; i++) {
+    final depth = _hash01(i, 12); // 0 = high overhead, 1 = on the horizon
+    final cx = (_hash01(i, 11) * 1.7 - 0.35) * size.width;
+    final cy = horizon - size.height * (0.06 + (1 - depth) * 0.58);
+    final w = size.width * (0.14 + _hash01(i, 13) * 0.26) * (1 - depth * 0.45);
+    final h = w * (0.30 - depth * 0.16);
+    final lit = Colors.white.withValues(alpha: 0.30 + (1 - depth) * 0.42);
+    final shade = Color.lerp(style.resolveHaze(scheme), Colors.white, 0.35)!
+        .withValues(alpha: 0.30 + (1 - depth) * 0.3);
+    // Shaded underside first, lit crown offset up-left over it.
+    for (final (dx, dy, color) in [
+      (0.0, h * 0.16, shade),
+      (-w * 0.05, -h * 0.10, lit),
+    ]) {
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: Offset(cx + dx, cy + dy), width: w, height: h),
+        Paint()..color = color,
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(cx + dx + w * 0.20, cy + dy - h * 0.34),
+          width: w * 0.58,
+          height: h * 1.0,
+        ),
+        Paint()..color = color,
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(cx + dx - w * 0.24, cy + dy - h * 0.18),
+          width: w * 0.44,
+          height: h * 0.8,
+        ),
+        Paint()..color = color,
+      );
+    }
+  }
+
+  // Far hills, then a treeline in front of them, then a band of haze pooled at
+  // their feet. Three planes at three haze strengths is what stops the far end
+  // of the range reading as a painted backdrop a metre behind the butt.
+  void ridge({
+    required double height,
+    required double roughness,
+    required double hazeMix,
+    required double phase,
+    required double lift,
+  }) {
+    final path = Path()..moveTo(-size.width, horizon + 2);
+    const steps = 120;
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final x = -size.width + t * size.width * 3;
+      final n = math.sin(t * 9.1 + phase) * 0.5 +
+          math.sin(t * 21 + phase * 1.7) * 0.3 * roughness +
+          math.sin(t * 47 + phase * 0.4) * 0.2 * roughness;
+      path.lineTo(x, horizon - size.height * height * (lift + n));
+    }
+    path
+      ..lineTo(size.width * 2, horizon + 2)
+      ..close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Color.lerp(
+          style.resolveGrassFar(scheme),
+          style.resolveHaze(scheme),
+          hazeMix,
+        )!,
     );
   }
 
-  // Hazy treeline sitting on the horizon.
-  final tree = Path()..moveTo(-size.width, horizon + 1);
-  const steps = 96;
-  for (var i = 0; i <= steps; i++) {
-    final t = i / steps;
-    final x = -size.width + t * size.width * 3;
-    final n = math.sin(t * 21) * 0.4 +
-        math.sin(t * 7.3 + 1.2) * 0.4 +
-        math.sin(t * 47 + 0.4) * 0.2;
-    tree.lineTo(x, horizon - size.height * 0.012 * (1.2 + n));
+  ridge(height: 0.090, roughness: 0.12, hazeMix: 0.82, phase: 0.0, lift: 0.85);
+  ridge(height: 0.052, roughness: 0.70, hazeMix: 0.60, phase: 2.4, lift: 1.0);
+
+  // Individual crowns along the near treeline, so it is trees rather than a
+  // wavy silhouette.
+  final crown = Paint()
+    ..color = Color.lerp(
+      style.resolveGrassFar(scheme),
+      style.resolveHaze(scheme),
+      0.5,
+    )!;
+  for (var i = 0; i < 46; i++) {
+    final x = -size.width + _hash01(i, 61) * size.width * 3;
+    final h = size.height * (0.018 + _hash01(i, 62) * 0.030);
+    final w = h * (0.9 + _hash01(i, 63) * 0.8);
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(x, horizon - h * 0.55), width: w, height: h * 1.5),
+      crown,
+    );
   }
-  tree
-    ..lineTo(size.width * 2, horizon + 1)
-    ..close();
-  canvas.drawPath(
-    tree,
+
+  // Haze pooled along the base of the treeline.
+  final hazeBand = Rect.fromLTRB(
+      -size.width, horizon - size.height * 0.030, size.width * 2, horizon + 2);
+  canvas.drawRect(
+    hazeBand,
     Paint()
-      ..color = Color.lerp(
-        style.resolveGrassFar(scheme),
-        style.resolveHaze(scheme),
-        0.55,
-      )!,
+      ..shader = ui.Gradient.linear(
+        hazeBand.topCenter,
+        hazeBand.bottomCenter,
+        [
+          style.resolveHaze(scheme).withValues(alpha: 0.0),
+          style.resolveHaze(scheme).withValues(alpha: 0.85),
+        ],
+      ),
   );
 }
 
@@ -481,38 +702,85 @@ void _paintGround(
     );
   }
 
+  // Patchiness: broad worn and lush areas across the turf, projected as real
+  // ground ellipses so they shrink with depth like everything else. A mown
+  // field is not one green.
+  for (var i = 0; i < 26; i++) {
+    final z = 2.0 + _hash01(i, 71) * (far - 2.0);
+    final x = (_hash01(i, 72) - 0.5) * 18;
+    final radius = 1.2 + _hash01(i, 73) * 3.4;
+    final patch = camera.horizontalCirclePath(Vec3(x, 0.005, z), radius,
+        segments: 14);
+    if (patch == null) continue;
+    final worn = _hash01(i, 74) < 0.45;
+    canvas.drawPath(
+      patch,
+      Paint()
+        ..color = _hazed(
+          Color.lerp(
+            style.resolveGrassNear(scheme),
+            worn ? const Color(0xFFB6A96A) : Colors.black,
+            worn ? 0.30 : 0.16,
+          )!
+              .withValues(alpha: 0.16),
+          camera.project(Vec3(x, 0, z)).depth,
+          style.resolveHaze(scheme),
+        ),
+    );
+  }
+
   // Grass tufts. Each is a real world position, so it shrinks with depth —
   // the densest depth cue in the frame. Sampled with a square bias toward the
   // camera so the near ground is not a bare gradient.
+  //
+  // Three species' worth of variation — height, blade count, colour and lean —
+  // because a field of identical marks reads as a texture, and a texture has
+  // no depth. The colour is hazed by its own depth, so the far tufts fade into
+  // the treeline rather than staying crisp at forty metres.
   final lean = view.conditions.crossComponent * 0.02;
   final tuftPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round;
-  for (var i = 0; i < 260; i++) {
+  final near = style.resolveGrassNear(scheme);
+  for (var i = 0; i < 420; i++) {
     final u = _hash01(i, 5);
-    final z = 1.2 + u * u * (far - 1.2);
+    final z = 1.15 + u * u * (far - 1.15);
     final side = _hash01(i, 3) < 0.5 ? -1 : 1;
     // A third of the tufts grow inside the lane, close to the archer.
     final inLane = _hash01(i, 7) < 0.34;
-    final x = side * (inLane ? 0.5 + _hash01(i, 4) * 1.7 : 2.5 + _hash01(i, 4) * 11);
+    final x =
+        side * (inLane ? 0.45 + _hash01(i, 4) * 1.8 : 2.5 + _hash01(i, 4) * 11);
     final base = camera.project(Vec3(x, 0, z));
     if (!base.visible) continue;
-    final h = (inLane ? 0.05 + _hash01(i, 6) * 0.06 : 0.16 + _hash01(i, 6) * 0.16) *
+    final tall = _hash01(i, 8);
+    final h = (inLane
+            ? 0.04 + tall * 0.07
+            : 0.11 + tall * tall * 0.30) *
         base.scale;
     if (h < 0.7) continue;
     final sway = math.sin(view.time * 1.6 + i) * 0.12 + lean;
+    final shade = _hash01(i, 9);
     tuftPaint
       ..color = _hazed(
-        Color.lerp(style.resolveGrassNear(scheme), Colors.black, 0.18)!
-            .withValues(alpha: 0.55),
+        Color.lerp(
+          near,
+          shade < 0.5 ? Colors.black : const Color(0xFFC9DE8E),
+          shade < 0.5 ? 0.10 + shade * 0.32 : 0.10 + (shade - 0.5) * 0.5,
+        )!
+            .withValues(alpha: 0.42 + tall * 0.28),
         base.depth,
         style.resolveHaze(scheme),
       )
-      ..strokeWidth = math.max(0.8, base.scale * 0.012);
-    for (var k = -1; k <= 1; k++) {
+      ..strokeWidth = math.max(0.8, base.scale * 0.011);
+    // Wider tufts near the camera get a fifth blade; distant ones get three,
+    // which is all that survives at a couple of pixels anyway.
+    final blades = h > 6 ? 2 : 1;
+    for (var k = -blades; k <= blades; k++) {
+      final spread = k * 0.30;
       canvas.drawLine(
         base.screen,
-        base.screen + Offset((k * 0.35 + sway) * h, -h),
+        base.screen +
+            Offset((spread + sway) * h, -h * (1 - k.abs() * 0.12)),
         tuftPaint,
       );
     }
@@ -577,13 +845,31 @@ void _paintProps(
   scene.add(Vec3(1.15, 0, d - 0.6),
       (c, at) => _paintWindFlag(c, camera, view, style, scheme));
 
+  final dent = view.dent;
   for (var i = 0; i < view.stuckArrows.length; i++) {
     final shot = view.stuckArrows[i];
     if (!shot.onFace) continue;
+    // Only the arrow that just went in is still ringing; the earlier ones in
+    // this end are dead still.
+    final settle =
+        i == view.stuckArrows.length - 1 ? view.arrowSettle : 0.0;
+    final (ox, oy) =
+        dent?.apply(shot.offsetX, shot.offsetY) ?? (shot.offsetX, shot.offsetY);
     scene.add(
-      Vec3(shot.offsetX, ArcheryBallistics.targetCentreHeight + shot.offsetY,
-          d - 0.35),
-      (c, at) => _paintStuckArrow(c, camera, view, shot, style, scheme),
+      Vec3(ox, ArcheryBallistics.targetCentreHeight + oy, d - 0.35),
+      (c, at) => _paintStuckArrow(
+          c, camera, view, shot, style, scheme, ox, oy, settle),
+    );
+  }
+
+  // An arrow that missed and is lying in the range. Sorted with everything
+  // else, so one short of the butt is drawn in front of it and one long is
+  // drawn behind.
+  final stray = view.stray;
+  if (stray != null) {
+    scene.add(
+      stray.position,
+      (c, at) => _paintStrayArrow(c, camera, view, stray, style, scheme),
     );
   }
 
@@ -612,99 +898,310 @@ void _paintButt(
   final d = view.conditions.distance;
   final haze = style.resolveHaze(scheme);
   final depth = camera.project(Vec3(0, 1.3, d)).depth;
+  final scale = camera.project(Vec3(0, ArcheryBallistics.targetCentreHeight, d))
+      .scale;
+  const buttTop = 2.24;
+  const buttBottom = 0.34;
+  const buttHalf = 0.88;
+  final faceZ = d;
+  final buttZ = d + 0.12;
 
-  // Ground shadow — an honest projected circle, so it flattens correctly.
-  final shadow = camera.horizontalCirclePath(Vec3(0, 0.02, d + 0.25), 1.05);
+  // Ground shadow. Thrown down-**right** of the butt by the sun's own run, not
+  // parked under it: a shadow that sits symmetrically under a prop is the
+  // fastest way to make a scene look unlit.
+  final shadowRun = ArcheryLight.shadowRun * buttTop;
+  final shadow = camera.horizontalCirclePath(
+    Vec3(shadowRun * 0.45, 0.02, buttZ + 0.30),
+    1.15,
+    segments: 24,
+  );
   if (shadow != null) {
     canvas.drawPath(
       shadow,
-      Paint()..color = Colors.black.withValues(alpha: 0.18),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.22)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, math.max(1, scale * 0.02)),
     );
   }
 
   final wobble = view.targetWobble;
   canvas.save();
   if (wobble > 0) {
-    final amp = wobble * 3.2;
-    canvas.translate(math.sin(view.time * 34) * amp, math.sin(view.time * 41) * amp * 0.5);
+    // The whole butt rocks on its stand. Small — the readable part of the
+    // impact is the compression at the hole, not the target jumping.
+    final amp = wobble * wobble * 2.6;
+    canvas.translate(
+        math.sin(view.time * 34) * amp, math.sin(view.time * 41) * amp * 0.5);
   }
 
-  // Tripod legs.
-  final legPaint = Paint()
-    ..color = _hazed(const Color(0xFF6B4B2E), depth, haze)
-    ..strokeCap = StrokeCap.round;
-  for (final side in [-1.0, 1.0]) {
-    final foot = camera.project(Vec3(side * 0.78, 0, d + 0.55));
-    final top = camera.project(Vec3(side * 0.34, 0.85, d + 0.16));
-    if (!foot.visible || !top.visible) continue;
-    legPaint.strokeWidth = math.max(1.2, foot.scale * 0.05);
-    canvas.drawLine(foot.screen, top.screen, legPaint);
-  }
+  _paintStand(canvas, camera, style, scheme, d, depth);
 
-  // Straw butt behind the face.
+  // The straw bale itself.
   final butt = _quadPath(camera, [
-    Vec3(-0.88, 0.34, d + 0.12),
-    Vec3(0.88, 0.34, d + 0.12),
-    Vec3(0.88, 2.24, d + 0.12),
-    Vec3(-0.88, 2.24, d + 0.12),
+    Vec3(-buttHalf, buttBottom, buttZ),
+    Vec3(buttHalf, buttBottom, buttZ),
+    Vec3(buttHalf, buttTop, buttZ),
+    Vec3(-buttHalf, buttTop, buttZ),
   ]);
   if (butt != null) {
-    canvas.drawPath(
-      butt,
-      Paint()..color = _hazed(style.resolveButt(scheme), depth, haze),
-    );
+    final straw = _hazed(style.resolveButt(scheme), depth, haze);
+    final bounds = butt.getBounds();
     canvas.drawPath(
       butt,
       Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..color = _hazed(const Color(0xFF8B6C3A), depth, haze),
+        ..shader = ui.Gradient.linear(
+          bounds.topLeft,
+          bounds.bottomRight,
+          [
+            Color.lerp(straw, Colors.white, 0.16)!,
+            straw,
+            Color.lerp(straw, Colors.black, 0.24)!,
+          ],
+          const [0.0, 0.45, 1.0],
+        ),
     );
-    // Straw striations.
-    for (var y = 0.46; y < 2.24; y += 0.15) {
-      final a = camera.project(Vec3(-0.86, y, d + 0.12));
-      final b = camera.project(Vec3(0.86, y, d + 0.12));
+
+    // Coiled straw courses. A butt is rope-bound bales stacked flat, so it is
+    // built as **bands with their own tone**, not as ruled lines over a flat
+    // fill: every course was baled from different straw, and that unevenness
+    // is the whole difference between straw and a tan rectangle.
+    canvas.save();
+    canvas.clipPath(butt);
+    const bandHeight = 0.155;
+    var band = 0;
+    for (var y = buttBottom; y < buttTop; y += bandHeight, band++) {
+      final quad = _quadPath(camera, [
+        Vec3(-buttHalf - 0.03, y, buttZ),
+        Vec3(buttHalf + 0.03, y, buttZ),
+        Vec3(buttHalf + 0.03, y + bandHeight, buttZ),
+        Vec3(-buttHalf - 0.03, y + bandHeight, buttZ),
+      ]);
+      if (quad == null) continue;
+      final tone = _hash01(band, 81) - 0.5;
+      canvas.drawPath(
+        quad,
+        Paint()
+          ..color = Color.lerp(
+            straw,
+            tone > 0 ? const Color(0xFFF3E0AA) : const Color(0xFF8E6F38),
+            tone.abs() * 1.3,
+          )!
+              .withValues(alpha: 0.75),
+      );
+
+      // Course seam. Sampled as a **wavy** polyline rather than drawn as a
+      // ruled line: a perfectly straight seam is what makes stacked straw read
+      // as floorboards, and no amount of colour work undoes it.
+      final seam = Path();
+      final lip = Path();
+      var started = false;
+      double? w;
+      for (var k = 0; k <= 14; k++) {
+        final fx = -buttHalf - 0.03 + (2 * buttHalf + 0.06) * k / 14;
+        final wob = (_hash01(band * 31 + k, 87) - 0.5) * 0.028;
+        final p = camera.project(Vec3(fx, y + wob, buttZ));
+        if (!p.visible) {
+          started = false;
+          continue;
+        }
+        w ??= math.max(0.7, p.scale * 0.011);
+        if (!started) {
+          seam.moveTo(p.screen.dx, p.screen.dy);
+          lip.moveTo(p.screen.dx, p.screen.dy - w * 1.4);
+          started = true;
+        } else {
+          seam.lineTo(p.screen.dx, p.screen.dy);
+          lip.lineTo(p.screen.dx, p.screen.dy - w * 1.4);
+        }
+      }
+      if (w == null) continue;
+      canvas.drawPath(
+        seam,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = w * 1.5
+          ..color = Colors.black.withValues(alpha: 0.26),
+      );
+      canvas.drawPath(
+        lip,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = w * 0.8
+          ..color = Colors.white.withValues(alpha: 0.22),
+      );
+    }
+    // Fibre: straw ends poking out of the courses, leaning the way they were
+    // packed. Short, faint, and never horizontal — a horizontal stroke here
+    // just reinforces the banding and turns the bale back into planks.
+    final fibre = Paint()..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 260; i++) {
+      final fx = (_hash01(i, 82) * 2 - 1) * buttHalf;
+      final fy = buttBottom + _hash01(i, 83) * (buttTop - buttBottom);
+      final len = 0.04 + _hash01(i, 84) * 0.10;
+      // Mostly steep: straw ends stick out across the courses, and a shallow
+      // stroke just reinforces the banding.
+      final tilt = (_hash01(i, 85) - 0.5) * 2.6 + math.pi / 2;
+      final p0 = camera.project(Vec3(fx, fy, buttZ));
+      final p1 = camera.project(
+          Vec3(fx + len * math.cos(tilt), fy + len * math.sin(tilt), buttZ));
+      if (!p0.visible || !p1.visible) continue;
+      fibre
+        ..color = (_hash01(i, 86) < 0.45 ? Colors.black : Colors.white)
+            .withValues(alpha: 0.09 + _hash01(i, 88) * 0.07)
+        ..strokeWidth = math.max(0.6, p0.scale * 0.005);
+      canvas.drawLine(p0.screen, p1.screen, fibre);
+    }
+    canvas.restore();
+
+    // Binding ropes across the bale, and the edge lit up-left / dark down-right.
+    for (final y in const [0.72, 1.86]) {
+      final a = camera.project(Vec3(-buttHalf, y, buttZ - 0.01));
+      final b = camera.project(Vec3(buttHalf, y, buttZ - 0.01));
       if (!a.visible || !b.visible) continue;
+      canvas.drawLine(
+        a.screen.translate(0, math.max(1, a.scale * 0.012)),
+        b.screen.translate(0, math.max(1, a.scale * 0.012)),
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.28)
+          ..strokeWidth = math.max(1.2, a.scale * 0.018),
+      );
       canvas.drawLine(
         a.screen,
         b.screen,
         Paint()
-          ..color = Colors.black.withValues(alpha: 0.07)
-          ..strokeWidth = math.max(0.6, a.scale * 0.01),
+          ..color = _hazed(const Color(0xFF9C7B44), a.depth, haze)
+          ..strokeWidth = math.max(1.2, a.scale * 0.018),
       );
     }
+    canvas.drawPath(
+      butt,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1.2, scale * 0.012)
+        ..color = _hazed(const Color(0xFF7A5C2E), depth, haze),
+    );
   }
 
-  // The face: five equal rings, every one a truly projected circle.
-  final centre = Vec3(0, ArcheryBallistics.targetCentreHeight, d);
+  // The face: five equal rings, every one a truly projected circle, drawn
+  // through the live compression so the straw takes the arrow.
+  final dent = view.dent;
+  final centre = Vec3(0, ArcheryBallistics.targetCentreHeight, faceZ);
+  final segments = dent == null ? 48 : 120;
   for (var i = ArcheryStyle.ringColors.length - 1; i >= 0; i--) {
     final radius = ArcheryGame.ringWidth * (i + 1);
-    final path = verticalCirclePath(camera, centre, radius);
+    final path = verticalCirclePath(camera, centre, radius,
+        segments: segments, dent: dent);
     if (path == null) continue;
     canvas.drawPath(
       path,
-      Paint()..color = _hazed(ArcheryStyle.ringColors[i], depth, haze, strength: 0.55),
+      Paint()
+        ..color =
+            _hazed(ArcheryStyle.ringColors[i], depth, haze, strength: 0.55),
     );
     canvas.drawPath(
       path,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(0.7, camera.project(centre).scale * 0.006)
+        ..strokeWidth = math.max(0.7, scale * 0.006)
         ..color = ArcheryStyle.ringLine,
     );
   }
+  // Paper curl: the face is pinned paper, so the sun catches its up-left edge.
+  final rim = verticalCirclePath(camera, centre, ArcheryGame.faceRadius,
+      segments: segments, dent: dent);
+  if (rim != null) {
+    canvas.drawPath(
+      rim.shift(Offset(-scale * 0.004, -scale * 0.004)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(0.7, scale * 0.005)
+        ..color = Colors.white.withValues(alpha: 0.35),
+    );
+  }
   // Inner ten-ring mark.
-  final inner = verticalCirclePath(camera, centre, ArcheryGame.ringWidth * 0.42);
+  final inner = verticalCirclePath(
+      camera, centre, ArcheryGame.ringWidth * 0.42,
+      segments: segments, dent: dent);
   if (inner != null) {
     canvas.drawPath(
       inner,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(0.6, camera.project(centre).scale * 0.005)
+        ..strokeWidth = math.max(0.6, scale * 0.005)
         ..color = Colors.black.withValues(alpha: 0.35),
     );
   }
   canvas.restore();
+}
+
+/// The stand: two splayed timber legs with a cross-brace, each casting its own
+/// shadow down-right onto the grass.
+void _paintStand(
+  Canvas canvas,
+  Camera3 camera,
+  ArcheryStyle style,
+  ColorScheme scheme,
+  double d,
+  double depth,
+) {
+  final haze = style.resolveHaze(scheme);
+  final timber = _hazed(const Color(0xFF6B4B2E), depth, haze);
+  final lit = _hazed(const Color(0xFF8E6941), depth, haze);
+
+  for (final side in [-1.0, 1.0]) {
+    final footAt = Vec3(side * 0.82, 0, d + 0.62);
+    final topAt = Vec3(side * 0.36, 0.92, d + 0.14);
+    final foot = camera.project(footAt);
+    final top = camera.project(topAt);
+    if (!foot.visible || !top.visible) continue;
+    final width = math.max(1.4, foot.scale * 0.055);
+
+    // Shadow of the leg, cast along the sun's run.
+    final shadowTop = camera.project(
+        Vec3(topAt.x + ArcheryLight.shadowRun * 0.92, 0.01, topAt.z + 0.30));
+    if (shadowTop.visible) {
+      canvas.drawLine(
+        foot.screen,
+        shadowTop.screen,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.20)
+          ..strokeWidth = width * 0.9
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    canvas.drawLine(
+      foot.screen,
+      top.screen,
+      Paint()
+        ..color = timber
+        ..strokeWidth = width
+        ..strokeCap = StrokeCap.round,
+    );
+    // Lit edge up-left of the leg.
+    canvas.drawLine(
+      foot.screen.translate(-width * 0.3, 0),
+      top.screen.translate(-width * 0.3, 0),
+      Paint()
+        ..color = lit.withValues(alpha: 0.7)
+        ..strokeWidth = width * 0.3
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  // Cross-brace between the legs.
+  final braceL = camera.project(Vec3(-0.62, 0.36, d + 0.42));
+  final braceR = camera.project(Vec3(0.62, 0.36, d + 0.42));
+  if (braceL.visible && braceR.visible) {
+    canvas.drawLine(
+      braceL.screen,
+      braceR.screen,
+      Paint()
+        ..color = timber
+        ..strokeWidth = math.max(1.2, braceL.scale * 0.038)
+        ..strokeCap = StrokeCap.round,
+    );
+  }
 }
 
 void _paintWindFlag(
@@ -777,16 +1274,22 @@ void _paintStuckArrow(
   ArrowShot shot,
   ArcheryStyle style,
   ColorScheme scheme,
+  double offsetX,
+  double offsetY,
+  double settle,
 ) {
   final d = view.conditions.distance;
   final head = Vec3(
-    shot.offsetX,
-    ArcheryBallistics.targetCentreHeight + shot.offsetY,
+    offsetX,
+    ArcheryBallistics.targetCentreHeight + offsetY,
     d,
   );
-  // Back along the line it came in on.
-  final incoming =
-      (head - ArcheryBallistics.bowOrigin).normalized;
+  // Back along the line it came in on, still ringing if it has only just
+  // arrived.
+  final incoming = _quivered(
+    (head - ArcheryBallistics.bowOrigin).normalized,
+    settle,
+  );
   final tail = head - incoming * 0.66;
   _paintShaft(
     canvas,
@@ -797,6 +1300,82 @@ void _paintStuckArrow(
     style,
     scheme,
     thickness: 0.012,
+  );
+}
+
+/// The arrow's axis, still ringing.
+///
+/// The shaft whips about the point for a few hundred milliseconds after it
+/// bites and then stands still. Rotating the *axis* rather than shaking the
+/// whole sprite pins the vibration at the point, which is what an arrow in a
+/// butt actually does — the nock describes a small ellipse and the head does
+/// not move at all.
+Vec3 _quivered(Vec3 direction, double settle) {
+  if (settle <= 0) return direction;
+  final s = settle.clamp(0.0, 1.0);
+  // Squared decay: nearly gone by halfway, then just settling.
+  final amp = 0.085 * s * s;
+  final t = (1 - s) * 24;
+  final up = direction.y.abs() > 0.95
+      ? const Vec3(1, 0, 0)
+      : const Vec3(0, 1, 0);
+  final u = _cross(direction, up).normalized;
+  final v = _cross(direction, u).normalized;
+  return (direction +
+          u * (amp * math.sin(t)) +
+          v * (amp * 0.6 * math.sin(t * 1.37 + 0.9)))
+      .normalized;
+}
+
+Vec3 _cross(Vec3 a, Vec3 b) => Vec3(
+      a.y * b.z - a.z * b.y,
+      a.z * b.x - a.x * b.z,
+      a.x * b.y - a.y * b.x,
+    );
+
+/// An arrow that missed the face: planted in the turf where it finished, with
+/// its own shadow on the grass.
+void _paintStrayArrow(
+  Canvas canvas,
+  Camera3 camera,
+  ArcheryView view,
+  StrayArrow stray,
+  ArcheryStyle style,
+  ColorScheme scheme,
+) {
+  final head = stray.position;
+  final tail = head - stray.direction * 0.72;
+
+  // Shadow, along the sun's run, so a stray reads as lying *on* the range and
+  // not floating over it.
+  if (stray.inGround) {
+    final groundHead = camera.project(Vec3(head.x, 0.01, head.z));
+    final groundTail = camera.project(Vec3(
+      tail.x + ArcheryLight.shadowRun * tail.y,
+      0.01,
+      tail.z + ArcheryLight.shadowRun * tail.y * 0.6,
+    ));
+    if (groundHead.visible && groundTail.visible) {
+      canvas.drawLine(
+        groundHead.screen,
+        groundTail.screen,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.22)
+          ..strokeWidth = math.max(1.2, groundHead.scale * 0.02)
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  _paintShaft(
+    canvas,
+    camera,
+    head,
+    tail,
+    view.accent,
+    style,
+    scheme,
+    thickness: 0.013,
   );
 }
 
@@ -819,8 +1398,8 @@ void _paintFlyingArrow(
         b.screen,
         Paint()
           ..color = Colors.white
-              .withValues(alpha: 0.16 * (i / flight.trail.length))
-          ..strokeWidth = math.max(1.4, a.scale * 0.03)
+              .withValues(alpha: 0.26 * (i / flight.trail.length))
+          ..strokeWidth = math.max(2.0, a.scale * 0.035)
           ..strokeCap = StrokeCap.round,
       );
     }
@@ -828,7 +1407,7 @@ void _paintFlyingArrow(
   final head = flight.position;
   final tail = head - flight.direction * 0.95;
   _paintShaft(canvas, camera, head, tail, view.accent, style, scheme,
-      thickness: 0.03, minWidth: 3, outline: true);
+      thickness: 0.034, minWidth: 4, outline: true);
 }
 
 void _paintShaft(
@@ -877,6 +1456,12 @@ void _paintShaft(
   // Fletching: three vanes at the nock end, drawn perpendicular to the shaft
   // on screen. When the arrow points at you the shaft collapses and the vanes
   // are all you see — exactly right.
+  //
+  // Three, not two, and each with its own tone: two hen vanes in the accent
+  // and a **cock feather** in white standing off the shaft. In flight the
+  // arrow is a few pixels of shaft and the fletching is the only part big
+  // enough to read, so it has to say "arrow" on its own — a symmetric pair of
+  // flat triangles reads as a paper dart.
   final axis = h.screen - t.screen;
   final len = axis.distance;
   final dir = len < 1e-3 ? const Offset(0, -1) : axis / len;
@@ -884,29 +1469,48 @@ void _paintShaft(
   // Clamped: an arrow a few metres from the eye is genuinely large, but past
   // a point it stops reading as an arrow and starts covering the target.
   final vane = math.min(
-    outline ? 26.0 : 16.0,
-    math.max(2.6, t.scale * (outline ? 0.06 : 0.055)),
+    outline ? 30.0 : 13.0,
+    math.max(outline ? 7.0 : 2.6, t.scale * (outline ? 0.075 : 0.044)),
   );
-  final vanePaint = Paint()
-    ..color = _hazed(accent, t.depth, haze, strength: 0.45);
-  for (final s in [-1.0, 1.0]) {
-    final path = Path()
-      ..moveTo(t.screen.dx, t.screen.dy)
-      ..lineTo(
-        t.screen.dx + normal.dx * vane * s + dir.dx * vane * 0.2,
-        t.screen.dy + normal.dy * vane * s + dir.dy * vane * 0.2,
-      )
-      ..lineTo(
-        t.screen.dx + dir.dx * vane * 1.5,
-        t.screen.dy + dir.dy * vane * 1.5,
-      )
-      ..close();
-    canvas.drawPath(path, vanePaint);
+  final hen = _hazed(accent, t.depth, haze, strength: 0.45);
+  final cock = _hazed(
+      Color.lerp(accent, Colors.white, 0.42)!, t.depth, haze,
+      strength: 0.45);
+
+  /// One vane: a swept quadrilateral from the nock forward along the shaft,
+  /// rather than a triangle, so it has a leading edge and a trailing corner.
+  void fletch(double side, double reach, Color color) {
+    final root = t.screen + Offset(dir.dx, dir.dy) * (vane * 0.1);
+    final tipOut = root +
+        normal * (vane * reach * side * 0.72) +
+        Offset(dir.dx, dir.dy) * (vane * 0.5);
+    final trail = t.screen - Offset(dir.dx, dir.dy) * (vane * 0.24) +
+        normal * (vane * reach * side * 0.42);
+    final front = t.screen + Offset(dir.dx, dir.dy) * (vane * 1.9);
+    canvas.drawPath(
+      Path()..addPolygon([front, tipOut, trail, root], true),
+      Paint()..color = color,
+    );
+    canvas.drawPath(
+      Path()..addPolygon([front, tipOut, trail, root], true),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(0.5, width * 0.18)
+        ..color = Colors.black.withValues(alpha: 0.28),
+    );
   }
+
+  fletch(-1, 1.0, hen);
+  fletch(1, 1.0, hen);
+  // The cock feather sits square to the other two; edge-on it collapses to a
+  // sliver down the shaft, which is exactly what it does on a real arrow.
+  fletch(1, 0.34, cock);
+
+  // Nock: a dark cup at the very end, and the shaft's own bright tail behind.
   canvas.drawCircle(
     t.screen,
-    width * 0.55,
-    Paint()..color = Colors.black.withValues(alpha: 0.45),
+    width * 0.7,
+    Paint()..color = const Color(0xFF23201C),
   );
 }
 
@@ -933,6 +1537,35 @@ void _paintFlightShadow(
 // Foreground: bow, reticle, HUD
 // ---------------------------------------------------------------------------
 
+/// A point on a cubic Bézier — used to sample the bow's spine so the limb, the
+/// laminate stripe and the string tips are all built from one curve.
+Offset _bezier3(Offset a, Offset b, Offset c, Offset d, double t) {
+  final u = 1 - t;
+  return a * (u * u * u) +
+      b * (3 * u * u * t) +
+      c * (3 * u * t * t) +
+      d * (t * t * t);
+}
+
+/// A closed outline around [spine], [halfWidth] pixels either side at each
+/// sample — a stroke with a taper, which `Paint.strokeWidth` cannot do.
+Path _taperedBody(List<Offset> spine, double Function(int) halfWidth) {
+  final left = <Offset>[];
+  final right = <Offset>[];
+  for (var i = 0; i < spine.length; i++) {
+    final prev = spine[math.max(0, i - 1)];
+    final next = spine[math.min(spine.length - 1, i + 1)];
+    var dir = next - prev;
+    final len = dir.distance;
+    dir = len < 1e-6 ? const Offset(0, -1) : dir / len;
+    final normal = Offset(-dir.dy, dir.dx) * halfWidth(i);
+    left.add(spine[i] + normal);
+    right.add(spine[i] - normal);
+  }
+  return Path()
+    ..addPolygon([...left, ...right.reversed], true);
+}
+
 void _paintBow(
   Canvas canvas,
   Size size,
@@ -954,48 +1587,112 @@ void _paintBow(
   final gripY = h * 0.80;
   final limbTopY = h * 0.30;
 
-  final limb = Path()
-    ..moveTo(gripX - w * 0.075, limbTopY - h * 0.028)
-    ..quadraticBezierTo(
-        gripX - w * 0.045, limbTopY - h * 0.02, gripX - w * 0.02, limbTopY)
-    ..quadraticBezierTo(gripX - w * 0.11, h * 0.55, gripX, gripY)
-    ..quadraticBezierTo(gripX + w * 0.09, h * 1.02, gripX + w * 0.01, h * 1.16);
+  // The limb, as a **tapered solid** rather than a constant stroke. A recurve
+  // is deep at the fade and narrow at the tip, and that taper is most of what
+  // separates a bow from a bent line. The spine is sampled from the same
+  // curve the string is nocked against, so the two can never disagree.
+  final spine = <Offset>[
+    for (var i = 0; i <= 26; i++)
+      _bezier3(
+        Offset(gripX - w * 0.070, limbTopY - h * 0.030),
+        Offset(gripX - w * 0.115, h * 0.44),
+        Offset(gripX - w * 0.030, h * 0.66),
+        Offset(gripX, gripY),
+        i / 26,
+      ),
+    for (var i = 1; i <= 20; i++)
+      _bezier3(
+        Offset(gripX, gripY),
+        Offset(gripX + w * 0.055, h * 0.95),
+        Offset(gripX + w * 0.075, h * 1.06),
+        Offset(gripX + w * 0.010, h * 1.17),
+        i / 20,
+      ),
+  ];
+  // Deep through the middle third, tapering to the tips.
+  double halfWidth(int i) {
+    final t = i / (spine.length - 1);
+    final belly = math.sin(math.pi * t.clamp(0.0, 1.0));
+    return w * (0.006 + 0.020 * math.pow(belly, 0.65));
+  }
+
+  final limb = _taperedBody(spine, halfWidth);
   canvas.drawPath(
     limb,
-    Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.022
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFF3B2A1C),
+    Paint()..color = const Color(0xFF2E2013),
+  );
+  // Laminate: a paler core stripe down the belly of the limb, then the sun's
+  // edge up-left of it.
+  canvas.drawPath(
+    _taperedBody(spine, (i) => halfWidth(i) * 0.42),
+    Paint()..color = const Color(0xFF6B4A2A),
   );
   canvas.drawPath(
-    limb,
-    Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.008
-      ..strokeCap = StrokeCap.round
-      ..color = Colors.white.withValues(alpha: 0.12),
+    _taperedBody(
+      [for (final p in spine) p.translate(-w * 0.009, 0)],
+      (i) => halfWidth(i) * 0.16,
+    ),
+    Paint()..color = Colors.white.withValues(alpha: 0.22),
   );
 
-  // Riser + bow hand.
-  canvas.drawRRect(
-    RRect.fromRectAndRadius(
-      Rect.fromCenter(
-          center: Offset(gripX, gripY), width: w * 0.045, height: h * 0.13),
-      Radius.circular(w * 0.018),
-    ),
-    Paint()..color = const Color(0xFF2C1E13),
+  // Riser: a shaped block with an arrow shelf and a sight window cut out of it.
+  final riser = RRect.fromRectAndRadius(
+    Rect.fromCenter(
+        center: Offset(gripX, gripY), width: w * 0.060, height: h * 0.165),
+    Radius.circular(w * 0.020),
   );
+  canvas.drawRRect(riser, Paint()..color = const Color(0xFF241809));
+  canvas.drawRRect(
+    riser.deflate(w * 0.010),
+    Paint()..color = const Color(0xFF3E2B17),
+  );
+  // Arrow shelf: the ledge the shaft rests over, catching the light.
+  canvas.drawRRect(
+    RRect.fromRectAndRadius(
+      Rect.fromLTWH(gripX + w * 0.008, gripY - h * 0.036, w * 0.048,
+          h * 0.012),
+      Radius.circular(w * 0.006),
+    ),
+    Paint()..color = const Color(0xFF6B4A2A),
+  );
+
+  // Leather grip, and the bow hand wrapped round it.
+  final grip = RRect.fromRectAndRadius(
+    Rect.fromCenter(
+        center: Offset(gripX, gripY + h * 0.012),
+        width: w * 0.052,
+        height: h * 0.072),
+    Radius.circular(w * 0.020),
+  );
+  canvas.drawRRect(grip, Paint()..color = const Color(0xFF4A3018));
+  for (var i = 0; i < 5; i++) {
+    final y = gripY - h * 0.020 + i * h * 0.016;
+    canvas.drawLine(
+      Offset(gripX - w * 0.024, y),
+      Offset(gripX + w * 0.024, y - h * 0.004),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..strokeWidth = math.max(0.8, w * 0.003),
+    );
+  }
   canvas.drawRRect(
     RRect.fromRectAndRadius(
       Rect.fromCenter(
-          center: Offset(gripX + w * 0.026, gripY + h * 0.008),
-          width: w * 0.075,
-          height: h * 0.062),
-      Radius.circular(w * 0.026),
+          center: Offset(gripX + w * 0.030, gripY + h * 0.010),
+          width: w * 0.082,
+          height: h * 0.066),
+      Radius.circular(w * 0.028),
     ),
     Paint()..color = const Color(0xFFD9A277),
   );
+  // Knuckles, lit up-left.
+  for (var i = 0; i < 3; i++) {
+    canvas.drawCircle(
+      Offset(gripX + w * 0.016, gripY - h * 0.012 + i * h * 0.021),
+      w * 0.012,
+      Paint()..color = const Color(0xFFE8B98D),
+    );
+  }
 
   // The nock travels toward the viewer as the string is drawn: on screen that
   // reads as the nock sliding down-right and the fletching swelling.
@@ -1003,15 +1700,32 @@ void _paintBow(
   final nockFull = Offset(gripX + w * 0.22, gripY + h * 0.055);
   final nock = Offset.lerp(nockRest, nockFull, draw)! + Offset(shake, 0);
 
-  // String: from limb tips through the nock.
-  final tipTop = Offset(gripX - w * 0.02, limbTopY);
-  final tipBottom = Offset(gripX + w * 0.01, h * 1.15);
-  final string = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = math.max(1.1, w * 0.0035)
-    ..color = Colors.white.withValues(alpha: 0.55);
-  canvas.drawLine(tipTop, nock, string);
-  canvas.drawLine(nock, tipBottom, string);
+  // String: from limb tips through the nock. Drawn as a dark core under a pale
+  // edge so it has thickness — a one-pixel white hairline reads as a scratch on
+  // the screen rather than as sixteen strands of Dacron.
+  final tipTop = spine.first;
+  final tipBottom = spine.last;
+  for (final (width, color) in [
+    (math.max(1.8, w * 0.0075), const Color(0xFF2A2622)),
+    (math.max(1.0, w * 0.0038), const Color(0xFFE9E4D8)),
+  ]) {
+    final string = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..strokeCap = StrokeCap.round
+      ..color = color;
+    canvas.drawLine(tipTop, nock, string);
+    canvas.drawLine(nock, tipBottom, string);
+  }
+  // Centre serving: the thicker wrap the arrow nocks onto.
+  canvas.drawLine(
+    Offset.lerp(nock, tipTop, 0.11)!,
+    Offset.lerp(nock, tipBottom, 0.11)!,
+    Paint()
+      ..strokeWidth = math.max(2.0, w * 0.009)
+      ..strokeCap = StrokeCap.round
+      ..color = const Color(0xFF8A8F98),
+  );
 
   // No arrow on the string once it has been loosed.
   if (!view.showReticle) return;

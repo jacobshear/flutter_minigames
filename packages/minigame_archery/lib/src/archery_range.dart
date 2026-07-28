@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:minigames_3d/minigames_3d.dart';
 import 'package:minigames_core/minigames_core.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'archery_game.dart';
 import 'archery_shot.dart';
@@ -79,14 +80,30 @@ class _ArcheryRangeState extends State<ArcheryRange>
   bool _resolving = false;
   bool _lastHitFace = false;
 
+  /// Where the last arrow struck the face, and how hard it arrived. Together
+  /// they place and scale the straw's compression, so a close, fast arrow digs
+  /// in and a tired one at thirty-eight metres barely marks it.
+  double _impactX = 0;
+  double _impactY = 0;
+  double _impactStrength = 1;
+
+  /// An arrow that missed and is lying in the range, kept until the next one
+  /// is loosed. A miss that vanishes teaches nothing.
+  StrayArrow? _stray;
+
   /// Arrows shown in the face right now — kept locally so the third arrow of an
   /// end stays visible while its pill is up, instead of vanishing the instant
   /// the state advances to the next target.
   List<ArrowShot> _stuck = const [];
   int _displayTarget = 0;
 
-  String _pill = '';
-  Timer? _pillTimer;
+  // The transient centre message. A single GameNotice owns the animation and
+  // the retract timer, so repeating the same text — two "MISS"es in a row is
+  // ordinary play — can never collide with its own outgoing copy.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.info;
+  Color? _noticeAccent;
+  bool _noticeStrong = false;
   bool _celebrated = false;
   bool _handoffAcknowledged = false;
 
@@ -131,10 +148,11 @@ class _ArcheryRangeState extends State<ArcheryRange>
     _handoffAcknowledged = false;
     _resolving = false;
     _shot = null;
+    _stray = null;
     _stuck = const [];
     _aimYaw = 0;
     _aimPitch = 0;
-    _pill = '';
+    _clearNotice();
     _confetti = const [];
     final s = widget.controller.state;
     _state = s;
@@ -150,7 +168,6 @@ class _ArcheryRangeState extends State<ArcheryRange>
   @override
   void dispose() {
     _sub?.cancel();
-    _pillTimer?.cancel();
     _ticker?.dispose();
     _flight.dispose();
     _wobble.dispose();
@@ -201,7 +218,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
     _held = 0;
     widget.style.sounds.onBowDraw?.call();
     if (widget.style.haptics) HapticFeedback.selectionClick();
-    setState(() => _showPill(''));
+    setState(_clearNotice);
   }
 
   void _pointerMove(PointerMoveEvent e) {
@@ -262,6 +279,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
 
     final slowMo = widget.style.slowMotionOnBullseye && result.isBullseye;
     _shot = result;
+    _stray = null;
     _resolving = true;
     _flight
       ..duration = Duration(
@@ -283,15 +301,41 @@ class _ArcheryRangeState extends State<ArcheryRange>
     if (s == null || result == null) return;
     final style = widget.style;
 
+    // How hard it arrived scales the whole impact: the haptic, the straw's
+    // compression and how long the shaft rings.
+    _impactStrength = result.impactStrength;
     if (result.onFace) {
+      _impactX = result.offsetX;
+      _impactY = result.offsetY;
       if (result.isBullseye) {
         style.sounds.onBullseye?.call();
         if (style.haptics) HapticFeedback.heavyImpact();
       } else {
         style.sounds.onHit?.call();
-        if (style.haptics) HapticFeedback.lightImpact();
+        if (style.haptics) {
+          if (_impactStrength > 0.5) {
+            HapticFeedback.mediumImpact();
+          } else {
+            HapticFeedback.lightImpact();
+          }
+        }
       }
     } else {
+      // Leave it where it finished — planted in the turf short or long, or
+      // still travelling if it left the world.
+      final path = result.path;
+      if (path.length >= 2) {
+        final end = path.last;
+        final before = path[path.length - 2];
+        final delta = end - before;
+        _stray = StrayArrow(
+          position: end,
+          direction: delta.lengthSquared < 1e-9
+              ? result.impactDirection
+              : delta.normalized,
+          inGround: end.y <= 0.05,
+        );
+      }
       style.sounds.onMiss?.call();
       if (style.haptics) HapticFeedback.mediumImpact();
     }
@@ -316,14 +360,18 @@ class _ArcheryRangeState extends State<ArcheryRange>
           onFace: move.onFace,
         ),
       ];
-      _showPill(
-        result.isBullseye
-            ? 'BULLSEYE! +10'
-            : (result.onFace ? '+${result.ring}' : 'MISS'),
-      );
+      if (result.isBullseye) {
+        _showNotice('BULLSEYE  +10',
+            tone: GameNoticeTone.score, accent: _accent, strong: true);
+      } else if (result.onFace) {
+        _showNotice('+${result.ring}',
+            tone: GameNoticeTone.score, accent: _accent);
+      } else {
+        _showNotice('MISS', tone: GameNoticeTone.warn);
+      }
     });
-    // The wobble timer always runs — it is also the beat that lets the pill be
-    // read and the submitted move land before the display rolls forward.
+    // The wobble timer always runs — it is also the beat that lets the notice
+    // be read and the submitted move land before the display rolls forward.
     _lastHitFace = result.onFace;
     _wobble.forward(from: 0);
     widget.controller.submitMove(move);
@@ -347,11 +395,15 @@ class _ArcheryRangeState extends State<ArcheryRange>
     final movedOn = s.targetIndex != _displayTarget ||
         s.arrowsShotBy(s.currentPlayerId) == 0;
     if (movedOn && _outcome == null) {
+      // The stray belongs to the target we are leaving.
+      _stray = null;
       _displayTarget = s.targetIndex;
       _stuck = s.arrowsAt(s.currentPlayerId, s.targetIndex);
       if (s.phase != ArcheryPhase.handoff) {
         widget.style.sounds.onNextTarget?.call();
-        _showPill(s.conditions.summary());
+        // Distance and wind are standing conditions, not news — they sit in
+        // the range card over the sky for as long as this target is up.
+        _clearNotice();
       }
     }
     setState(() {});
@@ -373,6 +425,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
       _celebrated = false;
       _resolving = false;
       _shot = null;
+      _stray = null;
     }
     if (outcome != null && !_celebrated) _celebrate(outcome);
     setState(() {
@@ -417,17 +470,32 @@ class _ArcheryRangeState extends State<ArcheryRange>
     });
   }
 
-  /// Transient pills clear themselves; the win pill is [sticky]. Assigns
-  /// synchronously — callers own the surrounding setState.
-  void _showPill(String text, {bool sticky = false}) {
-    _pillTimer?.cancel();
-    _pill = text;
-    if (!sticky && text.isNotEmpty) {
-      _pillTimer = Timer(const Duration(milliseconds: 2200), () {
-        if (!mounted) return;
-        setState(() => _pill = '');
-      });
-    }
+  /// Raises the centre notice. Assigns synchronously — callers own the
+  /// surrounding setState; [GameNotice.autoDismiss] retracts it.
+  void _showNotice(
+    String text, {
+    GameNoticeTone tone = GameNoticeTone.info,
+    Color? accent,
+    bool strong = false,
+  }) {
+    _notice = text;
+    _noticeTone = tone;
+    _noticeAccent = accent;
+    _noticeStrong = strong;
+  }
+
+  void _clearNotice() {
+    _notice = null;
+    _noticeStrong = false;
+  }
+
+  /// The shooting seat's colour, resolved against the cached scheme so
+  /// callbacks off the build path can use it too.
+  Color get _accent {
+    final s = _state;
+    return s == null
+        ? widget.style.resolvePlayer1(_scheme)
+        : widget.style.colorFor(_scheme, s.currentPlayerId, s.playerIds);
   }
 
   // ---------------------------------------------------------------------------
@@ -467,9 +535,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
       );
     }
 
-    final accent = s == null
-        ? widget.style.resolvePlayer1(_scheme)
-        : widget.style.colorFor(_scheme, s.currentPlayerId, s.playerIds);
+    final accent = _accent;
 
     return ArcheryView(
       conditions: conditions,
@@ -494,8 +560,16 @@ class _ArcheryRangeState extends State<ArcheryRange>
       zoom: _resolving ? 1 : progress,
       swayAmplitude: sway,
       time: _time,
-      targetWobble:
+      // Scaled by the arrival: a tired arrow at long range dents the straw far
+      // less than one that arrives at fifty metres a second.
+      targetWobble: _lastHitFace && _wobble.isAnimating
+          ? (1 - _wobble.value) * (0.5 + 0.5 * _impactStrength)
+          : 0,
+      impactX: _impactX,
+      impactY: _impactY,
+      arrowSettle:
           _lastHitFace && _wobble.isAnimating ? (1 - _wobble.value) : 0,
+      stray: _stray,
       arrowsLeft:
           ArcheryGame.arrowsPerTarget - _stuck.length.clamp(0, ArcheryGame.arrowsPerTarget),
       accent: accent,
@@ -598,15 +672,27 @@ class _ArcheryRangeState extends State<ArcheryRange>
                           ),
                         ),
                       ),
+                    // No standing chrome pill here on purpose: the scene
+                    // already paints the range readout (TARGET n, the
+                    // distance, the quiver dots) top-left and the wind vane
+                    // with its speed top-right, permanently and in
+                    // perspective. The conditions used to *also* flash past as
+                    // a two-second pill, which was the redundant copy — that
+                    // is what was deleted.
                     Positioned.fill(
                       child: IgnorePointer(
                         child: Align(
-                          alignment: const Alignment(0, -0.25),
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 200),
-                            child: _pill.isEmpty
-                                ? const SizedBox.shrink()
-                                : _Pill(key: ValueKey(_pill), text: _pill),
+                          // Below the boss, not over it: the notice used to
+                          // land squarely on the target face and hide the
+                          // arrow it was describing. Down here it reads
+                          // against empty grass instead.
+                          alignment: const Alignment(0, 0.42),
+                          child: GameNotice(
+                            message: _notice,
+                            tone: _noticeTone,
+                            accent: _noticeAccent,
+                            strong: _noticeStrong,
+                            autoDismiss: const Duration(milliseconds: 1800),
                           ),
                         ),
                       ),
@@ -620,7 +706,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
                             _handoffAcknowledged = true;
                             _displayTarget = state.targetIndex;
                             _stuck = const [];
-                            _showPill(state.conditions.summary());
+                            _clearNotice();
                           });
                         },
                       ),
@@ -661,32 +747,6 @@ class _ArcheryRangeState extends State<ArcheryRange>
 // ---------------------------------------------------------------------------
 // Chrome
 // ---------------------------------------------------------------------------
-
-class _Pill extends StatelessWidget {
-  final String text;
-
-  const _Pill({super.key, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 1.0,
-        ),
-      ),
-    );
-  }
-}
 
 class _PlayerChip extends StatelessWidget {
   final String label;
@@ -740,12 +800,19 @@ class _PlayerChip extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
+          // The running total is what the whole round is about — it outweighs
+          // the name beside it rather than sitting level with it.
           Text(
             '$score',
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              fontSize: 21,
+              height: 1,
+              letterSpacing: -0.6,
+              shadows: active || winner
+                  ? [Shadow(color: accent.withValues(alpha: 0.65), blurRadius: 10)]
+                  : null,
             ),
           ),
         ],

@@ -33,10 +33,10 @@ class GomokuStyle {
     this.sounds = GomokuSounds.silent,
   });
 
-  // Pale sun-bleached birch slab with quiet ink lines (GP read).
-  Color resolveBoard(ColorScheme s) => boardColor ?? const Color(0xFFE5D6B4);
+  // Warm kaya slab with scored ink lines (GP read, goban material).
+  Color resolveBoard(ColorScheme s) => boardColor ?? const Color(0xFFE0C48D);
   Color resolveLine(ColorScheme s) =>
-      lineColor ?? const Color(0xFF6B5233).withValues(alpha: 0.55);
+      lineColor ?? const Color(0xFF4A3315).withValues(alpha: 0.72);
   Color resolveBlack(ColorScheme s) =>
       blackStoneColor ?? const Color(0xFF26262B);
   Color resolveWhite(ColorScheme s) =>

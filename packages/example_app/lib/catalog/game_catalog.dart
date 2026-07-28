@@ -7,6 +7,8 @@ import 'package:minigame_darts/minigame_darts.dart' show DartsTileArt;
 import 'package:minigame_cup_pong/minigame_cup_pong.dart' show CupPongTileArt;
 import 'package:minigame_eight_ball/minigame_eight_ball.dart' show EightBallTileArt;
 import 'package:minigame_filler/minigame_filler.dart';
+import 'package:minigame_gin_rummy/minigame_gin_rummy.dart' show GinRummyTileArt;
+import 'package:minigame_go_fish/minigame_go_fish.dart' show GoFishTileArt;
 import 'package:minigame_knockout/minigame_knockout.dart' show KnockoutTileArt;
 import 'package:minigame_mini_golf/minigame_mini_golf.dart' show MiniGolfTileArt;
 import 'package:minigame_sea_battle/minigame_sea_battle.dart' show SeaBattleTileArt;
@@ -26,6 +28,8 @@ import '../screens/cup_pong_play_screen.dart';
 import '../screens/darts_play_screen.dart';
 import '../screens/dots_and_boxes_play_screen.dart';
 import '../screens/eight_ball_play_screen.dart';
+import '../screens/gin_rummy_play_screen.dart';
+import '../screens/go_fish_play_screen.dart';
 import '../screens/gomoku_play_screen.dart';
 import '../screens/knockout_play_screen.dart';
 import '../screens/mancala_play_screen.dart';
@@ -199,5 +203,17 @@ List<GameCatalogEntry> get gameCatalog => [
         title: 'Darts',
         artBuilder: (_, phase) => DartsTileArt(phase: phase),
         builder: (_) => const DartsPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'gin_rummy',
+        title: 'Gin Rummy',
+        artBuilder: (_, phase) => GinRummyTileArt(phase: phase),
+        builder: (_) => const GinRummyPlayScreen(),
+      ),
+      GameCatalogEntry(
+        id: 'go_fish',
+        title: 'Go Fish',
+        artBuilder: (_, phase) => GoFishTileArt(phase: phase),
+        builder: (_) => const GoFishPlayScreen(),
       ),
     ];

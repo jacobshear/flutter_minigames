@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui show Picture, PictureRecorder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -225,6 +226,7 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
                           painter: _GridPainter(
                             color: style.resolveGrid(scheme),
                             progress: _entrance.value,
+                            brightness: scheme.brightness,
                           ),
                         ),
                       ),
@@ -621,41 +623,296 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
 // Painters
 // ---------------------------------------------------------------------------
 
+/// The board: a milled stone slab with routed grid channels.
+///
+/// Light comes from the upper left and every element agrees with it — the slab
+/// bevel, the recessed playfield, the channel lips, and (in [MarkPainter]) the
+/// inlaid marks. The slab itself is expensive (procedural grain speckle) but
+/// completely static, so it is recorded once into a [ui.Picture] keyed by size
+/// and palette; only the animated channels are drawn per frame.
 class _GridPainter extends CustomPainter {
   final Color color;
   final double progress;
+  final Brightness brightness;
 
-  _GridPainter({required this.color, required this.progress});
+  _GridPainter({
+    required this.color,
+    required this.progress,
+    required this.brightness,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final s = size.width;
+    final pal = _StonePalette.of(brightness);
+    canvas.drawPicture(_slabFor(size, pal));
+
     final third = s / 3;
-    final half = s * 0.88 / 2; // lines stop short of the edges
+    final half = s * 0.895 / 2; // channels run wall to wall inside the field
     final mid = s / 2;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = s * 0.013
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
 
     final vt = Curves.easeOutCubic.transform((progress / 0.75).clamp(0.0, 1.0));
     final ht = Curves.easeOutCubic
         .transform(((progress - 0.25) / 0.75).clamp(0.0, 1.0));
 
+    final w = s * 0.017;
+    // A routed channel reads as walls *inside* one trough width: the darkest
+    // point is the floor, the wall facing the light is shadowed (it faces away
+    // from it once you tip into the groove) and the far wall catches a bead.
+    // Everything is drawn within ±w/2 — push the lips outside that and the
+    // groove flips into a raised bar with a white outline.
+    final trough = Paint()
+      ..color = pal.channel
+      ..strokeWidth = w
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final core = Paint()
+      ..color = pal.channelShade
+      ..strokeWidth = w * 0.44
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final lipDark = Paint()
+      ..color = pal.channelShade.withValues(alpha: 0.60)
+      ..strokeWidth = w * 0.26
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final lipLight = Paint()
+      ..color = pal.channelLight.withValues(alpha: 0.55)
+      ..strokeWidth = w * 0.24
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final off = w * 0.34;
+
+    void channel(Offset a, Offset b, bool vertical) {
+      final d = vertical ? Offset(off, 0) : Offset(0, off);
+      canvas.drawLine(a, b, trough);
+      canvas.drawLine(a, b, core);
+      canvas.drawLine(a - d, b - d, lipDark);
+      canvas.drawLine(a + d, b + d, lipLight);
+    }
+
     for (final x in [third, third * 2]) {
-      canvas.drawLine(
-          Offset(x, mid - half * vt), Offset(x, mid + half * vt), paint);
+      if (vt <= 0) continue;
+      channel(Offset(x, mid - half * vt), Offset(x, mid + half * vt), true);
     }
     for (final y in [third, third * 2]) {
-      canvas.drawLine(
-          Offset(mid - half * ht, y), Offset(mid + half * ht, y), paint);
+      if (ht <= 0) continue;
+      channel(Offset(mid - half * ht, y), Offset(mid + half * ht, y), false);
+    }
+
+    // The host's grid colour still gets a say: a faint tint down each channel
+    // so a branded palette reads on the board, not only on the marks.
+    if (color.a > 0) {
+      final tint = Paint()
+        ..color = color.withValues(alpha: 0.07)
+        ..strokeWidth = w * 0.5
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+      for (final x in [third, third * 2]) {
+        if (vt <= 0) continue;
+        canvas.drawLine(
+            Offset(x, mid - half * vt), Offset(x, mid + half * vt), tint);
+      }
+      for (final y in [third, third * 2]) {
+        if (ht <= 0) continue;
+        canvas.drawLine(
+            Offset(mid - half * ht, y), Offset(mid + half * ht, y), tint);
+      }
     }
   }
 
   @override
   bool shouldRepaint(_GridPainter old) =>
-      old.progress != progress || old.color != color;
+      old.progress != progress ||
+      old.color != color ||
+      old.brightness != brightness;
+}
+
+// ---------------------------------------------------------------------------
+// Stone slab: palette, procedural grain, cached picture
+// ---------------------------------------------------------------------------
+
+/// Everything the slab needs, resolved once per brightness. Deliberately not
+/// derived from [ColorScheme]: the board is a physical object with its own
+/// material, and the host brands the marks, not the rock.
+class _StonePalette {
+  final Color top; // lit face, upper-left
+  final Color bottom; // shaded face, lower-right
+  final Color field; // recessed playfield
+  final Color rimLight;
+  final Color rimShade;
+  final Color channel;
+  final Color channelShade;
+  final Color channelLight;
+  final Color grain;
+  final int key;
+
+  const _StonePalette({
+    required this.top,
+    required this.bottom,
+    required this.field,
+    required this.rimLight,
+    required this.rimShade,
+    required this.channel,
+    required this.channelShade,
+    required this.channelLight,
+    required this.grain,
+    required this.key,
+  });
+
+  static const _light = _StonePalette(
+    top: Color(0xFFF0EBE1),
+    bottom: Color(0xFFD5CDBE),
+    field: Color(0xFFE6E0D3),
+    rimLight: Color(0xB3FFFFFF),
+    rimShade: Color(0x3D000000),
+    channel: Color(0xFFA79C88),
+    channelShade: Color(0xFF7C7160),
+    channelLight: Color(0xE6FFFFFF),
+    grain: Color(0xFF6B6353),
+    key: 1,
+  );
+
+  static const _dark = _StonePalette(
+    top: Color(0xFF3B3F45),
+    bottom: Color(0xFF23262A),
+    field: Color(0xFF2E3237),
+    rimLight: Color(0x33FFFFFF),
+    rimShade: Color(0x66000000),
+    channel: Color(0xFF15171A),
+    channelShade: Color(0xFF0C0D0F),
+    channelLight: Color(0x40FFFFFF),
+    grain: Color(0xFF9AA3AD),
+    key: 2,
+  );
+
+  static _StonePalette of(Brightness b) =>
+      b == Brightness.dark ? _dark : _light;
+}
+
+/// Deterministic 0..1 value hash — procedural grain with no assets and no
+/// per-frame randomness (the slab must be byte-identical between rebuilds or
+/// the cache would flicker).
+double _hash2(int x, int y) {
+  var h = x * 374761393 + y * 668265263;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) & 0xFFFF) / 65535.0;
+}
+
+class _Slab {
+  final double w;
+  final int key;
+  final ui.Picture picture;
+  const _Slab(this.w, this.key, this.picture);
+}
+
+final List<_Slab> _slabs = [];
+
+ui.Picture _slabFor(Size size, _StonePalette pal) {
+  for (final s in _slabs) {
+    if (s.w == size.width && s.key == pal.key) return s.picture;
+  }
+  final recorder = ui.PictureRecorder();
+  _paintSlab(Canvas(recorder), size, pal);
+  final made = _Slab(size.width, pal.key, recorder.endRecording());
+  _slabs.insert(0, made);
+  while (_slabs.length > 3) {
+    _slabs.removeLast().picture.dispose();
+  }
+  return made.picture;
+}
+
+void _paintSlab(Canvas canvas, Size size, _StonePalette pal) {
+  final s = size.width;
+  final body = Rect.fromLTWH(s * 0.012, 0, s - s * 0.024, s - s * 0.03);
+  final rr = RRect.fromRectAndRadius(body, Radius.circular(s * 0.075));
+
+  // Contact shadow — the slab is lying on the panel, not floating over it.
+  canvas.drawRRect(
+    rr.shift(Offset(s * 0.004, s * 0.020)),
+    Paint()
+      ..color = const Color(0x2E000000)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.022),
+  );
+
+  // Slab face, lit from the upper left.
+  canvas.drawRRect(
+    rr,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [pal.top, pal.bottom],
+      ).createShader(body),
+  );
+
+  // Grain: sparse speckle plus a few longer flecks, clipped to the slab.
+  canvas.save();
+  canvas.clipRRect(rr);
+  final grain = Paint();
+  final cells = (s / 5).round().clamp(20, 90);
+  for (var i = 0; i < cells; i++) {
+    for (var j = 0; j < cells; j++) {
+      final h = _hash2(i, j);
+      if (h < 0.86) continue;
+      final x = body.left + (i + _hash2(i, j + 91)) / cells * body.width;
+      final y = body.top + (j + _hash2(i + 57, j)) / cells * body.height;
+      grain.color = pal.grain.withValues(alpha: 0.03 + 0.07 * (h - 0.86) / 0.14);
+      canvas.drawCircle(Offset(x, y), s * (0.0012 + 0.0022 * h), grain);
+    }
+  }
+  // A wide, very soft sheen sweeping from the light.
+  canvas.drawRect(
+    body,
+    Paint()
+      ..shader = LinearGradient(
+        begin: const Alignment(-1, -1.4),
+        end: const Alignment(0.6, 1),
+        colors: [
+          Colors.white.withValues(alpha: 0.16),
+          Colors.white.withValues(alpha: 0.0),
+        ],
+      ).createShader(body),
+  );
+  canvas.restore();
+
+  // Recessed playfield: darker floor, shadowed upper-left wall, lit lower-right.
+  final field = body.deflate(s * 0.035);
+  final fieldRR = RRect.fromRectAndRadius(field, Radius.circular(s * 0.05));
+  canvas.drawRRect(fieldRR, Paint()..color = pal.field);
+  canvas.save();
+  canvas.clipRRect(fieldRR);
+  canvas.drawRRect(
+    fieldRR.shift(Offset(s * 0.008, s * 0.010)),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.014
+      ..color = pal.rimShade
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.008),
+  );
+  canvas.drawRRect(
+    fieldRR.shift(Offset(-s * 0.008, -s * 0.010)),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.010
+      ..color = pal.rimLight
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.007),
+  );
+  canvas.restore();
+
+  // Outer edge: bright along the lit rim, dark along the shaded one.
+  canvas.drawRRect(
+    rr.deflate(s * 0.0035),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.006
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [pal.rimLight, pal.rimShade],
+        stops: const [0.15, 0.85],
+      ).createShader(body),
+  );
 }
 
 class _WinLinePainter extends CustomPainter {

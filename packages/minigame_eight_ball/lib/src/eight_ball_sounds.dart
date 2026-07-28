@@ -11,6 +11,16 @@ class EightBallSounds {
   /// Two balls collided mid-shot (cue↔ball or ball↔ball).
   final void Function()? onCollision;
 
+  /// A ball banked off a cushion.
+  ///
+  /// Falls back to [onCollision] when not supplied, so an existing host keeps
+  /// hearing rails without rewiring. The hooks are deliberately argument-free
+  /// (the package ships no audio dependency and cannot set a per-shot volume),
+  /// so the *weight* of a bounce is carried by the board instead: a nudge is
+  /// silent, and the haptic and the cloth compression both scale with the
+  /// impact speed.
+  final void Function()? onRail;
+
   /// A ball dropped into a pocket.
   final void Function()? onPocket;
 
@@ -26,6 +36,7 @@ class EightBallSounds {
   const EightBallSounds({
     this.onBreak,
     this.onCollision,
+    this.onRail,
     this.onPocket,
     this.onFoul,
     this.onWin,

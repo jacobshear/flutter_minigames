@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:minigames_core/minigames_core.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'darts_game.dart';
 import 'darts_scene.dart';
@@ -64,14 +65,26 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
   double _wobbleX = 0;
   double _wobbleY = 0;
 
+  /// Arrival speed of the dart that is currently settling, 0..1. Everything
+  /// the impact does — the thud, the haptic, how far the beds move, how hard
+  /// the shaft rings — is scaled by this, so a floated dart and a rifled one
+  /// do not land the same way.
+  double _wobbleStrength = 1;
+
   /// The live swipe: origin, current point, and the throw it describes. All
   /// null between throws — the board is clean at rest.
   Offset? _swipeFrom;
   Offset? _swipeTo;
   DartsSwing? _swing;
 
-  String _pill = '';
-  Timer? _pillTimer;
+  // The transient centre message. A single GameNotice owns the animation and
+  // the retract timer, so repeating the same text — two "MISS"es in a row is
+  // ordinary play — can never collide with its own outgoing copy.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.info;
+  Color? _noticeAccent;
+  bool _noticeSticky = false;
+  bool _noticeStrong = false;
   bool _celebrated = false;
 
   final math.Random _rnd = math.Random(7);
@@ -104,22 +117,20 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     _flight = null;
     _stuck.clear();
     _celebrated = false;
-    _pill = '';
+    _clearNotice();
     _confetti = const [];
     _clearSwipe();
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
-    if (s != null && _outcome == null) {
-      _showPill('${_labelFor(s.currentPlayerId)} to throw');
-    }
+    // Whose throw it is, and how many darts are left in the visit, are
+    // standing facts — they live in the header GamePill, not in a message.
     _sub = widget.controller.stateStream.listen(_onState);
   }
 
   @override
   void dispose() {
     _sub?.cancel();
-    _pillTimer?.cancel();
     _ticker.dispose();
     _wobbleCtrl.dispose();
     _confettiCtrl.dispose();
@@ -147,9 +158,19 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
         if (v.busted) {
           widget.style.sounds.onBust?.call();
           if (widget.style.haptics) HapticFeedback.heavyImpact();
-          _showPill('BUST');
-        } else if (_pill.isEmpty || _pill.startsWith('Checkout')) {
-          _showPill('${v.total} scored');
+          _showNotice('BUST', tone: GameNoticeTone.warn);
+        } else {
+          // The visit total lands behind the third dart's announcement —
+          // GameNotice queues it, so the two never fight for the same slot.
+          // (The old guard only let this through when the pill happened to be
+          // empty, which after an announcement it never was, so the turn total
+          // was effectively never shown.)
+          _showNotice(
+            '${v.total} SCORED',
+            tone: GameNoticeTone.score,
+            accent: _colorFor(v.playerId),
+            strong: v.total >= 100,
+          );
         }
       }
     }
@@ -163,9 +184,10 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     _celebrated = true;
     widget.style.sounds.onWin?.call();
     if (widget.style.haptics) HapticFeedback.heavyImpact();
-    _showPill(
-      '${_labelFor(outcome.winnerId ?? state.currentPlayerId)} wins'
+    _showNotice(
+      '${_labelFor(outcome.winnerId ?? state.currentPlayerId)} WINS'
           .toUpperCase(),
+      tone: GameNoticeTone.win,
       sticky: true,
     );
     if (widget.style.confetti) {
@@ -174,15 +196,27 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     }
   }
 
-  void _showPill(String text, {bool sticky = false}) {
-    _pillTimer?.cancel();
-    _pill = text;
-    if (!sticky && text.isNotEmpty) {
-      _pillTimer = Timer(const Duration(milliseconds: 1700), () {
-        if (!mounted) return;
-        setState(() => _pill = '');
-      });
-    }
+  /// Raises the centre notice. Assigns synchronously — callers own the
+  /// surrounding setState. [sticky] holds it (the win); everything else
+  /// retracts itself via [GameNotice.autoDismiss].
+  void _showNotice(
+    String text, {
+    GameNoticeTone tone = GameNoticeTone.info,
+    Color? accent,
+    bool sticky = false,
+    bool strong = false,
+  }) {
+    _notice = text;
+    _noticeTone = tone;
+    _noticeAccent = accent;
+    _noticeSticky = sticky;
+    _noticeStrong = strong;
+  }
+
+  void _clearNotice() {
+    _notice = null;
+    _noticeSticky = false;
+    _noticeStrong = false;
   }
 
   String _labelFor(String playerId) {
@@ -236,7 +270,7 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     _ticker.start();
     setState(() {
       _clearSwipe();
-      _pill = '';
+      _clearNotice();
     });
   }
 
@@ -247,6 +281,11 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     if (state == null) return;
 
     final style = widget.style;
+    // A dart kicked off a wire is still ringing harder than one that went
+    // cleanly into sisal: it hit steel on the way in.
+    final strength = impact.deflected
+        ? math.min(1.0, impact.strength + 0.3)
+        : impact.strength;
     if (!impact.onFloor) {
       _stuck.add(
         StuckDart(
@@ -255,25 +294,47 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
           direction: impact.direction,
           color: _colorFor(state.currentPlayerId),
           hit: impact.hit,
+          strength: strength,
         ),
       );
       _wobbleX = impact.boardX;
       _wobbleY = impact.boardY;
+      _wobbleStrength = strength;
       _wobbleCtrl.forward(from: 0);
     }
 
+    // The thud is chosen by how hard the dart arrived, not only by what it
+    // scored: [DartsSounds.onBigScore] is the deep one, so a rifled dart gets
+    // it whatever bed it found, and a floated single gets the light tick.
     if (impact.hit.isMiss) {
       style.sounds.onMiss?.call();
       if (style.haptics) HapticFeedback.selectionClick();
-    } else if (impact.hit.multiplier > 1) {
+    } else if (impact.hit.multiplier > 1 || strength > 0.55) {
       style.sounds.onBigScore?.call();
-      if (style.haptics) HapticFeedback.lightImpact();
+      if (style.haptics) {
+        if (strength > 0.55) {
+          HapticFeedback.mediumImpact();
+        } else {
+          HapticFeedback.lightImpact();
+        }
+      }
     } else {
       style.sounds.onStick?.call();
       if (style.haptics) HapticFeedback.selectionClick();
     }
 
-    _showPill(impact.hit.announcement);
+    final hit = impact.hit;
+    _showNotice(
+      (impact.deflected && !hit.isMiss
+              ? 'OFF THE WIRE · ${hit.announcement}'
+              : hit.announcement)
+          .replaceAll('!', '')
+          .toUpperCase(),
+      tone: hit.isMiss ? GameNoticeTone.warn : GameNoticeTone.score,
+      accent: hit.isMiss ? null : _colorFor(state.currentPlayerId),
+      // A treble or a bull is the shot of the visit — it lands bigger.
+      strong: !hit.isMiss && (hit.multiplier == 3 || hit.sector == 25),
+    );
     setState(() {});
 
     widget.controller.submitMove(
@@ -350,17 +411,35 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
 
   DartsView _buildView(DartsState state) {
     final flight = _flight;
+    final settling = _wobbleCtrl.isAnimating ? 1 - _wobbleCtrl.value : 0.0;
+    // Only the dart that just arrived is still ringing; the ones already in the
+    // board from earlier in the visit are dead still.
+    final stuck = [
+      for (var i = 0; i < _stuck.length; i++)
+        i == _stuck.length - 1
+            ? StuckDart(
+                boardX: _stuck[i].boardX,
+                boardY: _stuck[i].boardY,
+                direction: _stuck[i].direction,
+                color: _stuck[i].color,
+                hit: _stuck[i].hit,
+                settle: settling,
+                strength: _stuck[i].strength,
+              )
+            : _stuck[i],
+    ];
     return DartsView(
-      stuck: List.unmodifiable(_stuck),
+      stuck: List.unmodifiable(stuck),
       dartPosition: flight?.position,
       dartVelocity: flight?.velocity,
       dartColor: _colorFor(state.currentPlayerId),
       swipeFrom: _swipeFrom,
       swipeTo: _swipeTo,
       power: _swing?.power ?? 0,
-      wobble: _wobbleCtrl.isAnimating ? 1 - _wobbleCtrl.value : 0,
+      wobble: settling,
       wobbleX: _wobbleX,
       wobbleY: _wobbleY,
+      wobbleStrength: _wobbleStrength,
     );
   }
 
@@ -404,22 +483,54 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
                   left: 10,
                   right: 10,
                   top: 10,
+                  // Three-up strip on a 402pt phone: the chips scale down
+                  // rather than overflow, and the turn pill ellipsises.
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _PlayerChip(
-                        label: style.labelFor(p1, state.playerIds),
-                        score: state.scoreOf(p1),
-                        accent: style.player1,
-                        active: _outcome == null && state.currentPlayerId == p1,
-                        winner: _outcome?.winnerId == p1,
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: _PlayerChip(
+                            label: style.labelFor(p1, state.playerIds),
+                            score: state.scoreOf(p1),
+                            accent: style.player1,
+                            active:
+                                _outcome == null && state.currentPlayerId == p1,
+                            winner: _outcome?.winnerId == p1,
+                          ),
+                        ),
                       ),
-                      _PlayerChip(
-                        label: style.labelFor(p2, state.playerIds),
-                        score: state.scoreOf(p2),
-                        accent: style.player2,
-                        active: _outcome == null && state.currentPlayerId == p2,
-                        winner: _outcome?.winnerId == p2,
+                      const SizedBox(width: 6),
+                      // Standing turn state: whose throw, and how many darts
+                      // are left in the visit. A fact, so a pill.
+                      Flexible(
+                        child: GamePill(
+                          text: _outcome == null
+                              ? '${state.dartsLeft} '
+                                  '${state.dartsLeft == 1 ? 'dart' : 'darts'} left'
+                              : 'Match over',
+                          accent: _outcome == null
+                              ? _colorFor(state.currentPlayerId)
+                              : null,
+                          dot: _outcome == null,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: _PlayerChip(
+                            label: style.labelFor(p2, state.playerIds),
+                            score: state.scoreOf(p2),
+                            accent: style.player2,
+                            active:
+                                _outcome == null && state.currentPlayerId == p2,
+                            winner: _outcome?.winnerId == p2,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -443,11 +554,15 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
                 Positioned.fill(
                   child: IgnorePointer(
                     child: Center(
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        child: _pill.isEmpty
-                            ? const SizedBox.shrink()
-                            : _Pill(key: ValueKey(_pill), text: _pill),
+                      // full-bleed Stack that stretched the capsule edge to
+                      child: GameNotice(
+                        message: _notice,
+                        tone: _noticeTone,
+                        accent: _noticeAccent,
+                        strong: _noticeStrong || _noticeSticky,
+                        autoDismiss: _noticeSticky
+                            ? null
+                            : const Duration(milliseconds: 1500),
                       ),
                     ),
                   ),
@@ -480,7 +595,7 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
                                   'Longer swipe lands higher · angle it to aim across'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.72),
+                        color: _chalk.withValues(alpha: 0.62),
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
                       ),
@@ -517,33 +632,19 @@ class _DartsScenePainter extends CustomPainter {
 
 // ---------------------------------------------------------------------------
 // Chrome
+//
+// Scored on slate. An oche keeps its numbers on a chalkboard on the wall, so
+// the chips, the visit strip and the pill are slate panels with a chalk-dust
+// rule round them and chalk-white figures on top — the same material the room
+// is built from, rather than generic translucent black.
 // ---------------------------------------------------------------------------
 
-class _Pill extends StatelessWidget {
-  final String text;
+/// Slate the scores are chalked on.
+const Color _slate = Color(0xFF1E2229);
 
-  const _Pill({super.key, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.62),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 1.0,
-        ),
-      ),
-    );
-  }
-}
+/// Chalk, and the dust it leaves on an edge.
+const Color _chalk = Color(0xFFF2EDE0);
+const Color _chalkDust = Color(0x33F2EDE0);
 
 class _PlayerChip extends StatelessWidget {
   final String label;
@@ -566,12 +667,12 @@ class _PlayerChip extends StatelessWidget {
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: active || winner ? 0.5 : 0.3),
+        color: _slate.withValues(alpha: active || winner ? 0.92 : 0.7),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: winner
               ? const Color(0xFFF4B740)
-              : Colors.white.withValues(alpha: active ? 0.5 : 0.12),
+              : _chalk.withValues(alpha: active ? 0.42 : 0.12),
           width: winner ? 2 : 1,
         ),
       ),
@@ -587,18 +688,25 @@ class _PlayerChip extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
+              color: _chalk.withValues(alpha: active || winner ? 1 : 0.65),
               fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
               fontSize: 12,
             ),
           ),
           const SizedBox(width: 8),
+          // The number left to check out is the whole game — it dominates the
+          // chip rather than sitting level with the name.
           Text(
             '$score',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 17,
+            style: TextStyle(
+              color: _chalk,
+              fontWeight: FontWeight.w900,
+              fontSize: 22,
+              height: 1,
+              letterSpacing: -0.8,
+              shadows: active || winner
+                  ? [Shadow(color: accent.withValues(alpha: 0.6), blurRadius: 10)]
+                  : null,
             ),
           ),
         ],
@@ -633,18 +741,31 @@ class _VisitStrip extends StatelessWidget {
                 ),
               ),
             const SizedBox(width: 8),
+            // The running turn total, which is what a player actually watches
+            // during a visit — it was set level with the dart labels beside it
+            // and read as a fourth slot rather than the sum of the other three.
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.42),
+                color: _slate.withValues(alpha: 0.94),
                 borderRadius: BorderRadius.circular(9),
+                border: Border.all(
+                  color: state.visitTotal > 0
+                      ? accent.withValues(alpha: 0.8)
+                      : _chalkDust,
+                ),
               ),
               child: Text(
                 '${state.visitTotal}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
+                style: TextStyle(
+                  color: _chalk,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 19,
+                  height: 1.15,
+                  letterSpacing: -0.5,
+                  shadows: state.visitTotal > 0
+                      ? [Shadow(color: accent.withValues(alpha: 0.55), blurRadius: 9)]
+                      : null,
                 ),
               ),
             ),
@@ -692,18 +813,18 @@ class _DartSlot extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: filled ? 0.55 : 0.28),
+        color: _slate.withValues(alpha: filled ? 0.92 : 0.62),
         borderRadius: BorderRadius.circular(9),
         border: Border.all(
           color: filled
               ? accent.withValues(alpha: 0.85)
-              : Colors.white.withValues(alpha: 0.12),
+              : _chalk.withValues(alpha: 0.12),
         ),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withValues(alpha: filled ? 1 : 0.45),
+          color: _chalk.withValues(alpha: filled ? 1 : 0.42),
           fontWeight: FontWeight.w800,
           fontSize: 12,
         ),

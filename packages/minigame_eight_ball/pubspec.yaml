@@ -20,6 +20,7 @@ dependencies:
     sdk: flutter
   flame: ^1.18.0
   minigames_core: ^0.1.0
+  minigames_ui: ^0.1.0
   minigames_flame: ^0.1.0
 
 dev_dependencies:

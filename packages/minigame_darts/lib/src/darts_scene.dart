@@ -59,6 +59,27 @@ abstract final class DartsCamera {
   }
 }
 
+/// The one light in the room, and everything that obeys it.
+///
+/// A single committed direction is what makes a painted scene read as lit
+/// rather than as a pile of gradients: the oche lamp hangs above the board and
+/// a little to the **left**, so every highlight in the frame is up-left and
+/// every shadow — the cabinet on the wall, the wire on the beds, a dart on the
+/// face, the skirting on the floor — falls **down-right**. Nothing in this file
+/// is allowed to disagree with it.
+abstract final class DartsLight {
+  /// World position of the lamp — on a bracket just above the cabinet and a
+  /// little left of the bull, which is where a real oche light hangs.
+  static const Vec3 lamp = Vec3(-0.20, 1.315, 2.24);
+
+  /// Unit direction the light travels.
+  static final Vec3 direction = const Vec3(0.26, -0.92, 0.30).normalized;
+
+  /// Where a shadow lands relative to its caster, as a board-face offset per
+  /// metre of stand-off from the face. Right and down, from [direction].
+  static const Offset faceShadow = Offset(0.30, -0.34);
+}
+
 /// A dart left in the board for the rest of the visit.
 class StuckDart {
   /// Board-face offset from the bullseye, metres.
@@ -73,12 +94,25 @@ class StuckDart {
 
   final DartHit hit;
 
+  /// 1 the instant it arrives, decaying to 0 as it stops moving. Drives the
+  /// shaft quiver — a dart that has just gone in is still vibrating, and that
+  /// tremor is most of what makes the arrival read as an impact rather than as
+  /// a sprite appearing.
+  final double settle;
+
+  /// 0..1 arrival speed, normalised over the throwable band. Scales how hard
+  /// the shaft quivers and how far the beds are pushed, so a floated dart
+  /// arrives softly and a rifled one bites.
+  final double strength;
+
   const StuckDart({
     required this.boardX,
     required this.boardY,
     required this.direction,
     required this.color,
     required this.hit,
+    this.settle = 0,
+    this.strength = 1,
   });
 }
 
@@ -108,9 +142,18 @@ class DartsView {
   final double power;
 
   /// 0..1 decaying wobble after a stick, and where it is centred.
+  ///
+  /// This is a **displacement**, not a glow: while it runs, every point of the
+  /// board face within reach of the contact point — beds, spider, numbers — is
+  /// pushed along a radial ripple by [_BoardWarp], so the board visibly takes
+  /// the hit. Nothing extra is drawn on the face to say so.
   final double wobble;
   final double wobbleX;
   final double wobbleY;
+
+  /// 0..1 arrival speed of the dart that caused [wobble]. Scales the ripple's
+  /// amplitude, so the board barely twitches for a floated dart.
+  final double wobbleStrength;
 
   const DartsView({
     this.stuck = const [],
@@ -123,10 +166,78 @@ class DartsView {
     this.wobble = 0,
     this.wobbleX = 0,
     this.wobbleY = 0,
+    this.wobbleStrength = 1,
   });
 
   /// True while a throw swipe is being drawn.
   bool get dragging => swipeFrom != null && swipeTo != null;
+
+  /// The live board displacement, or null when the board is at rest.
+  ///
+  /// Null at rest matters: with no warp the projection path is byte-for-byte
+  /// the one it has always been, which is what keeps the resting board pixel
+  /// identical frame to frame.
+  _BoardWarp? get warp => wobble <= 0
+      ? null
+      : _BoardWarp(
+          amount: wobble.clamp(0.0, 1.0),
+          x: wobbleX,
+          y: wobbleY,
+          strength: wobbleStrength.clamp(0.0, 1.0),
+        );
+}
+
+/// A decaying radial ripple in the board face, centred on a dart's contact
+/// point.
+///
+/// Applied in [_boardPoint], which every piece of board art goes through — so
+/// the beds, the spider, the ring wires and the numbers all shift together and
+/// the board reads as one displaced surface instead of a decal with an effect
+/// drawn over it.
+@immutable
+class _BoardWarp {
+  /// 1 at the moment of impact, decaying to 0.
+  final double amount;
+
+  /// Contact point, board-face metres from the bullseye.
+  final double x;
+  final double y;
+
+  /// 0..1 arrival speed.
+  final double strength;
+
+  const _BoardWarp({
+    required this.amount,
+    required this.x,
+    required this.y,
+    required this.strength,
+  });
+
+  /// How far the ripple reaches, metres. About four sector-widths at the
+  /// treble — local enough that the far side of the board stays still.
+  static const double reach = 0.16;
+
+  /// Peak radial displacement at full strength, metres.
+  static const double peak = 0.020;
+
+  /// Board-face point ([bx], [by]) displaced by the ripple.
+  (double, double) apply(double bx, double by) {
+    final dx = bx - x;
+    final dy = by - y;
+    final d = math.sqrt(dx * dx + dy * dy);
+    if (d < 1e-6 || d > reach) return (bx, by);
+    // Raised cosine: full at the contact point, zero (and flat) at the edge of
+    // the reach, so the displaced region has no seam.
+    final falloff = 0.5 * (1 + math.cos(math.pi * d / reach));
+    // The crest travels outward as the wobble decays — a shock leaving the
+    // dart, not the whole patch breathing in place. The quarter-cycle head
+    // start is what puts the biggest displacement on the *first* frame after
+    // contact, where the eye is looking, instead of two frames later.
+    final phase = 1.6 + d / reach * 4.2 - (1 - amount) * 9.0;
+    final disp =
+        peak * (0.35 + 0.65 * strength) * amount * falloff * math.sin(phase);
+    return (bx + dx / d * disp, by + dy / d * disp);
+  }
 }
 
 /// Paints the whole first-person scene.
@@ -150,11 +261,12 @@ void paintDartsScene(
   _paintRoom(canvas, size, camera, style);
 
   final scene = Scene3(camera);
+  final warp = view.warp;
 
   // The board itself, anchored at its face.
   scene.add(
     Vec3(0, DartsWorld.boardCentreY, DartsWorld.boardZ),
-    (c, at) => _paintBoard(c, camera, style, view),
+    (c, at) => _paintBoard(c, camera, style, view, warp),
   );
 
   // Floor shadow of the dart in flight — on the floor plane, so it sorts with
@@ -168,10 +280,16 @@ void paintDartsScene(
   }
 
   for (final dart in view.stuck) {
-    final tip = DartsWorld.boardPoint(dart.boardX, dart.boardY);
+    // The tip rides the ripple: a dart standing in a board that is still
+    // moving has to move with it, or the displacement reads as the board
+    // sliding out from under a pinned decal.
+    final (wx, wy) =
+        warp?.apply(dart.boardX, dart.boardY) ?? (dart.boardX, dart.boardY);
+    final tip = DartsWorld.boardPoint(wx, wy);
+    final dir = _quivered(dart.direction, dart.settle, dart.strength);
     scene.add(
-      tip - dart.direction * (DartsWorld.dartLength * 0.5),
-      (c, at) => _paintDart(c, camera, tip, dart.direction, dart.color),
+      tip - dir * (DartsWorld.dartLength * 0.5),
+      (c, at) => _paintDart(c, camera, tip, dir, dart.color, onFace: true),
     );
   }
 
@@ -198,10 +316,83 @@ void paintDartsScene(
 // Room
 // ---------------------------------------------------------------------------
 
-void _paintRoom(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
-  final rect = Offset.zero & size;
+/// Deterministic 0..1 hash — the room's grain, plank tints and mottle all come
+/// from this, so the oche is different everywhere and identical every frame.
+double _hash01(int i, int salt) {
+  var x = (i * 0x9E3779B1 + salt * 0x85EBCA77) & 0xFFFFFFFF;
+  x = (x ^ (x >>> 16)) & 0xFFFFFFFF;
+  x = (x * 0x7FEB352D) & 0xFFFFFFFF;
+  x = (x ^ (x >>> 15)) & 0xFFFFFFFF;
+  x = (x * 0x846CA68B) & 0xFFFFFFFF;
+  x = (x ^ (x >>> 16)) & 0xFFFFFFFF;
+  return x / 0x100000000;
+}
 
-  // Back wall fills the frame; the floor is painted over its lower part.
+/// Height of the dado rail — the top of the timber panelling, just under the
+/// bottom of the board's surround so the panelling reads as a base the board
+/// sits above rather than as a band across it.
+const double _dadoY = 0.255;
+
+/// A quad on the floor plane, projected. Null if any corner is behind the eye.
+Path? _floorQuad(Camera3 camera, double x0, double x1, double z0, double z1) {
+  final corners = [
+    Vec3(x0, DartsWorld.floorY, z0),
+    Vec3(x1, DartsWorld.floorY, z0),
+    Vec3(x1, DartsWorld.floorY, z1),
+    Vec3(x0, DartsWorld.floorY, z1),
+  ];
+  final path = Path();
+  for (var i = 0; i < corners.length; i++) {
+    final q = camera.project(corners[i]);
+    if (!q.visible) return null;
+    if (i == 0) {
+      path.moveTo(q.screen.dx, q.screen.dy);
+    } else {
+      path.lineTo(q.screen.dx, q.screen.dy);
+    }
+  }
+  return path..close();
+}
+
+/// A quad on the back wall (`z == wallZ`), projected.
+Path? _wallQuad(Camera3 camera, double x0, double x1, double y0, double y1,
+    {double z = DartsWorld.wallZ}) {
+  final corners = [
+    Vec3(x0, y0, z),
+    Vec3(x1, y0, z),
+    Vec3(x1, y1, z),
+    Vec3(x0, y1, z),
+  ];
+  final path = Path();
+  for (var i = 0; i < corners.length; i++) {
+    final q = camera.project(corners[i]);
+    if (!q.visible) return null;
+    if (i == 0) {
+      path.moveTo(q.screen.dx, q.screen.dy);
+    } else {
+      path.lineTo(q.screen.dx, q.screen.dy);
+    }
+  }
+  return path..close();
+}
+
+void _paintRoom(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
+  _paintWall(canvas, size, camera, style);
+  _paintFloor(canvas, size, camera, style);
+  _paintLamp(canvas, camera, style);
+}
+
+// ---------------------------------------------------------------------------
+// Wall: plaster above a dado rail, tongue-and-groove panelling below it, and
+// one lamp's worth of light pooled on the plaster behind the board.
+// ---------------------------------------------------------------------------
+
+void _paintWall(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
+  final rect = Offset.zero & size;
+  final plaster = style.wall;
+
+  // Base: darker at the ceiling and in the corners, because the lamp is low
+  // and pointed at the board.
   canvas.drawRect(
     rect,
     Paint()
@@ -209,119 +400,440 @@ void _paintRoom(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
         Offset(size.width / 2, 0),
         Offset(size.width / 2, size.height),
         [
-          Color.lerp(style.wall, Colors.black, 0.45)!,
-          style.wall,
-          Color.lerp(style.wall, Colors.black, 0.25)!,
+          Color.lerp(plaster, Colors.black, 0.50)!,
+          Color.lerp(plaster, Colors.black, 0.20)!,
+          plaster,
+        ],
+        const [0.0, 0.30, 0.66],
+      ),
+  );
+
+  // Plaster mottle: a handful of very soft blotches, so the wall has a surface
+  // rather than a gradient. Deterministic, and far too faint to compete with
+  // the board.
+  for (var i = 0; i < 9; i++) {
+    final cx = _hash01(i, 21) * size.width;
+    final cy = _hash01(i, 22) * size.height * 0.72;
+    final r = size.width * (0.10 + _hash01(i, 23) * 0.22);
+    final light = _hash01(i, 24) < 0.5;
+    canvas.drawCircle(
+      Offset(cx, cy),
+      r,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          Offset(cx, cy),
+          r,
+          [
+            (light ? Colors.white : Colors.black)
+                .withValues(alpha: 0.035 + _hash01(i, 25) * 0.03),
+            Colors.transparent,
+          ],
+        ),
+    );
+  }
+
+  // The pool of light the lamp throws on the plaster. Centred a little above
+  // the bull and a little left of it, which is where [DartsLight.lamp] is.
+  final pool = camera.project(
+      Vec3(-0.10, DartsWorld.boardCentreY + 0.30, DartsWorld.wallZ));
+  if (pool.visible) {
+    final glow = DartsWorld.surroundRadius * 4.2 * pool.scale;
+    canvas.save();
+    canvas.translate(pool.screen.dx, pool.screen.dy);
+    // Squashed vertically: a lamp close to the wall pools an ellipse, not a
+    // disc, and the ellipse is what says the light comes from above.
+    canvas.scale(1.0, 0.78);
+    canvas.drawCircle(
+      Offset.zero,
+      glow,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          Offset.zero,
+          glow,
+          [
+            const Color(0xFFFFF2D8).withValues(alpha: 0.26),
+            const Color(0xFFFFE9C4).withValues(alpha: 0.09),
+            Colors.transparent,
+          ],
+          const [0.0, 0.5, 1.0],
+        ),
+    );
+    canvas.restore();
+  }
+
+  // Tongue-and-groove panelling below the dado rail.
+  final panel = _wallQuad(camera, -6, 6, DartsWorld.floorY, _dadoY);
+  if (panel != null) {
+    final bounds = panel.getBounds();
+    canvas.save();
+    canvas.clipPath(panel);
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          bounds.topCenter,
+          bounds.bottomCenter,
+          [
+            Color.lerp(style.floor, Colors.black, 0.34)!,
+            Color.lerp(style.floor, Colors.black, 0.58)!,
+          ],
+        ),
+    );
+    // Board joints, projected so they converge with the room.
+    for (var i = -26; i <= 26; i++) {
+      final x = i * 0.115;
+      final top = camera.project(Vec3(x, _dadoY, DartsWorld.wallZ));
+      final bottom =
+          camera.project(Vec3(x, DartsWorld.floorY, DartsWorld.wallZ));
+      if (!top.visible || !bottom.visible) continue;
+      // Groove: a dark line with a lit lip on its up-left side.
+      canvas.drawLine(
+        top.screen,
+        bottom.screen,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.45)
+          ..strokeWidth = math.max(0.8, top.scale * 0.006),
+      );
+      canvas.drawLine(
+        top.screen.translate(-1.1, 0),
+        bottom.screen.translate(-1.1, 0),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.07)
+          ..strokeWidth = math.max(0.6, top.scale * 0.004),
+      );
+    }
+    canvas.restore();
+  }
+
+  // Dado rail: a real moulding with a lit top edge and a shadow beneath.
+  final railTop = camera.project(Vec3(0, _dadoY + 0.035, DartsWorld.wallZ));
+  final railBottom = camera.project(Vec3(0, _dadoY, DartsWorld.wallZ));
+  if (railTop.visible && railBottom.visible) {
+    final top = railTop.screen.dy;
+    final bottom = railBottom.screen.dy;
+    canvas.drawRect(
+      Rect.fromLTRB(0, top, size.width, bottom),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, top),
+          Offset(0, bottom),
+          [
+            Color.lerp(style.floor, Colors.white, 0.22)!,
+            Color.lerp(style.floor, Colors.black, 0.45)!,
+          ],
+        ),
+    );
+    canvas.drawLine(
+      Offset(0, top),
+      Offset(size.width, top),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.16)
+        ..strokeWidth = 1,
+    );
+    canvas.drawRect(
+      Rect.fromLTRB(0, bottom, size.width, bottom + 3),
+      Paint()..color = Colors.black.withValues(alpha: 0.35),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Floor: boards, a rubber throw mat, and the lamp's spill.
+// ---------------------------------------------------------------------------
+
+void _paintFloor(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
+  final junctionL =
+      camera.project(Vec3(-6, DartsWorld.floorY, DartsWorld.wallZ));
+  final junctionR =
+      camera.project(Vec3(6, DartsWorld.floorY, DartsWorld.wallZ));
+  if (!junctionL.visible || !junctionR.visible) return;
+  final junctionY = (junctionL.screen.dy + junctionR.screen.dy) / 2;
+  if (junctionY >= size.height) return;
+
+  final floorRect = Rect.fromLTRB(0, junctionY, size.width, size.height);
+  canvas.save();
+  canvas.clipRect(floorRect);
+
+  // Base wash — dark at the wall (the lamp does not reach the skirting), warm
+  // through the middle where the spill lands, dark again at the near edge.
+  canvas.drawRect(
+    floorRect,
+    Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(0, junctionY),
+        Offset(0, size.height),
+        [
+          Color.lerp(style.floor, Colors.black, 0.52)!,
+          Color.lerp(style.floor, Colors.white, 0.16)!,
+          Color.lerp(style.floor, Colors.black, 0.18)!,
         ],
         const [0.0, 0.42, 1.0],
       ),
   );
 
-  // Pool of light on the wall behind the board.
-  final boardCentre =
-      camera.project(Vec3(0, DartsWorld.boardCentreY, DartsWorld.wallZ));
-  if (boardCentre.visible) {
-    final glow = DartsWorld.surroundRadius * 3.4 * boardCentre.scale;
-    canvas.drawCircle(
-      boardCentre.screen,
-      glow,
+  const plankWidth = 0.26;
+  const nearZ = 0.45;
+
+  // Boards. Each is a projected quad with its own tint and a little grain, so
+  // the floor is timber rather than a brown gradient with lines on it.
+  for (var i = -9; i <= 8; i++) {
+    final x0 = i * plankWidth;
+    final quad = _floorQuad(camera, x0, x0 + plankWidth, nearZ, DartsWorld.wallZ);
+    if (quad == null) continue;
+    final tint = (_hash01(i, 31) - 0.5) * 0.16;
+    canvas.drawPath(
+      quad,
       Paint()
-        ..shader = ui.Gradient.radial(
-          boardCentre.screen,
-          glow,
-          [
-            Colors.white.withValues(alpha: 0.16),
-            Colors.white.withValues(alpha: 0.05),
-            Colors.white.withValues(alpha: 0.0),
-          ],
-          const [0.0, 0.55, 1.0],
-        ),
+        ..color = Color.lerp(
+          style.floor,
+          tint > 0 ? Colors.white : Colors.black,
+          tint.abs(),
+        )!
+            .withValues(alpha: 0.55),
     );
-  }
-
-  // Floor: the quad from the wall/floor junction down to the bottom of frame.
-  final junctionL =
-      camera.project(Vec3(-6, DartsWorld.floorY, DartsWorld.wallZ));
-  final junctionR =
-      camera.project(Vec3(6, DartsWorld.floorY, DartsWorld.wallZ));
-  if (junctionL.visible && junctionR.visible) {
-    final junctionY = (junctionL.screen.dy + junctionR.screen.dy) / 2;
-    if (junctionY < size.height) {
-      final floorRect = Rect.fromLTRB(0, junctionY, size.width, size.height);
-      canvas.save();
-      canvas.clipRect(floorRect);
-      canvas.drawRect(
-        floorRect,
-        Paint()
-          ..shader = ui.Gradient.linear(
-            Offset(0, junctionY),
-            Offset(0, size.height),
-            [
-              Color.lerp(style.floor, style.wall, 0.5)!,
-              Color.lerp(style.floor, Colors.white, 0.12)!,
-              style.floor,
-            ],
-            const [0.0, 0.45, 1.0],
-          ),
-      );
-
-      // Plank seams running down-range: parallel in the world, converging on
-      // the vanishing point on screen. This is the depth cue that sells the
-      // room, so the lines are projected rather than fanned by eye.
-      final seam = Paint()
-        ..color = Colors.black.withValues(alpha: 0.42)
-        ..strokeWidth = math.max(0.8, size.width * 0.0025)
-        ..style = PaintingStyle.stroke;
-      for (var i = -8; i <= 8; i++) {
-        final x = i * 0.26;
-        final near = camera.project(Vec3(x, DartsWorld.floorY, -0.2));
-        final far =
-            camera.project(Vec3(x, DartsWorld.floorY, DartsWorld.wallZ));
-        if (!near.visible || !far.visible) continue;
-        canvas.drawLine(near.screen, far.screen, seam);
-      }
-      // Cross seams: real horizontal lines, so their spacing compresses with
-      // depth on its own.
-      for (var i = 0; i < 12; i++) {
-        final z = 0.1 + i * 0.34;
-        if (z > DartsWorld.wallZ) break;
-        final l = camera.project(Vec3(-6, DartsWorld.floorY, z));
-        final r = camera.project(Vec3(6, DartsWorld.floorY, z));
-        if (!l.visible || !r.visible) continue;
-        canvas.drawLine(
-          l.screen,
-          r.screen,
-          Paint()
-            ..color = Colors.white.withValues(alpha: 0.07)
-            ..strokeWidth = math.max(0.7, size.width * 0.002),
-        );
-      }
-      canvas.restore();
-
-      // Skirting board at the junction.
+    // Grain: two off-centre streaks per board, running with the boards.
+    for (var g = 0; g < 2; g++) {
+      final fx = x0 + plankWidth * (0.25 + 0.5 * _hash01(i * 3 + g, 32));
+      final near = camera.project(Vec3(fx, DartsWorld.floorY, nearZ));
+      final far = camera.project(Vec3(fx, DartsWorld.floorY, DartsWorld.wallZ));
+      if (!near.visible || !far.visible) continue;
       canvas.drawLine(
-        Offset(0, junctionY),
-        Offset(size.width, junctionY),
+        near.screen,
+        far.screen,
         Paint()
-          ..color = Colors.black.withValues(alpha: 0.5)
-          ..strokeWidth = math.max(1.2, size.height * 0.006),
+          ..color = Colors.black.withValues(alpha: 0.06 + _hash01(i + g, 33) * 0.06)
+          ..strokeWidth = math.max(0.7, size.width * 0.0022),
       );
     }
   }
 
-  // Haze: a thin veil of wall colour over the far half of the frame, so depth
-  // reads even where geometry is sparse.
-  canvas.drawRect(
-    rect,
+  // Board joints: dark seam, lit lip on the up-left side (the lamp is left).
+  for (var i = -9; i <= 9; i++) {
+    final x = i * plankWidth;
+    final near = camera.project(Vec3(x, DartsWorld.floorY, nearZ));
+    final far = camera.project(Vec3(x, DartsWorld.floorY, DartsWorld.wallZ));
+    if (!near.visible || !far.visible) continue;
+    canvas.drawLine(
+      near.screen,
+      far.screen,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.5)
+        ..strokeWidth = math.max(0.9, size.width * 0.0026),
+    );
+    canvas.drawLine(
+      near.screen.translate(-1.4, 0),
+      far.screen.translate(-0.5, 0),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.06)
+        ..strokeWidth = math.max(0.7, size.width * 0.0018),
+    );
+  }
+
+  // Butt joints between boards: real horizontal lines, so the spacing
+  // compresses with depth on its own.
+  for (var i = 0; i < 12; i++) {
+    final z = 0.6 + i * 0.34;
+    if (z > DartsWorld.wallZ) break;
+    final l = camera.project(Vec3(-6, DartsWorld.floorY, z));
+    final r = camera.project(Vec3(6, DartsWorld.floorY, z));
+    if (!l.visible || !r.visible) continue;
+    canvas.drawLine(
+      l.screen,
+      r.screen,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.16)
+        ..strokeWidth = math.max(0.7, size.width * 0.002),
+    );
+  }
+
+  // The lamp's spill on the floor under the board — the other half of the
+  // proof that there is one light in this room.
+  final spill = camera.horizontalCirclePath(
+    const Vec3(-0.08, DartsWorld.floorY + 0.001, 2.02),
+    0.95,
+    segments: 28,
+  );
+  if (spill != null) {
+    final b = spill.getBounds();
+    canvas.save();
+    canvas.clipPath(spill);
+    canvas.drawRect(
+      b,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          b.center,
+          b.longestSide / 2,
+          [
+            const Color(0xFFFFE9C4).withValues(alpha: 0.16),
+            Colors.transparent,
+          ],
+        ),
+    );
+    canvas.restore();
+  }
+
+  _paintThrowMat(canvas, size, camera);
+
+  canvas.restore();
+
+  // Skirting: a board with height and a shadow line under it, not a stroke.
+  final skirtTop = camera.project(Vec3(0, 0.055, DartsWorld.wallZ));
+  if (skirtTop.visible) {
+    final top = skirtTop.screen.dy;
+    canvas.drawRect(
+      Rect.fromLTRB(0, top, size.width, junctionY),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, top),
+          Offset(0, junctionY),
+          [
+            Color.lerp(style.floor, Colors.black, 0.42)!,
+            Color.lerp(style.floor, Colors.black, 0.70)!,
+          ],
+        ),
+    );
+    canvas.drawLine(
+      Offset(0, top),
+      Offset(size.width, top),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.10)
+        ..strokeWidth = 1,
+    );
+    canvas.drawRect(
+      Rect.fromLTRB(0, junctionY, size.width, junctionY + 4),
+      Paint()..color = Colors.black.withValues(alpha: 0.34),
+    );
+  }
+}
+
+/// The rubber throw mat running away from the player toward the board, with
+/// its distance marking across it.
+///
+/// The regulation oche itself is 2.37 m back — behind the camera and out of
+/// frame by construction — so what is drawn here is the mat the player is
+/// standing on receding to the wall, which is the part of it you would
+/// actually see from the throw.
+void _paintThrowMat(Canvas canvas, Size size, Camera3 camera) {
+  const halfWidth = 0.27;
+  const nearZ = 1.05;
+  const farZ = DartsWorld.wallZ - 0.03;
+
+  final mat = _floorQuad(camera, -halfWidth, halfWidth, nearZ, farZ);
+  if (mat == null) return;
+  canvas.drawPath(
+    mat,
+    Paint()..color = const Color(0xFF1B1E24).withValues(alpha: 0.78),
+  );
+
+  // Lit up-left edge, shadowed down-right edge: the mat has thickness.
+  final edges = [
+    (-halfWidth, Colors.white.withValues(alpha: 0.12)),
+    (halfWidth, Colors.black.withValues(alpha: 0.5)),
+  ];
+  for (final (x, color) in edges) {
+    final near = camera.project(Vec3(x, DartsWorld.floorY, nearZ));
+    final far = camera.project(Vec3(x, DartsWorld.floorY, farZ));
+    if (!near.visible || !far.visible) continue;
+    canvas.drawLine(
+      near.screen,
+      far.screen,
+      Paint()
+        ..color = color
+        ..strokeWidth = math.max(1, size.width * 0.004),
+    );
+  }
+
+  // The throw line: the mat's own marking, painted across it.
+  const markZ = 1.62;
+  final l = camera.project(
+      const Vec3(-halfWidth + 0.06, DartsWorld.floorY, markZ));
+  final r =
+      camera.project(const Vec3(halfWidth - 0.06, DartsWorld.floorY, markZ));
+  if (l.visible && r.visible) {
+    canvas.drawLine(
+      l.screen,
+      r.screen,
+      Paint()
+        ..color = const Color(0xFFD8D2C2).withValues(alpha: 0.32)
+        ..strokeWidth = math.max(1.2, l.scale * 0.008),
+    );
+  }
+}
+
+/// The oche lamp: a shaded bar on a bracket above the board, and the cone it
+/// throws down onto the face.
+void _paintLamp(Canvas canvas, Camera3 camera, DartsStyle style) {
+  final lamp = DartsLight.lamp;
+  final left = camera.project(Vec3(lamp.x - 0.24, lamp.y, lamp.z));
+  final right = camera.project(Vec3(lamp.x + 0.24, lamp.y, lamp.z));
+  final anchor = camera.project(Vec3(lamp.x, lamp.y + 0.16, DartsWorld.wallZ));
+  if (!left.visible || !right.visible || !anchor.visible) return;
+
+  // Cone of light down onto the board. Drawn before the board, so the board's
+  // own art sits inside the light rather than under a wash.
+  final spreadL =
+      camera.project(Vec3(-DartsWorld.surroundRadius * 1.5, DartsWorld.boardCentreY - 0.42, DartsWorld.wallZ));
+  final spreadR =
+      camera.project(Vec3(DartsWorld.surroundRadius * 1.5, DartsWorld.boardCentreY - 0.42, DartsWorld.wallZ));
+  if (spreadL.visible && spreadR.visible) {
+    final cone = Path()
+      ..moveTo(left.screen.dx, left.screen.dy)
+      ..lineTo(right.screen.dx, right.screen.dy)
+      ..lineTo(spreadR.screen.dx, spreadR.screen.dy)
+      ..lineTo(spreadL.screen.dx, spreadL.screen.dy)
+      ..close();
+    canvas.drawPath(
+      cone,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          left.screen,
+          spreadL.screen,
+          [
+            const Color(0xFFFFF0D2).withValues(alpha: 0.13),
+            Colors.transparent,
+          ],
+        ),
+    );
+  }
+
+  // Bracket back to the wall.
+  canvas.drawLine(
+    anchor.screen,
+    Offset((left.screen.dx + right.screen.dx) / 2, left.screen.dy - 3),
+    Paint()
+      ..color = const Color(0xFF1A1D22)
+      ..strokeWidth = math.max(1.4, left.scale * 0.014)
+      ..strokeCap = StrokeCap.round,
+  );
+
+  // Shade: dark on top, blazing along the bottom lip.
+  final height = math.max(4.0, left.scale * 0.040);
+  final shade = Rect.fromLTRB(
+    left.screen.dx,
+    left.screen.dy - height,
+    right.screen.dx,
+    left.screen.dy,
+  );
+  canvas.drawRRect(
+    RRect.fromRectAndCorners(
+      shade,
+      topLeft: Radius.circular(height * 0.5),
+      topRight: Radius.circular(height * 0.5),
+    ),
     Paint()
       ..shader = ui.Gradient.linear(
-        Offset(0, camera.horizonY - size.height * 0.25),
-        Offset(0, size.height),
-        [
-          style.wall.withValues(alpha: 0.22),
-          style.wall.withValues(alpha: 0.0),
-        ],
+        shade.topCenter,
+        shade.bottomCenter,
+        [const Color(0xFF2C3038), const Color(0xFF14161A)],
       ),
+  );
+  canvas.drawLine(
+    shade.bottomLeft,
+    shade.bottomRight,
+    Paint()
+      ..color = const Color(0xFFFFF3DA)
+      ..strokeWidth = math.max(1.4, height * 0.28)
+      ..strokeCap = StrokeCap.round,
   );
 }
 
@@ -329,9 +841,16 @@ void _paintRoom(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
 // Board
 // ---------------------------------------------------------------------------
 
-/// Project a point on the board face (metres from the bullseye) to the canvas.
-Offset? _boardPoint(Camera3 camera, double bx, double by) {
-  final p = camera.project(DartsWorld.boardPoint(bx, by));
+/// Project a point on the board face (metres from the bullseye) to the canvas,
+/// through the live impact ripple.
+///
+/// **Every** piece of board art goes through here — beds, spider, ring wires,
+/// numbers, and the tip of a stuck dart — which is what makes a wobble read as
+/// the surface being displaced rather than as an effect drawn over a static
+/// picture. With no [warp] the arithmetic is exactly what it always was.
+Offset? _boardPoint(Camera3 camera, double bx, double by, [_BoardWarp? warp]) {
+  final (x, y) = warp?.apply(bx, by) ?? (bx, by);
+  final p = camera.project(DartsWorld.boardPoint(x, y));
   return p.visible ? p.screen : null;
 }
 
@@ -345,11 +864,13 @@ double _boardScale(Camera3 camera) {
 /// A circle on the board face, projected honestly (never an ellipse with a
 /// guessed aspect — see [Camera3.horizontalCirclePath] for the same discipline
 /// on the horizontal plane).
-Path? _boardCircle(Camera3 camera, double radius, {int segments = 72}) {
+Path? _boardCircle(Camera3 camera, double radius,
+    {int segments = 72, _BoardWarp? warp}) {
   final path = Path();
   for (var i = 0; i < segments; i++) {
     final a = 2 * math.pi * i / segments;
-    final p = _boardPoint(camera, math.sin(a) * radius, math.cos(a) * radius);
+    final p =
+        _boardPoint(camera, math.sin(a) * radius, math.cos(a) * radius, warp);
     if (p == null) return null;
     if (i == 0) {
       path.moveTo(p.dx, p.dy);
@@ -369,12 +890,13 @@ Path? _boardWedge(
   double a0,
   double a1, {
   int segments = 8,
+  _BoardWarp? warp,
 }) {
   final path = Path();
   var first = true;
   for (var i = 0; i <= segments; i++) {
     final a = a0 + (a1 - a0) * i / segments;
-    final p = _boardPoint(camera, math.sin(a) * r1, math.cos(a) * r1);
+    final p = _boardPoint(camera, math.sin(a) * r1, math.cos(a) * r1, warp);
     if (p == null) return null;
     if (first) {
       path.moveTo(p.dx, p.dy);
@@ -385,44 +907,158 @@ Path? _boardWedge(
   }
   for (var i = segments; i >= 0; i--) {
     final a = a0 + (a1 - a0) * i / segments;
-    final p = _boardPoint(camera, math.sin(a) * r0, math.cos(a) * r0);
+    final p = _boardPoint(camera, math.sin(a) * r0, math.cos(a) * r0, warp);
     if (p == null) return null;
     path.lineTo(p.dx, p.dy);
   }
   return path..close();
 }
 
+/// Radius of the cabinet the board is hung in, as a fraction of the surround.
+const double _cabinetRatio = 1.115;
+
 void _paintBoard(
   Canvas canvas,
   Camera3 camera,
   DartsStyle style,
   DartsView view,
+  _BoardWarp? warp,
 ) {
   final r = DartsWorld.boardRadius;
   final scale = _boardScale(camera);
   if (scale <= 0) return;
 
-  // Surround (the black ring the numbers sit on) + a cabinet shadow.
-  final surround = _boardCircle(camera, DartsWorld.surroundRadius);
-  if (surround != null) {
-    canvas.drawPath(
-      surround.shift(Offset(0, DartsWorld.boardRadius * 0.06 * scale)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.45)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.03 * scale),
-    );
-    canvas.drawPath(surround, Paint()..color = style.surround);
-    canvas.drawPath(
-      surround,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1, 0.006 * scale)
-        ..color = Colors.white.withValues(alpha: 0.12),
-    );
-  }
+  _paintCabinet(canvas, camera, style, scale);
+  _paintSurround(canvas, camera, style, scale, warp);
+  _paintBeds(canvas, camera, style, r, scale, warp);
+  _paintSpider(canvas, camera, style, r, scale, warp);
+  _paintNumbers(canvas, camera, r, scale, warp);
+  _paintFaceLight(canvas, camera, r, warp);
+}
 
-  // Scoring beds. Every sector gets four bands: inner single, treble, outer
-  // single, double.
+/// The cabinet: a wooden ring the board is bolted into, with a visible edge and
+/// its shadow thrown onto the plaster down-right of it.
+void _paintCabinet(
+  Canvas canvas,
+  Camera3 camera,
+  DartsStyle style,
+  double scale,
+) {
+  final cabinetR = DartsWorld.surroundRadius * _cabinetRatio;
+  final face = _boardCircle(camera, cabinetR, segments: 64);
+  if (face == null) return;
+
+  // Shadow on the wall. Down-right, because the lamp is up-left.
+  canvas.drawPath(
+    face.shift(Offset(0.055 * scale, 0.045 * scale)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.42)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.035 * scale),
+  );
+
+  // The cabinet's own thickness: the same disc pushed away from the light, so
+  // its rim shows on the shadow side and the board stands off the wall.
+  canvas.drawPath(
+    face.shift(Offset(0.016 * scale, 0.013 * scale)),
+    Paint()..color = const Color(0xFF241A12),
+  );
+
+  final bounds = face.getBounds();
+  canvas.drawPath(
+    face,
+    Paint()
+      ..shader = ui.Gradient.radial(
+        bounds.center.translate(-bounds.width * 0.3, -bounds.height * 0.34),
+        bounds.width * 0.95,
+        [
+          const Color(0xFF6B4A2E),
+          const Color(0xFF4A3220),
+          const Color(0xFF2B1D13),
+        ],
+        const [0.0, 0.55, 1.0],
+      ),
+  );
+  // Lit lip up-left, dark lip down-right — the bevel that gives it depth.
+  canvas.drawPath(
+    face,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1, 0.007 * scale)
+      ..color = Colors.white.withValues(alpha: 0.10),
+  );
+  canvas.drawPath(
+    face.shift(Offset(0.006 * scale, 0.005 * scale)),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1, 0.006 * scale)
+      ..color = Colors.black.withValues(alpha: 0.45),
+  );
+}
+
+/// The black number ring, as pressed steel rather than a flat fill: a graded
+/// face, a bevel that obeys the lamp, and a wire around its rim.
+void _paintSurround(
+  Canvas canvas,
+  Camera3 camera,
+  DartsStyle style,
+  double scale,
+  _BoardWarp? warp,
+) {
+  final surround = _boardCircle(camera, DartsWorld.surroundRadius,
+      segments: warp == null ? 72 : 144, warp: warp);
+  if (surround == null) return;
+  final bounds = surround.getBounds();
+
+  // Recess shadow where the board sits down inside the cabinet.
+  canvas.drawPath(
+    surround.shift(Offset(-0.008 * scale, -0.007 * scale)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.55)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.012 * scale),
+  );
+
+  canvas.drawPath(
+    surround,
+    Paint()
+      ..shader = ui.Gradient.radial(
+        bounds.center.translate(-bounds.width * 0.26, -bounds.height * 0.30),
+        bounds.width * 0.85,
+        [
+          Color.lerp(style.surround, Colors.white, 0.16)!,
+          Color.lerp(style.surround, Colors.white, 0.04)!,
+          style.surround,
+        ],
+        const [0.0, 0.5, 1.0],
+      ),
+  );
+
+  // Rim wire: the steel band round the numbers, lit on its up-left arc.
+  canvas.drawPath(
+    surround,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1, 0.0055 * scale)
+      ..color = Color.lerp(style.wire, Colors.black, 0.45)!,
+  );
+  canvas.drawPath(
+    surround.shift(Offset(-0.0035 * scale, -0.003 * scale)),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(0.8, 0.0028 * scale)
+      ..color = Color.lerp(style.wire, Colors.white, 0.45)!
+          .withValues(alpha: 0.75),
+  );
+}
+
+/// The scoring beds, with the sisal's grain in them.
+void _paintBeds(
+  Canvas canvas,
+  Camera3 camera,
+  DartsStyle style,
+  double r,
+  double scale,
+  _BoardWarp? warp,
+) {
   const half = DartsBoardGeometry.sectorSpan / 2;
   for (var i = 0; i < 20; i++) {
     final centre = DartsBoardGeometry.sectorCentreAngle(i);
@@ -432,107 +1068,181 @@ void _paintBoard(
     final bed = darkBed ? style.black : style.cream;
     final ring = darkBed ? style.red : style.green;
 
+    // A displaced bed needs more segments than a flat one: the ripple is
+    // finer than an eight-step arc, and under-sampling it turns a smooth bow
+    // into a visible kink. It only costs anything for the half second a
+    // wobble is running.
+    final segments = warp == null ? 8 : 26;
+
     void band(double from, double to, Color color) {
-      final path = _boardWedge(camera, from * r, to * r, a0, a1);
+      final path = _boardWedge(camera, from * r, to * r, a0, a1,
+          segments: segments, warp: warp);
       if (path != null) canvas.drawPath(path, Paint()..color = color);
     }
 
-    band(DartsBoardGeometry.outerBullRatio, DartsBoardGeometry.innerTrebleRatio, bed);
-    band(DartsBoardGeometry.innerTrebleRatio, DartsBoardGeometry.outerTrebleRatio, ring);
-    band(DartsBoardGeometry.outerTrebleRatio, DartsBoardGeometry.innerDoubleRatio, bed);
+    band(DartsBoardGeometry.outerBullRatio,
+        DartsBoardGeometry.innerTrebleRatio, bed);
+    band(DartsBoardGeometry.innerTrebleRatio,
+        DartsBoardGeometry.outerTrebleRatio, ring);
+    band(DartsBoardGeometry.outerTrebleRatio,
+        DartsBoardGeometry.innerDoubleRatio, bed);
     band(DartsBoardGeometry.innerDoubleRatio, 1.0, ring);
   }
 
-  // Bulls.
-  final outerBull = _boardCircle(camera, DartsBoardGeometry.outerBullRatio * r, segments: 40);
-  if (outerBull != null) canvas.drawPath(outerBull, Paint()..color = style.green);
-  final innerBull = _boardCircle(camera, DartsBoardGeometry.innerBullRatio * r, segments: 32);
-  if (innerBull != null) canvas.drawPath(innerBull, Paint()..color = style.red);
+  // Sisal grain: compressed fibre runs outward from the bull, so the hairlines
+  // are radial. They are deliberately kept off the sector centre lines — the
+  // middle of a bed is where the eye aims and where the scorer is sampled, and
+  // neither wants a stripe through it.
+  const offsets = [-0.40, -0.24, 0.17, 0.33];
+  final grain = Paint()
+    ..strokeWidth = math.max(0.6, 0.0016 * scale)
+    ..strokeCap = StrokeCap.round;
+  for (var i = 0; i < 20; i++) {
+    final centre = DartsBoardGeometry.sectorCentreAngle(i);
+    for (var k = 0; k < offsets.length; k++) {
+      final a = centre + offsets[k] * DartsBoardGeometry.sectorSpan;
+      final h = _hash01(i * 7 + k, 41);
+      final from = (0.20 + h * 0.16) * r;
+      final to = (0.86 + _hash01(i * 7 + k, 42) * 0.13) * r;
+      final p0 = _boardPoint(camera, math.sin(a) * from, math.cos(a) * from, warp);
+      final p1 = _boardPoint(camera, math.sin(a) * to, math.cos(a) * to, warp);
+      if (p0 == null || p1 == null) continue;
+      final light = _hash01(i * 7 + k, 43) < 0.5;
+      grain.color = (light ? Colors.white : Colors.black)
+          .withValues(alpha: light ? 0.05 : 0.045);
+      canvas.drawLine(p0, p1, grain);
+    }
+  }
 
-  // Wire spider: ring wires + the radial separators.
-  final wire = Paint()
+  // Bulls, painted after the grain — they are a separate cut of sisal.
+  final outerBull = _boardCircle(
+      camera, DartsBoardGeometry.outerBullRatio * r,
+      segments: warp == null ? 40 : 96, warp: warp);
+  if (outerBull != null) {
+    canvas.drawPath(outerBull, Paint()..color = style.green);
+  }
+  final innerBull = _boardCircle(
+      camera, DartsBoardGeometry.innerBullRatio * r,
+      segments: 32, warp: warp);
+  if (innerBull != null) {
+    canvas.drawPath(innerBull, Paint()..color = style.red);
+  }
+}
+
+/// The spider: ring wires and radial separators, drawn as wire that stands
+/// proud of the beds — a shadow on its down-right side, a steel body, and a
+/// specular line along its up-left edge.
+void _paintSpider(
+  Canvas canvas,
+  Camera3 camera,
+  DartsStyle style,
+  double r,
+  double scale,
+  _BoardWarp? warp,
+) {
+  const half = DartsBoardGeometry.sectorSpan / 2;
+  final body = math.max(0.9, 0.0032 * scale);
+  final lift = math.max(0.7, 0.0022 * scale);
+
+  final shadow = Paint()
     ..style = PaintingStyle.stroke
-    ..strokeWidth = math.max(0.9, 0.0035 * scale)
-    ..color = style.wire.withValues(alpha: 0.9);
-  for (final ratio in const [
+    ..strokeWidth = body
+    ..color = Colors.black.withValues(alpha: 0.5);
+  final steel = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = body
+    ..color = Color.lerp(style.wire, Colors.black, 0.18)!;
+  final gleam = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = math.max(0.6, body * 0.42)
+    ..color = Color.lerp(style.wire, Colors.white, 0.65)!
+        .withValues(alpha: 0.85);
+
+  const ratios = [
     DartsBoardGeometry.outerBullRatio,
     DartsBoardGeometry.innerBullRatio,
     DartsBoardGeometry.innerTrebleRatio,
     DartsBoardGeometry.outerTrebleRatio,
     DartsBoardGeometry.innerDoubleRatio,
     1.0,
-  ]) {
-    final circle = _boardCircle(camera, ratio * r, segments: 64);
-    if (circle != null) canvas.drawPath(circle, wire);
-  }
-  for (var i = 0; i < 20; i++) {
-    final a = DartsBoardGeometry.sectorCentreAngle(i) - half;
-    final inner =
-        _boardPoint(camera, math.sin(a) * DartsBoardGeometry.outerBullRatio * r,
-            math.cos(a) * DartsBoardGeometry.outerBullRatio * r);
-    final outer = _boardPoint(camera, math.sin(a) * r, math.cos(a) * r);
-    if (inner == null || outer == null) continue;
-    canvas.drawLine(inner, outer, wire);
+  ];
+  for (final ratio in ratios) {
+    final circle =
+        _boardCircle(camera, ratio * r, segments: warp == null ? 64 : 160, warp: warp);
+    if (circle == null) continue;
+    canvas.drawPath(circle.shift(Offset(lift * 0.8, lift * 0.7)), shadow);
+    canvas.drawPath(circle, steel);
+    canvas.drawPath(circle.shift(Offset(-lift * 0.5, -lift * 0.45)), gleam);
   }
 
-  // Number ring.
+  for (var i = 0; i < 20; i++) {
+    final a = DartsBoardGeometry.sectorCentreAngle(i) - half;
+    const bull = DartsBoardGeometry.outerBullRatio;
+    final inner = _boardPoint(
+        camera, math.sin(a) * bull * r, math.cos(a) * bull * r, warp);
+    final outer = _boardPoint(camera, math.sin(a) * r, math.cos(a) * r, warp);
+    if (inner == null || outer == null) continue;
+    final drop = Offset(lift * 0.8, lift * 0.7);
+    final rise = Offset(-lift * 0.5, -lift * 0.45);
+    canvas.drawLine(inner + drop, outer + drop, shadow);
+    canvas.drawLine(inner, outer, steel);
+    canvas.drawLine(inner + rise, outer + rise, gleam);
+  }
+}
+
+/// The numbers, pressed into the ring: a shadow away from the lamp under a
+/// bright face, so they read as embossed rather than printed.
+void _paintNumbers(
+  Canvas canvas,
+  Camera3 camera,
+  double r,
+  double scale,
+  _BoardWarp? warp,
+) {
   final numberRadius = (1.0 + DartsBoardGeometry.numberRingRatio) / 2 * r;
+  final size = math.max(7.0, 0.052 * scale);
   for (var i = 0; i < 20; i++) {
     final a = DartsBoardGeometry.sectorCentreAngle(i);
     final at = _boardPoint(
       camera,
       math.sin(a) * numberRadius,
       math.cos(a) * numberRadius,
+      warp,
     );
     if (at == null) continue;
-    _text(
-      canvas,
-      at,
-      '${DartsBoardGeometry.sectorOrder[i]}',
-      math.max(7, 0.052 * scale),
-      Colors.white.withValues(alpha: 0.92),
-    );
+    final label = '${DartsBoardGeometry.sectorOrder[i]}';
+    _text(canvas, at.translate(size * 0.06, size * 0.06), label, size,
+        Colors.black.withValues(alpha: 0.75));
+    _text(canvas, at, label, size, const Color(0xFFF2EFE8));
   }
+}
 
-  // Wire wobble: a shiver of light on the spider where the dart just landed.
-  if (view.wobble > 0) {
-    final centre = _boardPoint(camera, view.wobbleX, view.wobbleY);
-    if (centre != null) {
-      final t = view.wobble.clamp(0.0, 1.0);
-      final ringR = (0.03 + 0.10 * (1 - t)) * scale;
-      canvas.drawCircle(
-        centre,
-        ringR,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(1, 0.006 * scale * t)
-          ..color = Colors.white.withValues(alpha: 0.5 * t),
-      );
-    }
-  }
-
-  // Board-face lighting: a soft top-left highlight and a bottom vignette.
-  final face = _boardCircle(camera, r, segments: 48);
-  if (face != null) {
-    final bounds = face.getBounds();
-    canvas.save();
-    canvas.clipPath(face);
-    canvas.drawRect(
-      bounds,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          bounds.center.translate(-bounds.width * 0.28, -bounds.height * 0.3),
-          bounds.width * 0.9,
-          [
-            Colors.white.withValues(alpha: 0.10),
-            Colors.white.withValues(alpha: 0.0),
-            Colors.black.withValues(alpha: 0.22),
-          ],
-          const [0.0, 0.5, 1.0],
-        ),
-    );
-    canvas.restore();
-  }
+/// The lamp on the face: a highlight up-left of the bull, falling away to a
+/// vignette down-right. The only board-wide lighting there is, and it points
+/// the same way as everything else in the room.
+void _paintFaceLight(
+    Canvas canvas, Camera3 camera, double r, _BoardWarp? warp) {
+  final face =
+      _boardCircle(camera, r, segments: warp == null ? 48 : 144, warp: warp);
+  if (face == null) return;
+  final bounds = face.getBounds();
+  canvas.save();
+  canvas.clipPath(face);
+  canvas.drawRect(
+    bounds,
+    Paint()
+      ..shader = ui.Gradient.radial(
+        bounds.center.translate(-bounds.width * 0.28, -bounds.height * 0.32),
+        bounds.width * 0.92,
+        [
+          const Color(0xFFFFF6E4).withValues(alpha: 0.13),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.26),
+        ],
+        const [0.0, 0.48, 1.0],
+      ),
+  );
+  canvas.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +1275,28 @@ Vec3 _anyPerpendicular(Vec3 v) {
   return _cross(v, ref).normalized;
 }
 
+/// The dart's axis, still ringing.
+///
+/// A dart that has just gone in is not a static object: the shaft whips about
+/// the point for a few hundred milliseconds and then stands still. Rotating the
+/// *axis* rather than shaking the whole sprite is what makes it read as a
+/// vibration pinned at the tip — the flight describes a small ellipse and the
+/// point never moves, which is exactly what a dart in a board does.
+Vec3 _quivered(Vec3 direction, double settle, double strength) {
+  if (settle <= 0) return direction;
+  final s = settle.clamp(0.0, 1.0);
+  final k = 0.5 + 0.5 * strength.clamp(0.0, 1.0);
+  // Squared decay: the whip is nearly gone by halfway, then it just settles.
+  final amp = 0.185 * k * s * s;
+  final t = (1 - s) * 27;
+  final u = _anyPerpendicular(direction);
+  final v = _cross(direction, u).normalized;
+  return (direction +
+          u * (amp * math.sin(t)) +
+          v * (amp * 0.62 * math.sin(t * 1.31 + 1.1)))
+      .normalized;
+}
+
 Vec3 _cross(Vec3 a, Vec3 b) => Vec3(
       a.y * b.z - a.z * b.y,
       a.z * b.x - a.x * b.z,
@@ -584,8 +1316,9 @@ void _paintDart(
   Camera3 camera,
   Vec3 tip,
   Vec3 direction,
-  Color color,
-) {
+  Color color, {
+  bool onFace = false,
+}) {
   final dir = direction.normalized;
   final tail = tip - dir * DartsWorld.dartLength;
   final pTip = camera.project(tip);
@@ -593,6 +1326,28 @@ void _paintDart(
   if (!pTip.visible || !pTail.visible) return;
 
   final scale = pTail.scale;
+
+  // The dart's shadow on the sisal — a real ray from the lamp through the tail
+  // onto the board plane, not a nudge down-right. Without it a stuck dart is a
+  // sticker; with it, it is standing out of the board.
+  if (onFace) {
+    final l = DartsLight.direction;
+    final t = (DartsWorld.boardZ - tail.z) / l.z;
+    if (t > 0) {
+      final cast = camera.project(tail + l * t);
+      if (cast.visible) {
+        canvas.drawLine(
+          pTip.screen,
+          cast.screen,
+          Paint()
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = math.max(1.6, 0.022 * scale)
+            ..color = Colors.black.withValues(alpha: 0.32)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.012 * scale),
+        );
+      }
+    }
+  }
 
   // Flight geometry, in world units, at the tail.
   const vaneRadius = DartsWorld.dartLength * 0.105;

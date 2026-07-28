@@ -156,25 +156,72 @@ class ChessPieceArt {
         body.close();
     }
 
-    // Ground shadow.
+    // Contact shadow, in two parts under a key light from the upper left: a
+    // wide ambient blur pushed down-right, and a tight dark core right at the
+    // foot so the piece reads as standing on the square, not floating over it.
     canvas.drawOval(
-      box(0.24, 0.88, 0.76, 0.97),
+      box(0.20, 0.86, 0.86, 0.99),
       Paint()
-        ..color = Colors.black.withValues(alpha: 0.18 * opacity)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.02 * h),
+        ..color = Colors.black.withValues(alpha: 0.20 * opacity)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.045 * h),
+    );
+    canvas.drawOval(
+      box(0.24, 0.905, 0.79, 0.965),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.28 * opacity)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.014 * h),
     );
 
+    final bounds = box(0, 0, 1, 1);
+
+    // Turned on a lathe: the body is a solid of revolution, so the dominant
+    // shading is *lateral* — a lit band left of the axis, a core shadow to the
+    // right of it, and a thin bounce off the board at the far edge.
     final fillPaint = Paint()
       ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
         colors: [
-          Color.lerp(fill, Colors.white, isWhite ? 0.35 : 0.22)!
+          Color.lerp(fill, Colors.black, isWhite ? 0.18 : 0.34)!
+              .withValues(alpha: opacity),
+          Color.lerp(fill, Colors.white, isWhite ? 0.46 : 0.30)!
               .withValues(alpha: opacity),
           fill.withValues(alpha: opacity),
+          Color.lerp(fill, Colors.black, isWhite ? 0.30 : 0.48)!
+              .withValues(alpha: opacity),
+          Color.lerp(fill, Colors.white, isWhite ? 0.14 : 0.12)!
+              .withValues(alpha: opacity),
         ],
-      ).createShader(box(0, 0, 1, 1));
+        stops: const [0.0, 0.22, 0.48, 0.86, 1.0],
+      ).createShader(bounds);
     canvas.drawPath(body, fillPaint);
+
+    // Vertical pass: top-lit crown, ambient occlusion pooling at the base.
+    canvas.save();
+    canvas.clipPath(body);
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.16 * opacity),
+            Colors.white.withValues(alpha: 0.0),
+            Colors.black.withValues(alpha: 0.10 * opacity),
+            Colors.black.withValues(alpha: 0.26 * opacity),
+          ],
+          stops: const [0.0, 0.34, 0.74, 1.0],
+        ).createShader(bounds),
+    );
+    // Felt pad on the base: the underside of every real piece.
+    canvas.drawRect(
+      box(0.0, 0.925, 1.0, 1.0),
+      Paint()
+        ..color = const Color(0xFF2A1A18).withValues(alpha: 0.55 * opacity),
+    );
+    canvas.restore();
+
     canvas.drawPath(
       body,
       Paint()
@@ -183,6 +230,17 @@ class ChessPieceArt {
         ..strokeJoin = StrokeJoin.round
         ..color = outline.withValues(alpha: opacity),
     );
+
+    // Specular: a soft vertical sliver of light on the key side of the axis.
+    canvas.save();
+    canvas.clipPath(body);
+    canvas.drawRect(
+      box(0.30, 0.04, 0.44, 0.86),
+      Paint()
+        ..color = Colors.white.withValues(alpha: (isWhite ? 0.26 : 0.13) * opacity)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.05 * h),
+    );
+    canvas.restore();
 
     // Bishop's mitre slash, cut in the outline color.
     if (type == 'b') {

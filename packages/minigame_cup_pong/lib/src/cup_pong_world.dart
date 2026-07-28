@@ -35,6 +35,48 @@ class CupPongWorld {
   /// How far the table apron hangs below the surface (drawn, not simulated).
   static const double apronDepth = 0.16;
 
+  // --- The room --------------------------------------------------------------
+
+  /// Floor of the bar, relative to the table surface — a table is ~76 cm high.
+  /// Only a strip of it is ever visible, between the far rail and the wall.
+  static const double roomFloorY = -0.76;
+
+  /// Depth of the back wall. Chosen so its base lands just above the far rail:
+  /// nearer and the wall/floor junction hides behind the table, further and the
+  /// strip of floor grows until the table reads as marooned in a hangar.
+  static const double wallZ = 4.2;
+
+  /// **The one light in the room.** A warm pendant hanging over the rack,
+  /// forward and to the left of it.
+  ///
+  /// Every shadow, bevel and highlight in the scene is derived from this point,
+  /// not guessed per-object: [shadowOf] is a true point-light projection onto
+  /// the table plane, and the cup-wall shading direction is the horizontal
+  /// component of the lamp→rack vector (which is why it is the pair
+  /// `(-0.55, -0.84)` in the painter and not a number somebody liked).
+  ///
+  /// It hangs above eye level, so the fixture itself is off the top of the
+  /// frame at every supported canvas size — what reaches the player is its
+  /// bloom bleeding in over the wall and the pool it throws on the felt.
+  static const Vec3 lamp = Vec3(-0.18, 1.00, 0.62);
+
+  /// Where the lamp throws [p]'s shadow on the table plane.
+  ///
+  /// A real point-light projection: the ray lamp→p continued to `y == 0`. Under
+  /// the lamp a ball's shadow sits directly beneath it; out at the rails it
+  /// stretches away, which is the cue that there is a *lamp* up there rather
+  /// than an ambient wash.
+  static Vec3 shadowOf(Vec3 p) {
+    final dy = lamp.y - p.y;
+    if (dy <= 1e-4) return Vec3(p.x, surfaceY, p.z);
+    final t = lamp.y / dy;
+    return Vec3(
+      lamp.x + (p.x - lamp.x) * t,
+      surfaceY,
+      lamp.z + (p.z - lamp.z) * t,
+    );
+  }
+
   // --- Cups ------------------------------------------------------------------
 
   /// True Solo-cup proportions: 120 mm tall, 94 mm mouth, 74 mm base.
@@ -135,6 +177,17 @@ class CupView {
   /// 0 = no splash, 1 = peak ripple. Fires when the ball drops in.
   final double splash;
 
+  /// A ball sinking into this cup: 0 = level with the rim, 1 = settled on the
+  /// beer at the bottom. Null when nothing is dropping in.
+  ///
+  /// The ball is drawn *clipped to the mouth*, so the near lip cuts across it
+  /// as it descends — which is the whole reason a made shot reads as going
+  /// **in** rather than as a ball that stopped existing over a cup.
+  final double? drop;
+
+  /// Accumulated spin of the dropping ball, radians.
+  final double dropSpin;
+
   const CupView({
     required this.id,
     required this.mouth,
@@ -143,6 +196,8 @@ class CupView {
     required this.height,
     this.removal = 0,
     this.splash = 0,
+    this.drop,
+    this.dropSpin = 0,
   });
 }
 

@@ -300,6 +300,105 @@ void main() {
     });
   });
 
+  group('the made-ball drop', () {
+    final camera = CupPongWorld.cameraFor(_size);
+    final apex = CupPongGame.rackFor([for (var i = 0; i < 10; i++) i]).first;
+    final mouth = CupPongWorld.mouthOf(apex);
+
+    CupPongView dropping(double? t) {
+      final cups = CupPongGame.rackFor([for (var i = 0; i < 10; i++) i]);
+      return CupPongView(
+        cups: [
+          for (final c in cups)
+            CupView(
+              id: c.id,
+              mouth: CupPongWorld.mouthOf(c),
+              mouthRadius: CupPongWorld.cupMouthRadius,
+              baseRadius: CupPongWorld.cupBaseRadius,
+              height: CupPongWorld.cupHeight,
+              drop: c.id == apex.id ? t : null,
+              dropSpin: (t ?? 0) * 6,
+            ),
+        ],
+      );
+    }
+
+    test('the ball is visible for the whole drop, and only inside the cup',
+        () async {
+      // The cup's mouth on screen, generously padded. Everything the drop is
+      // allowed to touch lives inside this: the ball is clipped to the mouth
+      // path, so the near lip eats it on the way down and not one pixel of
+      // felt, rack or room may change while it falls.
+      final mouthBounds = camera
+          .horizontalCirclePath(mouth, CupPongWorld.cupMouthRadius,
+              segments: 48)!
+          .getBounds()
+          .inflate(2);
+      final bare = await _raster(dropping(null));
+
+      for (final t in const [0.0, 0.25, 0.5, 0.75, 1.0]) {
+        final frame = await _raster(dropping(t));
+        var changed = 0;
+        for (var y = 0; y < _size.height.toInt(); y++) {
+          for (var x = 0; x < _size.width.toInt(); x++) {
+            final i = _index(x, y);
+            var diff = false;
+            for (var ch = 0; ch < 3; ch++) {
+              if ((frame.getUint8(i + ch) - bare.getUint8(i + ch)).abs() > 2) {
+                diff = true;
+                break;
+              }
+            }
+            if (!diff) continue;
+            changed++;
+            expect(
+              mouthBounds.contains(Offset(x.toDouble(), y.toDouble())),
+              isTrue,
+              reason: 'drop $t painted outside the cup mouth at ($x, $y)',
+            );
+          }
+        }
+        expect(changed, greaterThan(20),
+            reason: 'the ball has to be visible at t=$t, not just early on');
+      }
+    });
+
+    test('the ball actually descends — it does not hang at the rim', () async {
+      // Centroid of everything the drop changed. The ball inside a cup is
+      // deliberately in shadow, so a brightness threshold finds the lit rim
+      // instead; the diff against a bare cup finds the ball itself.
+      Future<double> centroidY(double t) async {
+        final bare = await _raster(dropping(null));
+        final frame = await _raster(dropping(t));
+        var sum = 0.0;
+        var n = 0;
+        for (var y = 0; y < _size.height.toInt(); y++) {
+          for (var x = 0; x < _size.width.toInt(); x++) {
+            final i = _index(x, y);
+            var diff = false;
+            for (var ch = 0; ch < 3; ch++) {
+              if ((frame.getUint8(i + ch) - bare.getUint8(i + ch)).abs() > 2) {
+                diff = true;
+                break;
+              }
+            }
+            if (!diff) continue;
+            sum += y;
+            n++;
+          }
+        }
+        expect(n, greaterThan(20), reason: 'nothing drawn at t=$t');
+        return sum / n;
+      }
+
+      final early = await centroidY(0.0);
+      final settled = await centroidY(1.0);
+      expect(settled, greaterThan(early + 1),
+          reason: 'the settled ball must sit lower in the cup than one still '
+              'crossing the rim (early $early, settled $settled)');
+    });
+  });
+
   group('perspective', () {
     final camera = CupPongWorld.cameraFor(_size);
     final cups = CupPongGame.rackFor([for (var i = 0; i < 10; i++) i]);

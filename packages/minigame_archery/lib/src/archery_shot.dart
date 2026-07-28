@@ -256,6 +256,7 @@ class ArcheryBallistics {
       ring: struckFace ? ArcheryGame.ringValue(dx, dy) : 0,
       impactDirection: impactVelocity.normalized,
       launchVelocity: velocity,
+      impactSpeed: impactVelocity.length,
     );
   }
 }
@@ -290,6 +291,11 @@ class ArcheryShotResult {
 
   final Vec3 launchVelocity;
 
+  /// Speed the arrow was doing when it reached the plane, m/s. Pure
+  /// presentation: how hard the thud is, how far the straw compresses and how
+  /// long the shaft rings. Nothing in the rules reads it.
+  final double impactSpeed;
+
   const ArcheryShotResult({
     required this.path,
     required this.flightSeconds,
@@ -301,7 +307,13 @@ class ArcheryShotResult {
     required this.ring,
     required this.impactDirection,
     required this.launchVelocity,
+    this.impactSpeed = 0,
   });
+
+  /// Arrival speed as 0..1 over the band the ranges here actually produce.
+  /// A close target is struck hard; a thirty-eight metre arrow arrives tired.
+  double get impactStrength =>
+      ((impactSpeed - 28) / (56 - 28)).clamp(0.0, 1.0);
 
   bool get isBullseye => ring == 10;
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -348,14 +349,19 @@ class _ChessBoardState extends State<ChessBoard>
                 child: LayoutBuilder(
                   builder: (context, c) {
                     final side = c.maxWidth;
-                    final cellSize = side / 8;
+                    final field = _fieldRect(side);
+                    final cellSize = field.width / 8;
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTapDown: (d) {
-                        final col =
-                            (d.localPosition.dx / cellSize).floor().clamp(0, 7);
-                        final row =
-                            (d.localPosition.dy / cellSize).floor().clamp(0, 7);
+                        final col = ((d.localPosition.dx - field.left) /
+                                cellSize)
+                            .floor()
+                            .clamp(0, 7);
+                        final row = ((d.localPosition.dy - field.top) /
+                                cellSize)
+                            .floor()
+                            .clamp(0, 7);
                         _onTapCell(row * 8 + col);
                       },
                       child: Stack(
@@ -417,20 +423,9 @@ class _ChessBoardState extends State<ChessBoard>
         );
 
         // Felt table the slab sits on; opponent chip above, local chip below.
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        return DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(26),
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.35),
-              radius: 1.5,
-              colors: [
-                Color.lerp(table, Colors.white, 0.07)!,
-                table,
-                Color.lerp(table, Colors.black, 0.26)!,
-              ],
-              stops: const [0.0, 0.45, 1.0],
-            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.18),
@@ -439,6 +434,12 @@ class _ChessBoardState extends State<ChessBoard>
               ),
             ],
           ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: CustomPaint(
+              painter: _FeltPainter(table),
+              child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -464,7 +465,7 @@ class _ChessBoardState extends State<ChessBoard>
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 220),
                           child: pillMsg == null
-                              ? const SizedBox.shrink()
+                              ? const SizedBox.shrink(key: ValueKey('pill-empty'))
                               : Container(
                                   key: ValueKey(pillMsg),
                                   padding: const EdgeInsets.symmetric(
@@ -507,6 +508,9 @@ class _ChessBoardState extends State<ChessBoard>
               ),
             ],
           ),
+              ),
+            ),
+          ),
         );
       },
     );
@@ -519,6 +523,442 @@ class _ChessBoardState extends State<ChessBoard>
     }
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Board geometry
+//
+// The slab is a framed board: a rosewood frame carrying the algebraic notation
+// around a recessed playing field, with the board's thickness showing as a
+// side face along the bottom. The bottom rail reads narrower than the top by
+// exactly that thickness, which is what foreshortening does to a real board.
+// ---------------------------------------------------------------------------
+
+/// Frame rail width as a fraction of the widget side.
+const double _kFrame = 0.068;
+
+/// Visible board thickness (the side face) as a fraction of the widget side.
+const double _kEdge = 0.028;
+
+/// Top face of the slab — everything except the side face.
+Rect _slabRect(double side) => Rect.fromLTWH(0, 0, side, side - side * _kEdge);
+
+/// The 8×8 playing field, recessed inside the frame.
+Rect _fieldRect(double side) {
+  final f = side * _kFrame;
+  return Rect.fromLTWH(f, f, side - 2 * f, side - 2 * f);
+}
+
+// ---------------------------------------------------------------------------
+// Materials
+//
+// One committed light for the whole game: a soft key from the upper left.
+// Every highlight sits up-left of a form, every cast shadow falls down-right,
+// and every recess (the field inside the frame) reverses both.
+// ---------------------------------------------------------------------------
+
+const Offset _kLight = Offset(-0.38, -0.45);
+
+/// Deterministic hash in `[0, 1)`. Grain must be identical on every rebuild,
+/// so nothing in painting uses `Random`.
+double _noise(int x, int y, int seed) {
+  var n = (x * 374761393) ^ (y * 668265263) ^ (seed * 1274126177);
+  n = (n ^ (n >> 13)) * 1274126177;
+  n = n ^ (n >> 16);
+  return (n & 0x3fffffff) / 0x3fffffff;
+}
+
+/// Fine timber fibres running along [vertical] inside [r].
+void _paintGrain(
+  Canvas canvas,
+  Rect r,
+  Color base,
+  int seed, {
+  bool vertical = true,
+  double strength = 1,
+  int density = 0,
+}) {
+  final across = vertical ? r.width : r.height;
+  final along = vertical ? r.height : r.width;
+  final count =
+      density > 0 ? density : (across / 2.4).round().clamp(6, 200);
+  final fibre = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round;
+  for (var i = 0; i < count; i++) {
+    final j = _noise(i, seed, 37);
+    final k = _noise(i, seed, 53);
+    final wobble = (k - 0.5) * across * 0.09;
+    fibre
+      ..strokeWidth = 0.45 + j * 0.8
+      ..color = (k > 0.6
+              ? Color.lerp(base, const Color(0xFF33200D), 0.45)!
+              : Color.lerp(base, Colors.white, 0.35)!)
+          .withValues(alpha: (0.05 + j * 0.11) * strength);
+    final path = Path();
+    if (vertical) {
+      final x = r.left + (i + j) / count * across;
+      path.moveTo(x, r.top);
+      path.quadraticBezierTo(
+          x + wobble, r.top + along * 0.5, x + wobble * 0.3, r.bottom);
+    } else {
+      final y = r.top + (i + j) / count * across;
+      path.moveTo(r.left, y);
+      path.quadraticBezierTo(
+          r.left + along * 0.5, y + wobble, r.right, y + wobble * 0.3);
+    }
+    canvas.drawPath(path, fibre);
+  }
+}
+
+/// Cached slab (frame + squares + notation), keyed on size and palette.
+class _Slab {
+  final double w;
+  final double h;
+  final int light;
+  final int dark;
+  final ui.Picture picture;
+
+  _Slab(this.w, this.h, this.light, this.dark, this.picture);
+
+  bool matches(Size s, Color l, Color d) =>
+      w == s.width &&
+      h == s.height &&
+      // ignore: deprecated_member_use
+      light == l.value &&
+      // ignore: deprecated_member_use
+      dark == d.value;
+}
+
+final List<_Slab> _slabs = [];
+
+ui.Picture _slabFor(Size size, Color light, Color dark) {
+  for (final s in _slabs) {
+    if (s.matches(size, light, dark)) return s.picture;
+  }
+  final recorder = ui.PictureRecorder();
+  _paintSlab(Canvas(recorder), size, light, dark);
+  final made = _Slab(
+    size.width,
+    size.height,
+    // ignore: deprecated_member_use
+    light.value,
+    // ignore: deprecated_member_use
+    dark.value,
+    recorder.endRecording(),
+  );
+  _slabs.insert(0, made);
+  while (_slabs.length > 3) {
+    _slabs.removeLast().picture.dispose();
+  }
+  return made.picture;
+}
+
+void _paintSlab(Canvas canvas, Size size, Color light, Color dark) {
+  final side = size.width;
+  final slabRect = _slabRect(side);
+  final field = _fieldRect(side);
+  final cell = field.width / 8;
+  final radius = Radius.circular(side * 0.028);
+  final top = RRect.fromRectAndRadius(slabRect, radius);
+  final sideFace = RRect.fromRectAndRadius(
+    Rect.fromLTWH(0, side * _kEdge * 0.4, side, size.height - side * _kEdge * 0.4),
+    radius,
+  );
+
+  // Rosewood frame stock, a couple of steps darker than the dark squares.
+  final frame = Color.lerp(dark, const Color(0xFF3A1F10), 0.52)!;
+
+  // Contact shadow: a tight dark core plus a wide ambient falloff, both away
+  // from the key light.
+  canvas.drawRRect(
+    sideFace.shift(Offset(side * 0.010, side * 0.016)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.30)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, side * 0.030),
+  );
+  canvas.drawRRect(
+    sideFace.shift(Offset(side * 0.004, side * 0.006)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.26)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, side * 0.008),
+  );
+
+  // Side face — the board's thickness.
+  canvas.drawRRect(
+    sideFace,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [frame, Color.lerp(frame, Colors.black, 0.42)!],
+      ).createShader(sideFace.outerRect),
+  );
+
+  // Frame top face: mitred rails, grain running the length of each rail.
+  canvas.save();
+  canvas.clipRRect(top);
+  canvas.drawRect(slabRect, Paint()..color = frame);
+  final railT = Rect.fromLTRB(0, 0, side, field.top);
+  final railB = Rect.fromLTRB(0, field.bottom, side, slabRect.bottom);
+  final railL = Rect.fromLTRB(0, 0, field.left, slabRect.bottom);
+  final railR = Rect.fromLTRB(field.right, 0, side, slabRect.bottom);
+  _paintGrain(canvas, railT, frame, 5, vertical: false, density: 14);
+  _paintGrain(canvas, railB, frame, 9, vertical: false, density: 12);
+  _paintGrain(canvas, railL, frame, 13, density: 12);
+  _paintGrain(canvas, railR, frame, 17, density: 12);
+  // Mitre joints at the corners.
+  final mitre = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.8
+    ..color = Colors.black.withValues(alpha: 0.22);
+  canvas.drawLine(Offset.zero, field.topLeft, mitre);
+  canvas.drawLine(Offset(side, 0), field.topRight, mitre);
+  canvas.drawLine(Offset(0, slabRect.bottom), field.bottomLeft, mitre);
+  canvas.drawLine(Offset(side, slabRect.bottom), field.bottomRight, mitre);
+  // Key-light wash across the whole top face.
+  canvas.drawRect(
+    slabRect,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment(_kLight.dx * 2.2, _kLight.dy * 2.0),
+        end: Alignment(-_kLight.dx * 2.2, -_kLight.dy * 2.0),
+        colors: [
+          Colors.white.withValues(alpha: 0.14),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.14),
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(slabRect),
+  );
+  canvas.restore();
+
+  // Outer chamfer: lit lip up-left, dark lip down-right.
+  canvas.drawRRect(
+    top.deflate(side * 0.0035),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = side * 0.007
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.30),
+          Colors.white.withValues(alpha: 0.03),
+          Colors.black.withValues(alpha: 0.20),
+        ],
+      ).createShader(slabRect),
+  );
+
+  // Squares. Maple and walnut, each square with its own faint tonal drift so
+  // the field never reads as a flat two-tone fill.
+  canvas.save();
+  canvas.clipRect(field);
+  for (var i = 0; i < 64; i++) {
+    final col = i % 8;
+    final row = i ~/ 8;
+    final isDark = (col + row).isOdd;
+    final base = isDark ? dark : light;
+    final r = Rect.fromLTWH(
+      field.left + col * cell,
+      field.top + row * cell,
+      cell + 0.5,
+      cell + 0.5,
+    );
+    final drift = (_noise(col, row, 61) - 0.5) * 0.022;
+    final tone = drift < 0
+        ? Color.lerp(base, Colors.white, -drift)!
+        : Color.lerp(base, const Color(0xFF4A2E14), drift)!;
+    canvas.drawRect(r, Paint()..color = tone);
+    _paintGrain(
+      canvas,
+      r,
+      tone,
+      col * 8 + row,
+      strength: isDark ? 0.62 : 0.40,
+      density: isDark ? 8 : 6,
+    );
+  }
+  // Board-wide sheen: the lacquer catches the key light across the field.
+  canvas.drawRect(
+    field,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.09),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(field),
+  );
+  canvas.restore();
+
+  // The field is *recessed*, so its inner lip is dark at the top-left and lit
+  // at the bottom-right — the exact reverse of the outer chamfer.
+  final lip = side * 0.010;
+  canvas.drawRect(
+    field.inflate(lip * 0.5),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = lip
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.black.withValues(alpha: 0.40),
+          Colors.black.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.16),
+        ],
+      ).createShader(field),
+  );
+  // Hairline inlay between frame and field.
+  canvas.drawRect(
+    field.inflate(lip * 1.05),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..color = Color.lerp(light, Colors.white, 0.5)!.withValues(alpha: 0.35),
+  );
+
+  // Algebraic notation, engraved into the rails: a light offset under a dark
+  // glyph reads as a cut groove under a top-left key.
+  final glyph = side * 0.023;
+  if (glyph >= 6) {
+    final ink = Color.lerp(light, Colors.white, 0.55)!;
+    for (var i = 0; i < 8; i++) {
+      _engrave(
+        canvas,
+        String.fromCharCode(97 + i),
+        Offset(field.left + (i + 0.5) * cell, (field.bottom + slabRect.bottom) / 2),
+        glyph,
+        ink,
+      );
+      _engrave(
+        canvas,
+        '${8 - i}',
+        Offset(field.left / 2, field.top + (i + 0.5) * cell),
+        glyph,
+        ink,
+      );
+    }
+  }
+}
+
+/// Draws [text] centred on [at] as an engraved mark: a light shadow pushed
+/// away from the key, then the dark glyph itself.
+void _engrave(Canvas canvas, String text, Offset at, double size, Color ink) {
+  for (final (dy, color) in [
+    (1.0, Colors.white.withValues(alpha: 0.22)),
+    (0.0, ink.withValues(alpha: 0.75)),
+  ]) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: size,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, at - Offset(tp.width / 2, tp.height / 2 - dy));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Felt table
+// ---------------------------------------------------------------------------
+
+class _FeltCache {
+  final double w;
+  final double h;
+  final int felt;
+  final ui.Picture picture;
+
+  _FeltCache(this.w, this.h, this.felt, this.picture);
+
+  bool matches(Size s, Color f) =>
+      w == s.width &&
+      h == s.height &&
+      // ignore: deprecated_member_use
+      felt == f.value;
+}
+
+final List<_FeltCache> _felts = [];
+
+/// Napped felt: a lit wash from the key, a dense deterministic fibre speckle,
+/// and a vignette that seats the panel in the surrounding dark.
+class _FeltPainter extends CustomPainter {
+  final Color felt;
+
+  const _FeltPainter(this.felt);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final f in _felts) {
+      if (f.matches(size, felt)) {
+        canvas.drawPicture(f.picture);
+        return;
+      }
+    }
+    final recorder = ui.PictureRecorder();
+    _record(Canvas(recorder), size);
+    final made = _FeltCache(
+      size.width,
+      size.height,
+      // ignore: deprecated_member_use
+      felt.value,
+      recorder.endRecording(),
+    );
+    _felts.insert(0, made);
+    while (_felts.length > 3) {
+      _felts.removeLast().picture.dispose();
+    }
+    canvas.drawPicture(made.picture);
+  }
+
+  void _record(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(_kLight.dx, _kLight.dy),
+          radius: 1.35,
+          colors: [
+            Color.lerp(felt, Colors.white, 0.10)!,
+            felt,
+            Color.lerp(felt, Colors.black, 0.34)!,
+          ],
+          stops: const [0.0, 0.42, 1.0],
+        ).createShader(rect),
+    );
+    final nap = Paint()
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+    final cols = (size.width / 5).ceil();
+    final rows = (size.height / 5).ceil();
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        final j = _noise(x, y, 7);
+        if (j < 0.45) continue;
+        final k = _noise(x, y, 19);
+        final px = x * 5.0 + k * 5;
+        final py = y * 5.0 + j * 5;
+        nap.color = (j > 0.78 ? Colors.white : Colors.black)
+            .withValues(alpha: 0.012 + k * 0.016);
+        canvas.drawLine(Offset(px, py), Offset(px + 1.6 + k, py + 0.8), nap);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FeltPainter old) => old.felt != felt;
 }
 
 // ---------------------------------------------------------------------------
@@ -560,32 +1000,26 @@ class _ChessPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cell = size.width / 8;
-    final slab = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.035),
-    );
+    final side = size.width;
+    final field = _fieldRect(side);
+    final cell = field.width / 8;
 
-    // Ground shadow — the slab floats just above the felt.
-    canvas.drawRRect(
-      slab.shift(const Offset(0, 5)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.22)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
-    );
+    // Frame, squares, notation and thickness never move: one cached picture.
+    canvas.drawPicture(_slabFor(size, light, dark));
 
     canvas.save();
-    canvas.clipRRect(slab);
+    canvas.clipRect(field);
 
-    Rect squareRect(int i) =>
-        Rect.fromLTWH((i % 8) * cell, (i ~/ 8) * cell, cell + 0.5, cell + 0.5);
-    Offset squareCenter(int i) =>
-        Offset((i % 8 + 0.5) * cell, (i ~/ 8 + 0.5) * cell);
-
-    for (var i = 0; i < 64; i++) {
-      final isDark = ((i % 8) + (i ~/ 8)).isOdd;
-      canvas.drawRect(squareRect(i), Paint()..color = isDark ? dark : light);
-    }
+    Rect squareRect(int i) => Rect.fromLTWH(
+          field.left + (i % 8) * cell,
+          field.top + (i ~/ 8) * cell,
+          cell + 0.5,
+          cell + 0.5,
+        );
+    Offset squareCenter(int i) => Offset(
+          field.left + (i % 8 + 0.5) * cell,
+          field.top + (i ~/ 8 + 0.5) * cell,
+        );
 
     // Last move + selection tints.
     for (final i in [lastFrom, lastTo]) {
@@ -679,15 +1113,6 @@ class _ChessPainter extends CustomPainter {
     }
 
     canvas.restore();
-
-    // Quiet edge bevel.
-    canvas.drawRRect(
-      slab.deflate(0.75),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = Colors.white.withValues(alpha: 0.16),
-    );
   }
 
   @override

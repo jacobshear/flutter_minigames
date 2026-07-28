@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:forge2d/forge2d.dart' show Vector2;
 import 'package:minigames_core/minigames_core.dart';
 import 'package:minigames_flame/minigames_flame.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'eight_ball_game.dart';
 import 'eight_ball_style.dart';
@@ -47,8 +48,14 @@ class _EightBallBoardState extends State<EightBallBoard>
   EightBallState? _state;
   GameOutcome? _outcome;
 
-  String _pill = '';
-  Timer? _pillTimer;
+  // The transient centre message. A single GameNotice owns the animation and
+  // the retract timer, so repeating the same text — "Miss" twice in a row is
+  // ordinary play — can never collide with its own outgoing copy.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.info;
+  Color? _noticeAccent;
+  bool _noticeSticky = false;
+  bool _noticeStrong = false;
   bool _celebrated = false;
 
   // Built in initState — NOT a `late` inline initializer. A late field runs its
@@ -86,38 +93,56 @@ class _EightBallBoardState extends State<EightBallBoard>
     final scene = EightBallScene(style: widget.style, scheme: _fallbackScheme)
       ..onBreak = _onBreak
       ..onCollision = _onCollision
+      ..onRail = _onRail
       ..onPocket = _onPocket
       ..onShotSettled = _onShotSettled
       ..onAimChanged = () => setState(() {});
     _scene = scene;
     _celebrated = false;
-    _pill = '';
+    _clearNotice();
     _confetti = const [];
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
     if (s != null) {
       scene.applyState(s, _actingFor(s));
-      if (_outcome != null) {
-        _celebrated = true;
-      } else {
-        _showPill(s.shotsTaken == 0
-            ? '${_labelFor(s.currentPlayerId)} breaks'
-            : '${_labelFor(s.currentPlayerId)}’s shot');
-      }
+      // Whose shot it is, and whether they have ball in hand, are standing
+      // facts — they live in the header GamePill, not in a message.
+      if (_outcome != null) _celebrated = true;
     }
     _sub = widget.controller.stateStream.listen(_onState);
   }
 
-  void _showPill(String text, {bool sticky = false}) {
-    _pillTimer?.cancel();
-    _pill = text;
-    if (!sticky && text.isNotEmpty) {
-      _pillTimer = Timer(const Duration(seconds: 3), () {
-        if (!mounted) return;
-        setState(() => _pill = '');
-      });
-    }
+  /// Raises the centre notice. Assigns synchronously — callers own the
+  /// surrounding setState. [sticky] holds it (the win); everything else
+  /// retracts itself via [GameNotice.autoDismiss].
+  void _showNotice(
+    String text, {
+    GameNoticeTone tone = GameNoticeTone.info,
+    Color? accent,
+    bool sticky = false,
+    bool strong = false,
+  }) {
+    _notice = text;
+    _noticeTone = tone;
+    _noticeAccent = accent;
+    _noticeSticky = sticky;
+    _noticeStrong = strong;
+  }
+
+  void _clearNotice() {
+    _notice = null;
+    _noticeSticky = false;
+    _noticeStrong = false;
+  }
+
+  /// Seat colours, matching the chips in the header strip.
+  static const _seat1 = Color(0xFFD8443C);
+  static const _seat2 = Color(0xFF2E6FB0);
+
+  Color _accentFor(String playerId) {
+    final s = _state;
+    return s == null || playerId == s.playerIds.first ? _seat1 : _seat2;
   }
 
   String _actingFor(EightBallState s) =>
@@ -126,7 +151,6 @@ class _EightBallBoardState extends State<EightBallBoard>
   @override
   void dispose() {
     _sub?.cancel();
-    _pillTimer?.cancel();
     _confettiCtrl.dispose();
     super.dispose();
   }
@@ -139,7 +163,7 @@ class _EightBallBoardState extends State<EightBallBoard>
     if (!mounted) return;
     widget.style.sounds.onBreak?.call();
     if (widget.style.haptics) HapticFeedback.mediumImpact();
-    setState(() => _showPill(''));
+    setState(_clearNotice);
   }
 
   Duration _lastClack = Duration.zero;
@@ -158,6 +182,31 @@ class _EightBallBoardState extends State<EightBallBoard>
     if (!mounted) return;
     widget.style.sounds.onPocket?.call();
     if (widget.style.haptics) HapticFeedback.lightImpact();
+  }
+
+  Duration _lastRail = Duration.zero;
+
+  /// A cushion bounce, weighted by how hard the ball arrived: a graze is
+  /// silent, a firm bank clacks and thumps.
+  void _onRail(double strength) {
+    if (!mounted) return;
+    final now = _clock.elapsed;
+    // A soft contact needs to be much more separated to earn a second sound
+    // than a hard one — that is what stops a ball dying against a rail from
+    // machine-gunning the clack.
+    final gap = Duration(milliseconds: (120 - 60 * strength).round());
+    if (now - _lastRail < gap) return;
+    _lastRail = now;
+    final sounds = widget.style.sounds;
+    (sounds.onRail ?? sounds.onCollision)?.call();
+    if (!widget.style.haptics) return;
+    if (strength > 0.55) {
+      HapticFeedback.mediumImpact();
+    } else if (strength > 0.22) {
+      HapticFeedback.lightImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
   }
 
   void _onShotSettled(EightBallMove move) {
@@ -186,16 +235,35 @@ class _EightBallBoardState extends State<EightBallBoard>
       if (style.haptics) HapticFeedback.heavyImpact();
     }
 
-    final pill = cueScratched
-        ? 'Scratch — ball in hand'
+    // The seat that took the shot, read before submitMove hands the turn on.
+    final shooter = _state?.currentPlayerId;
+    final (text, tone) = cueScratched
+        ? ('SCRATCH', GameNoticeTone.warn)
         : (newlyObject.contains(EightBallGame.eightNumber)
-            ? '8-ball!'
+            ? ('8-BALL DOWN', GameNoticeTone.score)
             : (newlyObject.isNotEmpty
-                ? 'Potted ${newlyObject.length == 1 ? "a ball" : "${newlyObject.length} balls"}'
-                : (contactFoul ? 'No contact — foul' : 'Miss')));
+                ? (
+                    newlyObject.length == 1
+                        ? 'POTTED'
+                        : 'POTTED ${newlyObject.length}',
+                    GameNoticeTone.score,
+                  )
+                : (contactFoul
+                    ? ('NO CONTACT — FOUL', GameNoticeTone.warn)
+                    : ('MISS', GameNoticeTone.warn))));
 
     widget.controller.submitMove(move);
-    if (mounted) setState(() => _showPill(pill));
+    if (!mounted) return;
+    setState(() => _showNotice(
+          text,
+          tone: tone,
+          // A pot wears the potter's colour, so the notice says who as well as
+          // what; a foul keeps the warn red.
+          accent: tone == GameNoticeTone.score && shooter != null
+              ? _accentFor(shooter)
+              : null,
+          strong: newlyObject.contains(EightBallGame.eightNumber),
+        ));
   }
 
   void _onState(EightBallState next) {
@@ -213,16 +281,17 @@ class _EightBallBoardState extends State<EightBallBoard>
       final justAssigned = (prev?.isOpenTable ?? true) && !next.isOpenTable;
       final isFresh =
           next.shotsTaken == 0 && next.groups.isEmpty && !next.ballInHand;
+      // Getting a group is a one-off event worth calling out. Ball-in-hand and
+      // whose-break are standing facts and read off the header pill instead.
       if (justAssigned && next.groups[acting] != null) {
-        _showPill(
+        _showNotice(
           next.groups[acting] == BallGroup.solids
-              ? '${_labelFor(acting)}: solids'
-              : '${_labelFor(acting)}: stripes',
+              ? '${_labelFor(acting).toUpperCase()} IS SOLIDS'
+              : '${_labelFor(acting).toUpperCase()} IS STRIPES',
+          accent: _accentFor(acting),
         );
-      } else if (next.ballInHand) {
-        _showPill('${_labelFor(next.currentPlayerId)}: ball in hand');
       } else if (isFresh) {
-        _showPill('${_labelFor(next.currentPlayerId)} breaks');
+        _clearNotice();
       }
     }
 
@@ -243,8 +312,8 @@ class _EightBallBoardState extends State<EightBallBoard>
       style.sounds.onLoss?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    _showPill('${_labelFor(outcome.winnerId!)} wins'.toUpperCase(),
-        sticky: true);
+    _showNotice('${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
+        tone: GameNoticeTone.win, sticky: true);
     if (style.confetti) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
@@ -333,6 +402,14 @@ class _EightBallBoardState extends State<EightBallBoard>
         : widget.style.player2Label;
   }
 
+  /// The standing phase line: what the table is waiting for right now.
+  String _phaseText(EightBallState s) {
+    if (_outcome != null) return 'Match over';
+    if (s.ballInHand) return 'Ball in hand';
+    if (s.shotsTaken == 0) return 'To break';
+    return 'To shoot';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -346,7 +423,6 @@ class _EightBallBoardState extends State<EightBallBoard>
 
     final p1 = state.playerIds.first;
     final p2 = state.playerIds.last;
-
     final hint = _outcome != null
         ? 'Tap New game to play again'
         : (_placing
@@ -369,30 +445,52 @@ class _EightBallBoardState extends State<EightBallBoard>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
         child: CustomPaint(
-          painter: const _PoolRoomPainter(),
+          painter: _PoolRoomPainter(scheme),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Column(
               children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _PlayerChip(
-                    label: _labelFor(p2),
-                    group: state.groups[p2],
-                    remaining: state.remainingCountOf(p2),
-                    accent: const Color(0xFF2E6FB0),
-                    active: _outcome == null && state.currentPlayerId == p2,
-                    winner: _outcome?.winnerId == p2,
-                  ),
+                // Both players on one strip. Stacking them above *and* below the
+                // table cost ~40pt of height, and on a 2:1 portrait table height
+                // is the only thing deciding how wide the table gets — that is
+                // what left it stranded in the middle of the screen.
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(
+                      child: _PlayerChip(
+                        label: _labelFor(p1),
+                        group: state.groups[p1],
+                        remaining: state.remainingCountOf(p1),
+                        accent: _seat1,
+                        active: _outcome == null && state.currentPlayerId == p1,
+                        winner: _outcome?.winnerId == p1,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: _PlayerChip(
+                        label: _labelFor(p2),
+                        group: state.groups[p2],
+                        remaining: state.remainingCountOf(p2),
+                        accent: _seat2,
+                        active: _outcome == null && state.currentPlayerId == p2,
+                        winner: _outcome?.winnerId == p2,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Expanded(
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 300),
+                      // Fill the width on a phone; stop growing on a tablet,
+                      // where a table taller than an arm's reach is no fun.
+                      constraints: const BoxConstraints(maxWidth: 460),
                       child: AspectRatio(
-                        aspectRatio:
-                            EightBallScene.tableW / EightBallScene.tableL,
+                        // NOT tableW/tableL: the rail band is measured off the
+                        // width and eats the height too. See [boardAspect].
+                        aspectRatio: EightBallScene.boardAspect,
                         child: DecoratedBox(
                           // The table has to sit *in* the room, not float on it.
                           decoration: BoxDecoration(
@@ -444,14 +542,15 @@ class _EightBallBoardState extends State<EightBallBoard>
                                 Positioned.fill(
                                   child: IgnorePointer(
                                     child: Center(
-                                      child: AnimatedSwitcher(
-                                        duration:
-                                            const Duration(milliseconds: 220),
-                                        child: _pill.isEmpty
-                                            ? const SizedBox.shrink()
-                                            : _Pill(
-                                                key: ValueKey(_pill),
-                                                text: _pill),
+                                      child: GameNotice(
+                                        message: _notice,
+                                        tone: _noticeTone,
+                                        accent: _noticeAccent,
+                                        strong: _noticeStrong || _noticeSticky,
+                                        autoDismiss: _noticeSticky
+                                            ? null
+                                            : const Duration(
+                                                milliseconds: 1800),
                                       ),
                                     ),
                                   ),
@@ -465,26 +564,32 @@ class _EightBallBoardState extends State<EightBallBoard>
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  hint,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: _PlayerChip(
-                    label: _labelFor(p1),
-                    group: state.groups[p1],
-                    remaining: state.remainingCountOf(p1),
-                    accent: const Color(0xFFD8443C),
-                    active: _outcome == null && state.currentPlayerId == p1,
-                    winner: _outcome?.winnerId == p1,
-                  ),
+                // Standing phase beside the instruction, not squeezed into the
+                // header: three chips on one 402pt strip truncated both player
+                // names to "Pla…". A fact, so a pill — not a message.
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    GamePill(
+                      text: _phaseText(state),
+                      accent: _outcome == null
+                          ? _accentFor(state.currentPlayerId)
+                          : null,
+                      dot: _outcome == null,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        hint,
+                        maxLines: 2,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -497,13 +602,17 @@ class _EightBallBoardState extends State<EightBallBoard>
 
 /// Paints the room behind the table (see [paintPoolRoom]).
 class _PoolRoomPainter extends CustomPainter {
-  const _PoolRoomPainter();
+  final ColorScheme scheme;
+
+  const _PoolRoomPainter(this.scheme);
 
   @override
-  void paint(Canvas canvas, Size size) => paintPoolRoom(canvas, size);
+  void paint(Canvas canvas, Size size) =>
+      paintPoolRoom(canvas, size, scheme: scheme);
 
   @override
-  bool shouldRepaint(_PoolRoomPainter oldDelegate) => false;
+  bool shouldRepaint(_PoolRoomPainter oldDelegate) =>
+      oldDelegate.scheme != scheme;
 }
 
 // ---------------------------------------------------------------------------
@@ -528,6 +637,23 @@ class EightBallScene extends FlameGame {
   static const double ballR = EightBallGame.ballR;
   static const double pocketCaptureR = 0.95;
 
+  /// Width ÷ height the **board widget** must be given so the felt inside it
+  /// comes out at exactly [tableW] : [tableL].
+  ///
+  /// The rail band is [poolRailFrac] of the board's *width* on all four sides,
+  /// so a board sized 1:2 (the world's own ratio) leaves a felt of
+  /// `0.83w × 1.83w` — 2.20:1, a 10% stretch along the table. That stretch is
+  /// not cosmetic: normalized ny maps onto the felt's height, so with the wrong
+  /// box the pixels-per-world-unit differ between the axes, angles come out
+  /// wrong, and an aim prediction computed in world units would not line up
+  /// with what is drawn. Sized to this, screen space is a plain uniform scaling
+  /// of sim space.
+  ///
+  ///     feltH / feltW = (h - 2fw) / (w - 2fw) = tableL / tableW
+  ///  ⇒  h / w = (tableL / tableW)(1 - 2f) + 2f
+  static const double boardAspect =
+      1 / ((tableL / tableW) * (1 - 2 * poolRailFrac) + 2 * poolRailFrac);
+
   /// Pockets in sim world coords: 4 corners + 2 sides.
   static const List<(double, double)> _pocketsWorld = [
     (-tableW / 2, 0),
@@ -538,27 +664,62 @@ class EightBallScene extends FlameGame {
     (tableW / 2, tableL / 2),
   ];
 
-  // A firm break at full power; a gentle tap at the low end. Not finely tuned —
-  // approximated for GP feel (see game doc: no spin/english modelled).
-  static const _aim = AimToImpulse(
+  /// A firm break at full power; a gentle tap at the low end. Not finely tuned —
+  /// approximated for GP feel (see game doc: no spin/english modelled).
+  /// Full power was 16, which measured badly: on a straight break five of the
+  /// fifteen object balls finished less than a ball's width from where they
+  /// were racked — the cue shoved the front of the rack and stalled. 20 opens
+  /// the rack completely (every ball moves, mean travel up from 2.8 to 5.2
+  /// world units) without going so fast that a ball tunnels a rail: 24 break
+  /// angles at 20 produced zero escapes, and past ~22 the fixed 1/60 step
+  /// starts losing energy in the pile-up and the spread gets *worse* again.
+  static const aimConfig = AimToImpulse(
     maxDrag: 210,
-    maxImpulse: 16,
+    maxImpulse: 20,
     minImpulse: 2.5,
     deadZone: 8,
   );
+  static const _aim = aimConfig;
 
-  // Lively rails, low rolling drag so a break scatters the whole rack.
-  static const _simConfig = TableSimConfig(
+  /// Lively rails, low rolling drag so a break scatters the whole rack.
+  ///
+  /// Public so the physics can be measured rather than eyeballed: the tests
+  /// build the very same table through [createSim] and check the break's spread
+  /// and the angle a cushion actually returns.
+  static const simConfig = TableSimConfig(
     linearDamping: 0.62,
     angularDamping: 1.2,
     friction: 0.02,
+    // Object balls are ivory-hard: a near-elastic ball↔ball collision is what
+    // makes a break transfer its energy through the rack instead of the cue
+    // shoving the front three and stopping.
     restitution: 0.94,
+    // Box2D mixes restitution as `max(a, b)`, so this is a *floor*, not a cap:
+    // with balls at 0.94 the cushions bounce at 0.94 whatever this says, and
+    // measurement agrees (a rail returns 93–97% of the ball's speed). Making
+    // rails genuinely deader than balls would mean dropping the ball figure,
+    // which is what powers the break — so the rails stay lively on purpose.
     wallRestitution: 0.9,
     density: 1.0,
     settleLinearSpeed: 0.06,
     settleFrames: 16,
     maxSteps: 2600,
   );
+
+  /// How long a ball takes to fall out of sight down a pocket, seconds.
+  static const double dropSeconds = 0.52;
+
+  /// How long a cushion takes to spring back after a strike, seconds.
+  static const double impactSeconds = 0.26;
+
+  /// The speed a cushion strike is measured against — roughly the normal speed
+  /// of a firm break hitting a rail head-on. Impacts scale 0..1 against it, so
+  /// both the sound gate and the compression depth track how hard the ball
+  /// actually arrived.
+  static const double railRefSpeed = 12.0;
+
+  /// Below this normal speed a cushion contact is a nudge: no sound, no dent.
+  static const double railQuietSpeed = 0.9;
 
   late TableSimulation _sim;
   EightBallState? _state;
@@ -569,6 +730,15 @@ class EightBallScene extends FlameGame {
 
   int? _firstHit; // first object-ball number the cue struck this shot
   final Set<int> _pocketedIds = {};
+
+  // Presentation-only: balls falling into pockets, cushions still relaxing, and
+  // the settled outcome waiting for those drops to finish. The outcome is built
+  // the instant the physics settles and only *delivered* later, so the animation
+  // can never change what was potted.
+  final List<_Drop> _drops = [];
+  final List<_Impact> _impacts = [];
+  EightBallMove? _pendingSettle;
+  final Map<int, Vector2> _lastBallVel = {};
 
   // Rolling: per-ball orientation, and last position to derive the roll from.
   // Orientation persists across sim rebuilds (a ball keeps the face it came to
@@ -585,6 +755,9 @@ class EightBallScene extends FlameGame {
   void Function()? onBreak;
   void Function()? onCollision;
   void Function()? onPocket;
+
+  /// A ball banked off a cushion, with 0..1 strength relative to [railRefSpeed].
+  void Function(double strength)? onRail;
   void Function()? onAimChanged;
   void Function(EightBallMove move)? onShotSettled;
 
@@ -592,16 +765,28 @@ class EightBallScene extends FlameGame {
       _cue != null &&
       !_launched &&
       !_sim.isRunning &&
+      _pendingSettle == null &&
       (_state != null && !_state!.ballInHand && !_state!.over);
+
+  /// True while balls are still dropping into pockets after the physics settled.
+  bool get isDropping => _drops.isNotEmpty;
 
   bool get isAiming => _aimStart != null && _aimNow != null;
 
   @override
   Color backgroundColor() => const Color(0xFF1A130C);
 
-  TableSimulation _buildSim(EightBallState? state) {
+  /// Build the physical table for [state]: rails, pockets and a body per ball
+  /// still on the cloth.
+  ///
+  /// Static and public so a test can hold the *same* table the board plays on
+  /// and measure it — the break's spread and a cushion's angle of return are
+  /// numbers, and numbers should be asserted, not squinted at.
+  static ({TableSimulation sim, DiscBody? cue}) createSim(
+    EightBallState? state,
+  ) {
     final sim = TableSimulation(
-      config: _simConfig,
+      config: simConfig,
       shouldRemove: (d) {
         for (final (px, py) in _pocketsWorld) {
           final dx = d.position.x - px, dy = d.position.y - py;
@@ -613,25 +798,31 @@ class EightBallScene extends FlameGame {
             d.position.y < -1 ||
             d.position.y > tableL + 1;
       },
-    )
-      ..onDiscCollision = _handleCollision
-      ..onSettled = _handleSettled;
+    );
     // Full rails; pockets are handled by capture, not gaps.
     sim.addBounds(const Rect.fromLTRB(-tableW / 2, 0, tableW / 2, tableL));
-    _cue = null;
+    DiscBody? cue;
     if (state != null) {
       for (final b in state.balls) {
         if (b.pocketed) continue;
         final disc = sim.addDisc(
           id: '${b.number}',
           owner: b.number,
-          position: _simPos(b.nx, b.ny),
+          position: simPos(b.nx, b.ny),
           radius: ballR,
         );
-        if (b.isCue) _cue = disc;
+        if (b.isCue) cue = disc;
       }
     }
-    return sim;
+    return (sim: sim, cue: cue);
+  }
+
+  TableSimulation _buildSim(EightBallState? state) {
+    final built = createSim(state);
+    _cue = built.cue;
+    return built.sim
+      ..onDiscCollision = _handleCollision
+      ..onSettled = _handleSettled;
   }
 
   void applyState(EightBallState state, String acting) {
@@ -643,14 +834,19 @@ class EightBallScene extends FlameGame {
     _accum = 0;
     _firstHit = null;
     _pocketedIds.clear();
+    _drops.clear();
+    _impacts.clear();
+    _pendingSettle = null;
     // Balls are re-seated from state here; drop the roll baseline so the jump
     // isn't integrated as a spin. Orientation itself carries over.
     _lastBallPos.clear();
+    _lastBallVel.clear();
     _placeGhost = state.ballInHand ? const Offset(0.5, 0.8) : null;
     _sim = _buildSim(state);
   }
 
-  Vector2 _simPos(double nx, double ny) =>
+  /// Normalized table coords → sim world units.
+  static Vector2 simPos(double nx, double ny) =>
       Vector2((nx - 0.5) * tableW, ny * tableL);
 
   ({double nx, double ny}) _toNorm(Vector2 p) =>
@@ -763,22 +959,123 @@ class EightBallScene extends FlameGame {
   @override
   void update(double dt) {
     super.update(dt);
-    if (!_sim.isRunning) return;
-    _accum += dt;
-    var steps = 0;
-    final h = _sim.config.fixedDt;
-    while (_accum >= h && steps < 8) {
-      _sim.step();
-      _accum -= h;
-      steps++;
-      if (!_sim.isRunning) break;
+    if (_sim.isRunning) {
+      _accum += dt;
+      var steps = 0;
+      final h = _sim.config.fixedDt;
+      while (_accum >= h && steps < 8) {
+        _sim.step();
+        _accum -= h;
+        steps++;
+        if (!_sim.isRunning) break;
+      }
+      _integrateRoll();
+      _detectRailHits();
+      _spawnDrops();
     }
-    _integrateRoll();
-    // Pocket SFX for anything captured this frame.
+    _advanceFlourishes(dt);
+    // The move was packaged when the physics settled; hold it only until the
+    // last ball has finished falling, so the drop is watched rather than cut.
+    final pending = _pendingSettle;
+    if (pending != null && !_sim.isRunning && _drops.isEmpty) {
+      _pendingSettle = null;
+      onShotSettled?.call(pending);
+    }
+  }
+
+  /// Turn newly captured balls into falling ones. The sim has already decided
+  /// they are pocketed; this only gives them somewhere to go.
+  void _spawnDrops() {
     for (final d in _sim.discs) {
       if (!d.removed) continue;
       final n = d.owner as int;
-      if (_pocketedIds.add(n)) onPocket?.call();
+      if (!_pocketedIds.add(n)) continue;
+      final at = _toNorm(d.position);
+      _drops.add(_Drop(
+        number: n,
+        isCue: n == EightBallGame.cueNumber,
+        pocket: _nearestPocket(d.position),
+        nx: at.nx.clamp(-0.2, 1.2),
+        ny: at.ny.clamp(-0.2, 1.2),
+        spin: _orient[n]?.spin ?? BallSpin.identity,
+      ));
+    }
+  }
+
+  /// Advance drops and cushion compressions, and fire the pocket cue on the
+  /// frame a ball actually disappears below the rim — that is the moment the
+  /// sound belongs to, not the moment the solver removed the body.
+  void _advanceFlourishes(double dt) {
+    for (var i = _drops.length - 1; i >= 0; i--) {
+      final d = _drops[i];
+      final was = d.t;
+      d.t += dt / dropSeconds;
+      if (was < _Drop.rimCross && d.t >= _Drop.rimCross) onPocket?.call();
+      if (d.t >= 1) _drops.removeAt(i);
+    }
+    for (var i = _impacts.length - 1; i >= 0; i--) {
+      final im = _impacts[i];
+      im.t += dt / impactSeconds;
+      if (im.t >= 1) _impacts.removeAt(i);
+    }
+  }
+
+  /// Which pocket a captured ball went down, by proximity to the capture points.
+  int _nearestPocket(Vector2 p) {
+    var best = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < _pocketsWorld.length; i++) {
+      final (px, py) = _pocketsWorld[i];
+      final dx = p.x - px, dy = p.y - py;
+      final d = dx * dx + dy * dy;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /// Detect cushion bounces from the velocity the solver actually produced.
+  ///
+  /// Forge2D reports contacts between *discs* only, so a rail bounce arrives
+  /// with no callback at all — which is why the cushions used to be silent. A
+  /// bounce is a sign flip in the velocity component normal to a rail while the
+  /// ball is within a ball's width of it; the pre-flip normal speed is how hard
+  /// it hit, and everything downstream (sound gate, haptic weight, how far the
+  /// cloth compresses) is scaled by that.
+  void _detectRailHits() {
+    const nearBand = ballR * 2.2;
+    for (final d in _sim.discs) {
+      if (d.removed) continue;
+      final n = d.owner as int;
+      final v = d.body.linearVelocity;
+      final prev = _lastBallVel[n];
+      _lastBallVel[n] = Vector2(v.x, v.y);
+      if (prev == null) continue;
+      final p = d.position;
+
+      void hit(double speed, Offset normal, double nx, double ny) {
+        final strength =
+            ((speed - railQuietSpeed) / railRefSpeed).clamp(0.0, 1.0);
+        if (speed < railQuietSpeed) return;
+        _impacts.add(_Impact(nx: nx, ny: ny, normal: normal, strength: strength));
+        onRail?.call(strength);
+      }
+
+      final norm = _toNorm(p);
+      // Left / right rails: the x component reverses.
+      if (prev.x < -0.15 && v.x > 0 && p.x < -tableW / 2 + nearBand) {
+        hit(-prev.x, const Offset(1, 0), 0, norm.ny);
+      } else if (prev.x > 0.15 && v.x < 0 && p.x > tableW / 2 - nearBand) {
+        hit(prev.x, const Offset(-1, 0), 1, norm.ny);
+      }
+      // Foot / head rails: the y component reverses.
+      if (prev.y < -0.15 && v.y > 0 && p.y < nearBand) {
+        hit(-prev.y, const Offset(0, 1), norm.nx, 0);
+      } else if (prev.y > 0.15 && v.y < 0 && p.y > tableL - nearBand) {
+        hit(prev.y, const Offset(0, -1), norm.nx, 1);
+      }
     }
   }
 
@@ -825,11 +1122,14 @@ class EightBallScene extends FlameGame {
         ));
       }
     }
-    onShotSettled?.call(EightBallMove.shot(
+    // Packaged now, delivered once the last ball has finished dropping. The
+    // outcome is read off the settled bodies here and never touched again, so
+    // no amount of animation can move it.
+    _pendingSettle = EightBallMove.shot(
       owner: _acting,
       positions: positions,
       firstHitNumber: _firstHit,
-    ));
+    );
   }
 
   // -- render --
@@ -866,7 +1166,29 @@ class EightBallScene extends FlameGame {
       final dir = impulse.length2 == 0
           ? const Offset(0, -1)
           : Offset(impulse.x, impulse.y) / impulse.length;
-      aim = PoolAim(nx: n.nx, ny: n.ny, dir: dir, power: power);
+      // Predicted off the live bodies, in world units. Read-only: the solver
+      // copies the centres out and hands back numbers for the painter.
+      final cuePos = _cue!.position;
+      aim = PoolAim(
+        nx: n.nx,
+        ny: n.ny,
+        dir: dir,
+        power: power,
+        assist: poolAimAssist(
+          cue: Offset(cuePos.x, cuePos.y),
+          aim: dir,
+          balls: [
+            for (final d in _sim.discs)
+              if (!d.removed && (d.owner as int) != EightBallGame.cueNumber)
+                (
+                  number: d.owner as int,
+                  centre: Offset(d.position.x, d.position.y),
+                ),
+          ],
+          power: power,
+          ballR: ballR,
+        ),
+      );
     }
 
     PoolGhost? ghost;
@@ -879,11 +1201,78 @@ class EightBallScene extends FlameGame {
     paintPoolTable(
       canvas,
       Size(size.x, size.y),
-      PoolView(balls: balls, aim: aim, ghost: ghost),
+      PoolView(
+        balls: balls,
+        aim: aim,
+        ghost: ghost,
+        drops: [
+          for (final d in _drops)
+            PoolDrop(
+              pocket: d.pocket,
+              fromNx: d.nx,
+              fromNy: d.ny,
+              radiusFrac: ballR / tableW,
+              number: d.number,
+              isCue: d.isCue,
+              spin: d.spin,
+              t: d.t,
+            ),
+        ],
+        impacts: [
+          for (final im in _impacts)
+            PoolImpact(
+              nx: im.nx,
+              ny: im.ny,
+              normal: im.normal,
+              strength: im.strength,
+              t: im.t,
+            ),
+        ],
+      ),
       style,
       scheme,
     );
   }
+}
+
+/// A ball falling into a pocket — presentation state only.
+class _Drop {
+  final int number;
+  final bool isCue;
+  final int pocket;
+  final double nx;
+  final double ny;
+  final BallSpin spin;
+  double t = 0;
+
+  /// Fraction of the drop at which the ball is swallowed by the rim — the beat
+  /// the pocket sound belongs on.
+  static const double rimCross = 0.30;
+
+  _Drop({
+    required this.number,
+    required this.isCue,
+    required this.pocket,
+    required this.nx,
+    required this.ny,
+    required this.spin,
+  });
+}
+
+/// A cushion still springing back from a strike.
+class _Impact {
+  final double nx;
+  final double ny;
+  final Offset normal;
+  final double strength;
+  double t = 0;
+
+  _Impact({
+    required this.nx,
+    required this.ny,
+    required this.normal,
+    required this.strength,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -993,12 +1382,219 @@ class PoolAim {
   /// 0..1 power for the meter.
   final double power;
 
+  /// The predicted contact + cut, if one was solved. Display only — it is
+  /// re-derived from the live table every frame and never fed back into the
+  /// shot (see [PoolAimAssist]).
+  final PoolAimAssist? assist;
+
   const PoolAim({
     required this.nx,
     required this.ny,
     required this.dir,
     required this.power,
+    this.assist,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Aim assist: where this line of travel ends up.
+// ---------------------------------------------------------------------------
+
+/// Where the cue ball's line of travel first meets something, in **sim world
+/// units** — the frame [EightBallScene.simPos] produces (x across the table
+/// about 0, y along it from the foot rail, y-down on screen).
+///
+/// Pure geometry over the balls that are on the cloth right now. It predicts;
+/// it never decides. The solver runs on a copy of the positions and its output
+/// only ever reaches a paint call, so no aim line can move a ball.
+class PoolShotPrediction {
+  /// Cue-ball centre at the moment of contact. With a ball hit this sits
+  /// exactly one ball *diameter* back along the aim line from that ball's
+  /// centre; with nothing hit it is where the cue's centre meets the cushion.
+  final Offset contact;
+
+  /// The ball that would be struck, or null when the line dies on a rail.
+  final int? ballNumber;
+
+  /// Centre of the struck ball (null when nothing is hit).
+  final Offset? objectCentre;
+
+  /// Unit direction the struck ball leaves along: the centre-to-centre line
+  /// from [contact] through [objectCentre]. [Offset.zero] when nothing is hit.
+  final Offset objectDir;
+
+  /// Unit direction the cue deflects along — the tangent, perpendicular to
+  /// [objectDir], taking the side the cue was already travelling toward.
+  /// [Offset.zero] when nothing is hit.
+  final Offset cueDir;
+
+  /// Cut angle in radians between the aim line and [objectDir]: 0 is a dead
+  /// straight pot, → π/2 is the thinnest of feathers.
+  final double cut;
+
+  /// How far the cue ball travels to reach [contact].
+  final double travel;
+
+  const PoolShotPrediction({
+    required this.contact,
+    required this.ballNumber,
+    required this.objectCentre,
+    required this.objectDir,
+    required this.cueDir,
+    required this.cut,
+    required this.travel,
+  });
+
+  bool get hitsBall => ballNumber != null;
+}
+
+/// A solved prediction plus how far each leg of it should be *drawn* — the
+/// power read the player is asked to feel.
+class PoolAimAssist {
+  /// Cue-ball centre, world units.
+  final Offset origin;
+
+  final PoolShotPrediction shot;
+
+  /// Length of the struck ball's line, world units. Zero when nothing is hit.
+  final double objectLen;
+
+  /// Length of the cue's deflection line, world units.
+  final double cueLen;
+
+  /// 0..1 stroke power — also drives the guide's opacity.
+  final double power;
+
+  /// Ball radius in world units, for the ghost ring.
+  final double ballR;
+
+  const PoolAimAssist({
+    required this.origin,
+    required this.shot,
+    required this.objectLen,
+    required this.cueLen,
+    required this.power,
+    required this.ballR,
+  });
+}
+
+/// Ray-cast the cue ball's line of travel against the balls on the cloth.
+///
+/// A moving ball of radius r contacts a resting one of radius r when their
+/// *centres* are 2r apart, so this is a ray against circles of radius 2r about
+/// each object ball — take the nearest root ahead of the cue. If no ball is in
+/// the way the line runs on to the first cushion the cue's centre can reach
+/// (one radius short of the rail) and stops there.
+PoolShotPrediction predictPoolShot({
+  required Offset cue,
+  required Offset aim,
+  required Iterable<({int number, Offset centre})> balls,
+  double ballR = EightBallGame.ballR,
+  double tableW = EightBallGame.tableW,
+  double tableL = EightBallGame.tableL,
+}) {
+  final len = aim.distance;
+  final d = len < 1e-9 ? const Offset(0, -1) : aim / len;
+
+  // How far the cue centre can run before a cushion stops it.
+  final hw = tableW / 2 - ballR;
+  var tEnd = double.infinity;
+  void cushion(double t) {
+    if (t > 1e-9 && t < tEnd) tEnd = t;
+  }
+
+  if (d.dx > 1e-9) cushion((hw - cue.dx) / d.dx);
+  if (d.dx < -1e-9) cushion((-hw - cue.dx) / d.dx);
+  if (d.dy > 1e-9) cushion((tableL - ballR - cue.dy) / d.dy);
+  if (d.dy < -1e-9) cushion((ballR - cue.dy) / d.dy);
+  if (!tEnd.isFinite) tEnd = tableL;
+
+  final sumR = ballR * 2;
+  int? hitNumber;
+  Offset? hitCentre;
+  for (final b in balls) {
+    final m = cue - b.centre;
+    final along = m.dx * d.dx + m.dy * d.dy;
+    final c = m.distanceSquared - sumR * sumR;
+    // Already touching/overlapping: there is no contact ahead to predict.
+    if (c <= 0) continue;
+    final disc = along * along - c;
+    if (disc < 0) continue;
+    final t = -along - math.sqrt(disc);
+    if (t <= 1e-6 || t >= tEnd) continue;
+    tEnd = t;
+    hitNumber = b.number;
+    hitCentre = b.centre;
+  }
+
+  final contact = cue + d * tEnd;
+  if (hitNumber == null || hitCentre == null) {
+    return PoolShotPrediction(
+      contact: contact,
+      ballNumber: null,
+      objectCentre: null,
+      objectDir: Offset.zero,
+      cueDir: Offset.zero,
+      cut: 0,
+      travel: tEnd,
+    );
+  }
+
+  // Centre-to-centre: the only direction a frictionless ball can be sent.
+  final line = hitCentre - contact;
+  final lineLen = line.distance;
+  final objectDir = lineLen < 1e-9 ? d : line / lineLen;
+  // The cue takes the tangent. Two perpendiculars exist; keep the one the cue
+  // was already heading toward, so a cut throws it to the correct side.
+  var cueDir = Offset(-objectDir.dy, objectDir.dx);
+  if (d.dx * cueDir.dx + d.dy * cueDir.dy < 0) cueDir = -cueDir;
+  final cut =
+      math.acos((d.dx * objectDir.dx + d.dy * objectDir.dy).clamp(-1.0, 1.0));
+
+  return PoolShotPrediction(
+    contact: contact,
+    ballNumber: hitNumber,
+    objectCentre: hitCentre,
+    objectDir: objectDir,
+    cueDir: cueDir,
+    cut: cut,
+    travel: tEnd,
+  );
+}
+
+/// How far a guide leg reaches at full power, world units — a little under half
+/// the table, so a hard shot's prediction spans it without papering over it.
+const double _assistReach = EightBallGame.tableL * 0.40;
+
+/// Solve the aim assist for a stroke and decide how long to draw each leg.
+///
+/// Both channels the player was promised move here: **power** stretches the
+/// whole prediction (a tap barely pokes past the ghost, a hard shot runs half
+/// the table), and the **cut angle** splits that reach between the two legs the
+/// way the collision splits the energy — the struck ball keeps `cos²θ`, the cue
+/// keeps `sin²θ`. A straight pot therefore shows one long line and almost no
+/// deflection; a thin cut shows the cue running away and the object barely
+/// moving. Floors on both keep either leg from vanishing entirely.
+PoolAimAssist poolAimAssist({
+  required Offset cue,
+  required Offset aim,
+  required Iterable<({int number, Offset centre})> balls,
+  required double power,
+  double ballR = EightBallGame.ballR,
+}) {
+  final shot = predictPoolShot(cue: cue, aim: aim, balls: balls, ballR: ballR);
+  final p = power.clamp(0.0, 1.0);
+  final reach = _assistReach * (0.22 + 0.78 * p);
+  final cosCut = math.cos(shot.cut);
+  final sinCut = math.sin(shot.cut);
+  return PoolAimAssist(
+    origin: cue,
+    shot: shot,
+    objectLen: shot.hitsBall ? reach * (0.28 + 0.72 * cosCut * cosCut) : 0,
+    cueLen: shot.hitsBall ? reach * (0.12 + 0.88 * sinCut * sinCut) : 0,
+    power: p,
+    ballR: ballR,
+  );
 }
 
 /// A translucent cue ghost shown during ball-in-hand placement.
@@ -1014,17 +1610,97 @@ class PoolGhost {
   });
 }
 
+/// A ball on its way down a pocket.
+///
+/// **Purely presentational.** The sim decided this ball was captured before the
+/// drop existed; the animation only draws the fall the physics already
+/// committed to, so it can never change whether a ball was potted. See
+/// [_paintPocketDrop] for the staging.
+class PoolDrop {
+  /// Index into [poolPocketGeometry] — which pocket it is falling into.
+  final int pocket;
+
+  /// Where the sim captured it, in normalized table coords. The ball is drawn
+  /// travelling from here into the mouth.
+  final double fromNx;
+  final double fromNy;
+
+  /// Radius as a fraction of the felt width (same scale as [RenderBall]).
+  final double radiusFrac;
+
+  final int number;
+  final bool isCue;
+
+  /// Orientation at capture — the ball keeps the face it fell in on.
+  final BallSpin spin;
+
+  /// 0 = just captured, 1 = settled out of sight.
+  final double t;
+
+  const PoolDrop({
+    required this.pocket,
+    required this.fromNx,
+    required this.fromNy,
+    required this.radiusFrac,
+    required this.number,
+    required this.t,
+    this.isCue = false,
+    this.spin = BallSpin.identity,
+  });
+}
+
+/// A cushion strike, drawn as a compression in the cloth at the contact point.
+class PoolImpact {
+  /// Contact point in normalized table coords (on the cushion nose).
+  final double nx;
+  final double ny;
+
+  /// Unit inward normal of the cushion that was struck, in screen space.
+  final Offset normal;
+
+  /// 0..1 impact speed relative to a hard strike — drives width and depth.
+  final double strength;
+
+  /// 0 = just happened, 1 = fully relaxed.
+  final double t;
+
+  const PoolImpact({
+    required this.nx,
+    required this.ny,
+    required this.normal,
+    required this.strength,
+    required this.t,
+  });
+}
+
 /// Everything one frame of the table needs.
 class PoolView {
   final List<RenderBall> balls;
   final PoolAim? aim;
   final PoolGhost? ghost;
 
-  const PoolView({required this.balls, this.aim, this.ghost});
+  /// Balls currently falling into pockets.
+  final List<PoolDrop> drops;
+
+  /// Live cushion compressions.
+  final List<PoolImpact> impacts;
+
+  const PoolView({
+    required this.balls,
+    this.aim,
+    this.ghost,
+    this.drops = const [],
+    this.impacts = const [],
+  });
 }
 
-/// Rail band width as a fraction of the table width — the felt inset.
-const double _railFrac = 0.085;
+/// Rail band width as a fraction of the table **width** — the felt inset, the
+/// same absolute band on all four sides.
+///
+/// Public because the board has to size itself around it: the band is measured
+/// off the width but eats into the height too, so the outer box's aspect is not
+/// the felt's aspect. See [EightBallScene.boardAspect].
+const double poolRailFrac = 0.085;
 
 /// How much of the rail band is cushion (cloth) rather than wood.
 const double _cushionFrac = 0.38;
@@ -1036,28 +1712,46 @@ const double _pocketFrac = 0.062;
 /// Shared by the scene (for hit-testing) and the painter (for drawing) so the
 /// two never drift. Pocket centres sit on this rect's corners + side midpoints.
 Rect poolFeltRect(Size size) {
-  final m = size.width * _railFrac;
+  final m = size.width * poolRailFrac;
   return Rect.fromLTRB(m, m, size.width - m, size.height - m);
 }
 
 Color _lighten(Color c, double t) => Color.lerp(c, Colors.white, t)!;
 Color _darken(Color c, double t) => Color.lerp(c, Colors.black, t)!;
 
-/// Paints the pool hall around the table into [size]: a dark hardwood floor,
-/// the pool of light a low pendant lamp throws onto it, and a vignette into the
-/// corners. Pure, so the board and any static preview share one room.
+/// Paints the pool hall around the table into [size]: a hardwood floor with the
+/// lamp's sheen skating along the boards, the pool of light a low pendant throws
+/// onto them, and a vignette into the corners. Pure, so the board and any static
+/// preview share one room.
 ///
 /// [lightCenter] is where the lamp hangs, in fractional coords — normally the
 /// centre of the table so the falloff frames it.
-void paintPoolRoom(Canvas canvas, Size size,
-    {Offset lightCenter = const Offset(0.5, 0.46)}) {
+///
+/// [scheme] switches the hall between a late-night bar (dark) and a bright
+/// daytime hall with pale oak boards (light). Without it the room was the same
+/// dark room in either theme, which is what made a light-mode app look like it
+/// had one screen someone forgot about.
+void paintPoolRoom(
+  Canvas canvas,
+  Size size, {
+  Offset lightCenter = const Offset(0.5, 0.46),
+  ColorScheme? scheme,
+}) {
   final full = Offset.zero & size;
-  const floor = Color(0xFF241A12);
-  canvas.drawRect(full, Paint()..color = floor);
+  final day = scheme?.brightness == Brightness.light;
+  final floor = day ? const Color(0xFF8A6642) : const Color(0xFF241A12);
+  // A hint of the app's own palette in the boards keeps the hall from reading
+  // as a stock texture bolted under the table.
+  final tint = scheme == null ? floor : Color.lerp(floor, scheme.primary, 0.06)!;
+  canvas.drawRect(full, Paint()..color = tint);
+
+  final grainAlpha = day ? 0.055 : 0.10;
+  final seamAlpha = day ? 0.26 : 0.45;
 
   // Hardwood planks running across the room.
   final plankH = math.max(10.0, size.height / 11);
   final rows = (size.height / plankH).ceil() + 1;
+  final lamp = Offset(size.width * lightCenter.dx, size.height * lightCenter.dy);
   for (var i = 0; i < rows; i++) {
     final y = i * plankH;
     final tone = _noise(i * 17 + 5);
@@ -1084,23 +1778,75 @@ void paintPoolRoom(Canvas canvas, Size size,
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 0.7
-          ..color = Colors.black.withValues(alpha: 0.10 + n.abs() * 0.08),
+          ..color = Colors.black
+              .withValues(alpha: grainAlpha + n.abs() * grainAlpha * 0.8),
       );
     }
+
+    // Sheen: varnished boards are anisotropic, so the lamp doesn't make a round
+    // spot on them — it smears into a long streak *along* the grain, brightest
+    // on the planks level with the lamp and fading away up and down the room.
+    // This is the cue that separates polished floorboards from flat brown.
+    final band = (1 - ((y + plankH / 2) - lamp.dy).abs() / (size.height * 0.42))
+        .clamp(0.0, 1.0);
+    if (band > 0.01) {
+      final gloss = band * band * (day ? 0.30 : 0.22);
+      canvas.save();
+      canvas.clipRect(rect);
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              Colors.transparent,
+              const Color(0xFFFFE6BE).withValues(alpha: gloss * 0.55),
+              const Color(0xFFFFF3DC).withValues(alpha: gloss),
+              const Color(0xFFFFE6BE).withValues(alpha: gloss * 0.55),
+              Colors.transparent,
+            ],
+            stops: [
+              0.0,
+              (lightCenter.dx - 0.34).clamp(0.02, 0.9),
+              lightCenter.dx.clamp(0.05, 0.95),
+              (lightCenter.dx + 0.34).clamp(0.1, 0.98),
+              1.0,
+            ],
+          ).createShader(rect),
+      );
+      // The hard specular line the varnish holds right at the board's crown.
+      canvas.drawLine(
+        Offset(lamp.dx - size.width * 0.42, y + plankH * 0.34),
+        Offset(lamp.dx + size.width * 0.42, y + plankH * 0.34),
+        Paint()
+          ..strokeWidth = math.max(0.8, plankH * 0.05)
+          ..shader = LinearGradient(
+            colors: [
+              Colors.transparent,
+              Colors.white.withValues(alpha: gloss * 0.7),
+              Colors.transparent,
+            ],
+          ).createShader(Rect.fromLTWH(
+              lamp.dx - size.width * 0.42, y, size.width * 0.84, plankH)),
+      );
+      canvas.restore();
+    }
+
     // Plank seam + the light catching its edge.
     canvas.drawLine(
       Offset(0, y),
       Offset(size.width, y),
       Paint()
         ..strokeWidth = 1.1
-        ..color = Colors.black.withValues(alpha: 0.45),
+        ..color = Colors.black.withValues(alpha: seamAlpha),
     );
     canvas.drawLine(
       Offset(0, y + 1.2),
       Offset(size.width, y + 1.2),
       Paint()
         ..strokeWidth = 0.8
-        ..color = Colors.white.withValues(alpha: 0.045),
+        ..color = Colors.white.withValues(alpha: day ? 0.10 : 0.045),
     );
   }
 
@@ -1112,12 +1858,19 @@ void paintPoolRoom(Canvas canvas, Size size,
       ..shader = RadialGradient(
         center: c,
         radius: 0.95,
-        colors: [
-          const Color(0xFFFFD9A0).withValues(alpha: 0.16),
-          const Color(0xFFFFC98A).withValues(alpha: 0.05),
-          Colors.black.withValues(alpha: 0.30),
-          Colors.black.withValues(alpha: 0.62),
-        ],
+        colors: day
+            ? [
+                const Color(0xFFFFF4DF).withValues(alpha: 0.22),
+                const Color(0xFFFFE9C6).withValues(alpha: 0.08),
+                Colors.black.withValues(alpha: 0.10),
+                Colors.black.withValues(alpha: 0.34),
+              ]
+            : [
+                const Color(0xFFFFD9A0).withValues(alpha: 0.16),
+                const Color(0xFFFFC98A).withValues(alpha: 0.05),
+                Colors.black.withValues(alpha: 0.30),
+                Colors.black.withValues(alpha: 0.62),
+              ],
         stops: const [0.0, 0.42, 0.75, 1.0],
       ).createShader(full),
   );
@@ -1131,6 +1884,10 @@ double _noise(int i) {
 }
 
 /// Pocket centres (screen coords) for a table of [size].
+///
+/// These are the *capture* points — the felt corners and side-rail midpoints the
+/// simulation pockets against. The drawn mouth sits a little further out (see
+/// [poolPocketGeometry]), because a real pocket is cut back into the frame.
 List<Offset> poolPockets(Size size) {
   final f = poolFeltRect(size);
   return [
@@ -1140,6 +1897,58 @@ List<Offset> poolPockets(Size size) {
     f.bottomRight,
     Offset(f.left, f.center.dy),
     Offset(f.right, f.center.dy),
+  ];
+}
+
+/// One pocket as the painter needs it: where its mouth is drawn, how big it is,
+/// and which way it faces out of the table.
+///
+/// Corner pockets are mitred — the two cushions meeting there are cut back at
+/// 45° and the mouth opens on the diagonal — so the jaw painter and the
+/// ball-drop painter both need the outward axis, not just a centre.
+typedef PoolPocket = ({
+  /// Capture point: the felt corner / side midpoint the sim pockets against.
+  Offset capture,
+
+  /// Centre of the drawn mouth, pushed out along [outward] from [capture].
+  Offset centre,
+
+  /// Mouth radius in pixels.
+  double mouthR,
+
+  /// Unit vector pointing out of the table through the pocket.
+  Offset outward,
+
+  /// True for the four mitred corner pockets, false for the two side pockets.
+  bool corner,
+});
+
+/// Geometry for all six pockets, in the same order as [poolPockets]. Shared by
+/// the jaw painter and the drop animation so the ball always falls into the hole
+/// that is actually drawn.
+List<PoolPocket> poolPocketGeometry(Size size) {
+  final f = poolFeltRect(size);
+  final w = size.width;
+  final mouthR = w * _pocketFrac;
+  const k = 0.70710678; // 1/√2
+  PoolPocket make(Offset capture, Offset outward, bool corner) {
+    final r = corner ? mouthR : mouthR * 0.92;
+    return (
+      capture: capture,
+      centre: capture + outward * (r * (corner ? 0.30 : 0.24)),
+      mouthR: r,
+      outward: outward,
+      corner: corner,
+    );
+  }
+
+  return [
+    make(f.topLeft, const Offset(-k, -k), true),
+    make(f.topRight, const Offset(k, -k), true),
+    make(f.bottomLeft, const Offset(-k, k), true),
+    make(f.bottomRight, const Offset(k, k), true),
+    make(Offset(f.left, f.center.dy), const Offset(-1, 0), false),
+    make(Offset(f.right, f.center.dy), const Offset(1, 0), false),
   ];
 }
 
@@ -1212,6 +2021,18 @@ void paintPoolTable(
   double xOf(double nx) => feltRect.left + nx * feltRect.width;
   double yOf(double ny) => feltRect.top + ny * feltRect.height;
 
+  // Cushion compressions sit on the cloth, under everything that moves.
+  for (final hit in view.impacts) {
+    _paintRailImpact(canvas, size, feltRect, hit);
+  }
+
+  // Balls on their way down a pocket are *below* the table surface, so they go
+  // under the resting balls: a ball sitting on the jaw correctly covers the one
+  // dropping past it.
+  for (final d in view.drops) {
+    _paintPocketDrop(canvas, size, feltRect, d);
+  }
+
   // Ghost cue (ball in hand).
   final ghost = view.ghost;
   if (ghost != null) {
@@ -1232,6 +2053,7 @@ void paintPoolTable(
         ..strokeWidth = math.max(1, r * 0.14)
         ..color = Colors.white.withValues(alpha: 0.8),
     );
+    _paintMoveArrows(canvas, c, r);
   }
 
   final aim = view.aim;
@@ -1288,7 +2110,7 @@ void _paintBackdrop(Canvas canvas, Size size, Color felt, Color rail) {
   canvas.clipRRect(outerRR);
 
   final feltRect = poolFeltRect(size);
-  final cushion = w * _railFrac * _cushionFrac;
+  final cushion = w * poolRailFrac * _cushionFrac;
   final feltRR = RRect.fromRectAndRadius(feltRect, Radius.circular(w * 0.026));
   final cushRect = feltRect.inflate(cushion);
   final cushRR = RRect.fromRectAndRadius(
@@ -1468,7 +2290,7 @@ void _paintWoodFrame(
 void _paintSightDiamonds(Canvas canvas, Size size, Rect inner, Color rail) {
   final w = size.width;
   final felt = poolFeltRect(size);
-  final railBand = felt.left; // == size.width * _railFrac
+  final railBand = felt.left; // == size.width * poolRailFrac
   final cushion = railBand * _cushionFrac;
   final mid = (railBand - cushion) * 0.52; // centre of the visible wood
   final rx = w * 0.0085, ry = w * 0.0125;
@@ -1677,8 +2499,14 @@ void _paintBed(
   canvas.restore();
 }
 
-/// Pockets as cut mouths: a cloth-wrapped jaw collar, a leather rim, and a
-/// throat that darkens away from the light.
+/// Pockets as real cut mouths.
+///
+/// A corner pocket on a table is not a round hole punched in the cloth: the two
+/// cushions meeting there are **mitred** — each ends in a straight facing angled
+/// 45° back from its nose — and the wedge between those two facings is a plate
+/// of cut frame with the throat opening on the diagonal. Side pockets are the
+/// same idea with a much shallower flare. Drawing that, instead of a circle,
+/// is what makes a ball look like it is being funnelled *into* something.
 void _paintPockets(
   Canvas canvas,
   Size size,
@@ -1687,27 +2515,62 @@ void _paintPockets(
   Color rail,
 ) {
   final w = size.width;
-  final mouthR = w * _pocketFrac;
-  final jawR = mouthR * 1.30;
-  // The mouth is a hole cut through rail and cushion alike, so the collar is
-  // the cut edge of the frame, not another patch of cloth.
+  final cushion = w * poolRailFrac * _cushionFrac;
+  final cloth = _darken(felt, 0.42);
+  // The mouth is a hole cut through rail and cushion alike, so the plate around
+  // it is the cut edge of the frame, not another patch of cloth.
   final cut = _darken(rail, 0.46);
 
-  for (final p in poolPockets(size)) {
-    canvas.drawCircle(
-      p,
-      jawR,
+  for (final p in poolPocketGeometry(size)) {
+    final jaw = _jawShape(size, p, cushion);
+
+    // The cut plate: the wedge of frame the mouth is bored through.
+    canvas.drawPath(
+      jaw.plate,
       Paint()
         ..shader = RadialGradient(
           center: const Alignment(-0.4, -0.5),
-          colors: [_lighten(cut, 0.22), cut, _darken(cut, 0.5)],
+          colors: [_lighten(cut, 0.24), cut, _darken(cut, 0.5)],
           stops: const [0.0, 0.5, 1.0],
-        ).createShader(Rect.fromCircle(center: p, radius: jawR)),
+        ).createShader(jaw.plate.getBounds().inflate(1)),
     );
+
+    // The apron: the triangle of cloth between the two cushion noses, sloping
+    // away from the playing surface into the mouth. This is the part a ball
+    // actually rolls across on its way in, and drawing it — rather than butting
+    // the felt straight up against a black circle — is what makes the pocket
+    // read as a funnel with a hole behind it.
+    canvas.drawPath(
+      jaw.apron,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment(-p.outward.dx, -p.outward.dy),
+          end: Alignment(p.outward.dx, p.outward.dy),
+          // Already in shadow at the nose line: the apron tips away from the
+          // lamp, so it must sit *under* the bed's own shading rather than
+          // popping out of it as a bright wedge.
+          colors: [
+            _darken(felt, 0.16),
+            _darken(felt, 0.46),
+            _darken(felt, 0.86),
+          ],
+          stops: const [0.0, 0.42, 1.0],
+        ).createShader(jaw.apron.getBounds().inflate(1)),
+    );
+    // The chamfer where the bed drops onto the apron.
+    canvas.drawLine(
+      jaw.cuts[0].a,
+      jaw.cuts[1].a,
+      Paint()
+        ..strokeWidth = math.max(1.4, w * 0.008)
+        ..color = Colors.black.withValues(alpha: 0.34)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.006),
+    );
+
     // Stitched leather pocket facing around the mouth.
     canvas.drawCircle(
-      p,
-      mouthR * 1.16,
+      p.centre,
+      p.mouthR * 1.18,
       Paint()
         ..shader = RadialGradient(
           center: const Alignment(-0.35, -0.45),
@@ -1717,62 +2580,343 @@ void _paintPockets(
             Color(0xFF2A1A0C)
           ],
           stops: const [0.0, 0.55, 1.0],
-        ).createShader(Rect.fromCircle(center: p, radius: mouthR * 1.16)),
+        ).createShader(
+            Rect.fromCircle(center: p.centre, radius: p.mouthR * 1.18)),
     );
-    // The throat: near-black, biased so the lit side of the rim reads.
-    canvas.drawCircle(
-      p,
-      mouthR,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(0.3, 0.42),
-          radius: 0.95,
-          colors: const [
-            Color(0xFF060606),
-            Color(0xFF0B0A09),
-            Color(0xFF17130E)
-          ],
-          stops: const [0.0, 0.6, 1.0],
-        ).createShader(Rect.fromCircle(center: p, radius: mouthR)),
-    );
-    // Rim highlight on the lit edge only.
-    canvas.drawArc(
-      Rect.fromCircle(center: p, radius: mouthR * 1.02),
-      math.pi * 0.86,
-      math.pi * 0.82,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(0.9, w * 0.005)
-        ..color = Colors.white.withValues(alpha: 0.16),
-    );
-    // Inner throat shadow so the hole has depth rather than being a decal.
-    canvas.drawCircle(
-      p,
-      mouthR * 0.86,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = mouthR * 0.34
-        ..color = Colors.black.withValues(alpha: 0.55)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, mouthR * 0.22),
-    );
+    _paintPocketThroat(canvas, w, p);
+
+    // The mitred cut across each cushion end: a hard shadowed edge with the
+    // lit crown of the cloth nose just inside it.
+    for (final cutLine in jaw.cuts) {
+      canvas.drawLine(
+        cutLine.a,
+        cutLine.b,
+        Paint()
+          ..strokeWidth = math.max(1.1, w * 0.006)
+          ..color = Colors.black.withValues(alpha: 0.55),
+      );
+      final inset = cutLine.inward * math.max(1.3, w * 0.006);
+      canvas.drawLine(
+        cutLine.a + inset,
+        cutLine.b + inset,
+        Paint()
+          ..strokeWidth = math.max(0.9, w * 0.004)
+          ..color = _lighten(cloth, 0.22).withValues(alpha: 0.45),
+      );
+    }
   }
 }
 
-void _paintBall(Canvas canvas, Offset c, double r, RenderBall b) {
+/// The dark shaft of a pocket: the throat gradient, the lit rim and the inner
+/// shadow that gives the hole depth. Re-run over a falling ball so the ball is
+/// swallowed by the same shading the empty pocket has.
+void _paintPocketThroat(Canvas canvas, double w, PoolPocket p) {
+  canvas.drawCircle(
+    p.centre,
+    p.mouthR,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(0.3, 0.42),
+        radius: 0.95,
+        colors: const [Color(0xFF060606), Color(0xFF0B0A09), Color(0xFF17130E)],
+        stops: const [0.0, 0.6, 1.0],
+      ).createShader(Rect.fromCircle(center: p.centre, radius: p.mouthR)),
+  );
+  _paintPocketRim(canvas, w, p);
+}
+
+/// Rim highlight + inner throat shadow only — the pass that has to go back over
+/// a ball inside the mouth so the near lip overhangs it.
+void _paintPocketRim(Canvas canvas, double w, PoolPocket p) {
+  // Rim highlight on the lit edge only.
+  canvas.drawArc(
+    Rect.fromCircle(center: p.centre, radius: p.mouthR * 1.02),
+    math.pi * 0.86,
+    math.pi * 0.82,
+    false,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(0.9, w * 0.005)
+      ..color = Colors.white.withValues(alpha: 0.16),
+  );
+  // Inner throat shadow so the hole has depth rather than being a decal.
+  canvas.drawCircle(
+    p.centre,
+    p.mouthR * 0.86,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = p.mouthR * 0.34
+      ..color = Colors.black.withValues(alpha: 0.55)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, p.mouthR * 0.22),
+  );
+}
+
+/// The mitre at one pocket.
+///
+/// Everything is derived from the pocket's [PoolPocket.outward] axis, so corners
+/// come out on the diagonal and side pockets come out square with no per-pocket
+/// special cases beyond how wide the mouth opens and how hard the facings flare.
+///
+/// * [plate] — the wedge of cut frame the mouth is bored through, reaching out
+///   to the edge of the table.
+/// * [apron] — the cloth between the two cushion noses, which slopes away into
+///   the mouth.
+/// * [cuts] — the two angled cushion ends, each with the direction that points
+///   back into its own cushion (so the lit crown of the nose can be inset).
+({
+  Path plate,
+  Path apron,
+  List<({Offset a, Offset b, Offset inward})> cuts,
+}) _jawShape(Size size, PoolPocket p, double cushion) {
+  final o = p.outward;
+  // Along-rail unit vectors, pointing back into the table away from the pocket.
+  // A corner has two rails leaving on the two axes; a side pocket has one rail
+  // running past it in both directions.
+  final alongs = p.corner
+      ? [Offset(-o.dx.sign, 0), Offset(0, -o.dy.sign)]
+      : const [Offset(0, -1), Offset(0, 1)];
+  // Per-rail outward normals — which way that cushion faces out of the felt.
+  final outs = p.corner
+      ? [Offset(0, o.dy.sign), Offset(o.dx.sign, 0)]
+      : [o, o];
+
+  // How far back from the capture point each cushion is cut. A corner pocket
+  // measures a shade under two ball widths between the noses; a side pocket a
+  // little more, because the ball has to turn a sharper corner to fall in.
+  final open = p.mouthR * (p.corner ? 1.75 : 1.60);
+  // How far the cut runs back toward the pocket as it goes out — the mitre
+  // angle. Corners are a true angled facing; side pockets barely flare.
+  final flare = cushion * (p.corner ? 0.95 : 0.35);
+
+  final noses = <Offset>[for (final a in alongs) p.capture + a * open];
+  final backs = <Offset>[
+    for (var i = 0; i < 2; i++) noses[i] + outs[i] * cushion - alongs[i] * flare,
+  ];
+
+  /// Where [from] meets the outer edge of the table travelling along [dir].
+  Offset toEdge(Offset from, Offset dir) {
+    if (dir.dx < -0.5) return Offset(0, from.dy);
+    if (dir.dx > 0.5) return Offset(size.width, from.dy);
+    if (dir.dy < -0.5) return Offset(from.dx, 0);
+    return Offset(from.dx, size.height);
+  }
+
+  final plate = Path()..moveTo(noses[0].dx, noses[0].dy);
+  plate.lineTo(backs[0].dx, backs[0].dy);
+  final e0 = toEdge(backs[0], outs[0]);
+  plate.lineTo(e0.dx, e0.dy);
+  if (p.corner) {
+    final corner = Offset(o.dx < 0 ? 0 : size.width, o.dy < 0 ? 0 : size.height);
+    plate.lineTo(corner.dx, corner.dy);
+  }
+  final e1 = toEdge(backs[1], outs[1]);
+  plate.lineTo(e1.dx, e1.dy);
+  plate.lineTo(backs[1].dx, backs[1].dy);
+  plate.lineTo(noses[1].dx, noses[1].dy);
+  plate.close();
+
+  // The apron spans nose to nose and runs out past the mouth, so the mouth
+  // circle always lands on cloth rather than half on cloth and half on frame.
+  final reach = p.capture + o * (p.mouthR * 1.35);
+  final apron = Path()
+    ..moveTo(noses[0].dx, noses[0].dy)
+    ..lineTo(noses[1].dx, noses[1].dy)
+    ..lineTo(reach.dx + alongs[1].dx * open * 0.55,
+        reach.dy + alongs[1].dy * open * 0.55)
+    ..lineTo(reach.dx + alongs[0].dx * open * 0.55,
+        reach.dy + alongs[0].dy * open * 0.55)
+    ..close();
+
+  return (
+    plate: plate,
+    apron: apron,
+    cuts: [
+      for (var i = 0; i < 2; i++)
+        (a: noses[i], b: backs[i], inward: alongs[i]),
+    ],
+  );
+}
+
+/// The staging of a pocket drop at time [t] (0 = captured, 1 = out of sight).
+///
+/// Pulled out of the painter so the shape of the fall is a value that can be
+/// asserted rather than a curve buried in a draw call: `travel` is how far along
+/// the funnel from the capture point to the mouth the ball has come, `fall` is
+/// how far down the throat it is, and `scale`/`veil` are what that does to it.
+({double travel, double fall, double scale, double veil}) poolDropStage(
+  double t,
+) {
+  final u = t.clamp(0.0, 1.0);
+  // Approach: eased travel from where the sim captured it, across the apron and
+  // into the mouth.
+  final a = (u / 0.30).clamp(0.0, 1.0);
+  final travel = 1 - (1 - a) * (1 - a);
+  // Fall: begins as the ball tips over the lip and runs the rest of the drop's
+  // life. Not a pure `t²` — the ball arrives already moving, so most of the
+  // descent is linear, which is what makes the first frames of the drop visible
+  // at all instead of the ball appearing to hang at full size and then vanish.
+  final f = ((u - 0.18) / 0.82).clamp(0.0, 1.0);
+  var fall = f * (0.58 + 0.42 * f);
+  // A short rebound off the bottom of the net so it lands rather than fading.
+  if (f > 0.84) fall -= math.sin((f - 0.84) / 0.16 * math.pi) * 0.08;
+  return (
+    travel: travel,
+    fall: fall,
+    scale: 1 - 0.68 * fall,
+    veil: (0.82 * fall).clamp(0.0, 1.0),
+  );
+}
+
+/// One ball falling into a pocket.
+///
+/// Three beats over the drop's life: it is funnelled off the jaw into the mouth,
+/// it falls — shrinking and darkening as the throat swallows it — and it settles
+/// with a short rebound off the bottom. From the moment it is inside the mouth
+/// it is clipped to it and the rim is repainted on top, so the lip genuinely
+/// occludes it instead of the ball sitting on a painted circle.
+void _paintPocketDrop(
+  Canvas canvas,
+  Size size,
+  Rect feltRect,
+  PoolDrop d,
+) {
+  final pockets = poolPocketGeometry(size);
+  if (d.pocket < 0 || d.pocket >= pockets.length) return;
+  final p = pockets[d.pocket];
+  final r = d.radiusFrac * feltRect.width;
+  final from = Offset(
+    feltRect.left + d.fromNx * feltRect.width,
+    feltRect.top + d.fromNy * feltRect.height,
+  );
+  final stage = poolDropStage(d.t);
+  final centre = Offset.lerp(from, p.centre, stage.travel)!;
+  final fall = stage.fall;
+  final drawR = r * stage.scale;
+  if (drawR <= 0.4) return;
+  // It slides down the far wall of the throat as it goes.
+  final sunkCentre = centre + p.outward * (p.mouthR * 0.26 * fall);
+
+  canvas.save();
+  if (fall > 0) {
+    canvas.clipPath(
+      Path()..addOval(Rect.fromCircle(center: p.centre, radius: p.mouthR)),
+    );
+  }
+  _paintBall(
+    canvas,
+    sunkCentre,
+    drawR,
+    RenderBall(
+      nx: 0,
+      ny: 0,
+      number: d.number,
+      radiusFrac: d.radiusFrac,
+      isCue: d.isCue,
+      spin: d.spin,
+    ),
+    veil: stage.veil,
+    shadow: fall <= 0,
+  );
+  canvas.restore();
+
+  // The lip goes back over the top: this is what turns "a small ball drawn on a
+  // black circle" into "a ball down a hole".
+  _paintPocketRim(canvas, size.width, p);
+}
+
+/// The cloth compressing where a ball banked off a cushion: a short bright
+/// crease at the contact point that relaxes out over the impact's life, scaled
+/// by how hard the ball arrived.
+void _paintRailImpact(
+  Canvas canvas,
+  Size size,
+  Rect feltRect,
+  PoolImpact hit,
+) {
+  final t = hit.t.clamp(0.0, 1.0);
+  final s = hit.strength.clamp(0.0, 1.0);
+  if (s <= 0.02) return;
+  final at = Offset(
+    feltRect.left + hit.nx * feltRect.width,
+    feltRect.top + hit.ny * feltRect.height,
+  );
+  final w = size.width;
+  final cushion = w * poolRailFrac * _cushionFrac;
+  // Springs in fast, relaxes slowly.
+  final press = t < 0.22 ? t / 0.22 : math.pow(1 - (t - 0.22) / 0.78, 1.6) * 1.0;
+  final amount = press.toDouble() * s;
+  if (amount <= 0.01) return;
+
+  final n = hit.normal;
+  final perp = Offset(-n.dy, n.dx);
+  final half = cushion * (1.0 + 2.0 * s);
+  final depth = cushion * 0.55 * amount;
+
+  // A dent pushed into the cushion nose, away from the felt.
+  final path = Path()
+    ..moveTo(at.dx + perp.dx * half, at.dy + perp.dy * half)
+    ..quadraticBezierTo(
+      at.dx - n.dx * depth,
+      at.dy - n.dy * depth,
+      at.dx - perp.dx * half,
+      at.dy - perp.dy * half,
+    )
+    ..lineTo(
+      at.dx - perp.dx * half - n.dx * cushion,
+      at.dy - perp.dy * half - n.dy * cushion,
+    )
+    ..lineTo(
+      at.dx + perp.dx * half - n.dx * cushion,
+      at.dy + perp.dy * half - n.dy * cushion,
+    )
+    ..close();
+  canvas.drawPath(
+    path,
+    Paint()..color = Colors.black.withValues(alpha: 0.44 * amount),
+  );
+  // Lit crest of the compression, right on the nose.
+  canvas.drawPath(
+    Path()
+      ..moveTo(at.dx + perp.dx * half, at.dy + perp.dy * half)
+      ..quadraticBezierTo(
+        at.dx - n.dx * depth,
+        at.dy - n.dy * depth,
+        at.dx - perp.dx * half,
+        at.dy - perp.dy * half,
+      ),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.0, w * 0.007 * (0.5 + s))
+      ..color = Colors.white.withValues(alpha: 0.40 * amount),
+  );
+}
+
+/// Draws one ball. [veil] darkens the whole sphere (a ball down a pocket loses
+/// the lamp), and [shadow] can be dropped for a ball that is no longer on the
+/// cloth to cast one.
+void _paintBall(
+  Canvas canvas,
+  Offset c,
+  double r,
+  RenderBall b, {
+  double veil = 0,
+  bool shadow = true,
+}) {
   if (r <= 0.4) return;
   final base = EightBallStyle.ballColor(b.number);
   final isStripe = b.number >= 9 && b.number <= 15;
   const ivory = Color(0xFFF6F1E7);
 
   // Contact shadow.
-  canvas.drawCircle(
-    c.translate(0, r * 0.22),
-    r * 1.02,
-    Paint()
-      ..color = Colors.black.withValues(alpha: 0.3)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.35),
-  );
+  if (shadow) {
+    canvas.drawCircle(
+      c.translate(0, r * 0.22),
+      r * 1.02,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.3)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.35),
+    );
+  }
 
   // Body: flat base, markings on top, then one shading pass over the lot — so
   // the rolling markings pick up the same sphere shading as the body.
@@ -1834,8 +2978,17 @@ void _paintBall(Canvas canvas, Offset c, double r, RenderBall b) {
   canvas.drawCircle(
     c.translate(-r * 0.32, -r * 0.36),
     r * 0.2,
-    Paint()..color = Colors.white.withValues(alpha: 0.5),
+    Paint()..color = Colors.white.withValues(alpha: 0.5 * (1 - veil)),
   );
+
+  // Down a pocket the lamp stops reaching it.
+  if (veil > 0) {
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()..color = Colors.black.withValues(alpha: veil.clamp(0.0, 1.0)),
+    );
+  }
 }
 
 /// Fills the stripe band — the sphere points within `bandHalf` of the equator
@@ -1935,6 +3088,52 @@ void _paintRollingSpot(
   canvas.restore();
 }
 
+/// The "you can move this" affordance: four chevrons at the ball's diagonals,
+/// all pointing inward at it.
+///
+/// Rides on the placement ghost and nothing else, so it appears exactly when
+/// the cue is in hand and disappears the moment the placement is committed.
+/// Diagonals rather than the axes on purpose — the horizontal and vertical
+/// around the cue are where the *aim* line lives, and the two affordances must
+/// never be mistaken for each other.
+void _paintMoveArrows(Canvas canvas, Offset c, double r) {
+  // Solid heads, not open chevrons: an open V drawn at 45° reads as a corner
+  // crop-mark (measured — the first pass looked like a focus reticle), and at
+  // a 14pt ball on a phone there is no room for the difference to survive.
+  final apexAt = r * 1.42; // just clear of the ball's outline
+  final len = r * 0.66;
+  final half = r * 0.40;
+  final fill = Paint()..color = Colors.white.withValues(alpha: 0.86);
+  final rim = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = math.max(0.8, r * 0.07)
+    ..strokeJoin = StrokeJoin.round
+    ..color = Colors.black.withValues(alpha: 0.35);
+  for (var i = 0; i < 4; i++) {
+    final a = math.pi / 4 + i * math.pi / 2;
+    final out = Offset(math.cos(a), math.sin(a));
+    final perp = Offset(-out.dy, out.dx);
+    final apex = c + out * apexAt;
+    final base = apex + out * len;
+    final head = Path()
+      ..moveTo(apex.dx, apex.dy)
+      ..lineTo(base.dx + perp.dx * half, base.dy + perp.dy * half)
+      ..lineTo(base.dx - perp.dx * half, base.dy - perp.dy * half)
+      ..close();
+    canvas.drawPath(head, rim); // reads on pale cloth as well as dark
+    canvas.drawPath(head, fill);
+  }
+}
+
+/// The aiming aid: travel line, ghost ball at contact, and the cut's V.
+///
+/// Hairlines on purpose. This has to be readable *behind* the balls it is
+/// predicting about, and a bright laser across the cloth would be worse than
+/// nothing. Everything fades up with power, so a tap is a whisper and a hard
+/// shot is legible from across the room.
+///
+/// Only ever drawn while a drag is in flight — [PoolView.aim] is null the
+/// instant the finger lifts, so there is nothing to leave behind.
 void _paintAim(
   Canvas canvas,
   Offset origin,
@@ -1942,19 +3141,101 @@ void _paintAim(
   Rect felt,
   Size size,
 ) {
-  // Faint long projection guide (where the cue would travel).
-  final guideLen = felt.height * 0.9;
-  final guideTip = origin + aim.dir * guideLen;
+  final assist = aim.assist;
+  // World → screen. The board is sized to EightBallScene.boardAspect, so this
+  // is one uniform scale on both axes and an angle survives the trip.
+  final scale = felt.width / EightBallGame.tableW;
+  Offset toScreen(Offset world) => Offset(
+        felt.left + (world.dx / EightBallGame.tableW + 0.5) * felt.width,
+        felt.top + (world.dy / EightBallGame.tableL) * felt.height,
+      );
+
+  final p = aim.power.clamp(0.0, 1.0);
+  final hair = math.max(1.0, felt.width * 0.0055);
+
+  if (assist == null) {
+    // No solve (shouldn't happen in the live scene) — fall back to a plain ray.
+    canvas.drawLine(
+      origin,
+      origin + aim.dir * felt.height * 0.9,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.10 + 0.14 * p)
+        ..strokeWidth = hair,
+    );
+    return;
+  }
+
+  final shot = assist.shot;
+  final contact = toScreen(shot.contact);
+
+  // 1. The travel line: cue ball → wherever this stroke first meets something.
   canvas.drawLine(
     origin,
-    guideTip,
+    contact,
     Paint()
-      ..color = Colors.white.withValues(alpha: 0.22)
-      ..strokeWidth = math.max(1, felt.width * 0.01),
+      ..color = Colors.white.withValues(alpha: 0.13 + 0.17 * p)
+      ..strokeWidth = hair,
   );
 
-  // The cue stick itself carries the power read: it draws back further the
-  // harder the shot, exactly like a real stroke, so no separate meter is needed.
+  if (!shot.hitsBall) return; // died on a cushion; no cut to show
+
+  // 2. The ghost: where the cue ball sits at the moment of contact, one ball
+  // diameter back from the object ball along the line.
+  canvas.drawCircle(
+    contact,
+    assist.ballR * scale,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = hair
+      ..color = Colors.white.withValues(alpha: 0.20 + 0.30 * p),
+  );
+
+  // 3. The V. The struck ball leaves down the centre line (drawn from the
+  // ghost through it, so the ball itself masks the near half and the line
+  // reads as coming *out* of it); the cue peels off along the tangent.
+  final objectEnd = toScreen(
+    shot.contact + shot.objectDir * (assist.ballR * 2 + assist.objectLen),
+  );
+  canvas.drawLine(
+    contact,
+    objectEnd,
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.16 + 0.26 * p)
+      ..strokeWidth = hair,
+  );
+
+  final cueEnd = toScreen(shot.contact + shot.cueDir * assist.cueLen);
+  _dashedLine(
+    canvas,
+    contact,
+    cueEnd,
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.12 + 0.20 * p)
+      ..strokeWidth = hair
+      ..strokeCap = StrokeCap.round,
+    dash: hair * 3.2,
+    gap: hair * 2.6,
+  );
+}
+
+/// A dashed segment from [a] to [b]. The cue's own path is a *guess* — it is
+/// the tangent line of an idealized collision, not the swerving thing the
+/// solver will actually produce — so it is drawn as the softer of the two legs.
+void _dashedLine(
+  Canvas canvas,
+  Offset a,
+  Offset b,
+  Paint paint, {
+  required double dash,
+  required double gap,
+}) {
+  final total = (b - a).distance;
+  if (total < 0.5 || dash <= 0 || gap <= 0) return;
+  final step = dash + gap;
+  final dir = (b - a) / total;
+  for (var t = 0.0; t < total; t += step) {
+    canvas.drawLine(a + dir * t, a + dir * math.min(t + dash, total), paint);
+  }
 }
 
 /// Draws the cue stick behind the cue ball, pointing along the shot line and
@@ -2056,32 +3337,6 @@ void _paintCueStick(
 // Chrome
 // ---------------------------------------------------------------------------
 
-class _Pill extends StatelessWidget {
-  final String text;
-
-  const _Pill({super.key, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.62),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 0.6,
-        ),
-      ),
-    );
-  }
-}
-
 class _PlayerChip extends StatelessWidget {
   final String label;
   final BallGroup? group;
@@ -2122,23 +3377,57 @@ class _PlayerChip extends StatelessWidget {
         children: [
           _GroupDot(group: group, accent: accent),
           const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
-              fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
-              fontSize: 13,
+          // Both chips now share one row, so a long player name has to give way
+          // rather than overflow the strip.
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color:
+                    Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
+                fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
           ),
           const SizedBox(width: 8),
           Text(
-            group == null ? groupLabel : '$groupLabel · $remaining',
+            groupLabel,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white70,
               fontWeight: FontWeight.w700,
               fontSize: 11.5,
             ),
           ),
+          if (group != null) ...[
+            const SizedBox(width: 6),
+            // Balls left in your group is the scoreboard — it reads as a
+            // number, not as the tail of a label.
+            Text(
+              '$remaining',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+                height: 1,
+                letterSpacing: -0.5,
+                shadows: active || winner
+                    ? [
+                        Shadow(
+                          color: accent.withValues(alpha: 0.7),
+                          blurRadius: 10,
+                        ),
+                      ]
+                    : null,
+              ),
+            ),
+          ],
         ],
       ),
     );

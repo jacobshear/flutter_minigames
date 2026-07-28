@@ -1,6 +1,7 @@
 import 'package:minigames_core/minigames_core.dart';
 
-/// GamePigeon-style Mancala (relay sowing).
+/// Mancala in the two modes GamePigeon offers: [MancalaMode.capture] and
+/// [MancalaMode.avalanche].
 ///
 /// Layout (indices):
 /// ```
@@ -12,14 +13,33 @@ import 'package:minigames_core/minigames_core.dart';
 /// North (player 1) owns pits 7–12 + store 13. Opponent's store is always
 /// skipped.
 ///
-/// **Relay:** after a sow, if the last seed lands in a side pit that already
-/// had marbles (count after drop ≥ 2), that **entire stack is picked up** and
-/// sowing continues from there automatically — the player does **not** choose
-/// again. This chains until the last seed lands in an empty pit or a store.
+/// Common to both modes: landing the last seed in your **own store** grants a
+/// free re-pick (extra turn). When either side runs out of seeds the other
+/// side's remainder is swept into its store and the higher store wins.
 ///
-/// Landing in **own store** ends the chain and grants a free re-pick (extra
-/// turn). Landing in an **empty own pit** captures opposite + that seed into
-/// the store (turn ends). Side empty → sweep; higher store wins.
+/// The modes differ in what happens when the last seed lands in a side pit —
+/// and they are mutually exclusive, not combined:
+///
+/// * **Capture** — the classic Kalah rule. There is no relay: a sow is one
+///   pass. If the last seed lands in an **empty pit on your own side**, you
+///   capture it together with everything in the pit directly opposite. Landing
+///   anywhere else simply ends the turn.
+/// * **Avalanche** — there is no capturing at all. If the last seed lands in a
+///   pit that **already had seeds** (either side), you scoop that whole pit up
+///   and keep sowing automatically, chaining until a seed finally lands in an
+///   **empty** pit, which ends the turn.
+enum MancalaMode {
+  /// Land in an empty own pit to take it plus the pit opposite. No relay.
+  capture,
+
+  /// Land on a non-empty pit to scoop it and keep sowing. No capturing.
+  avalanche;
+
+  String get label => switch (this) {
+        MancalaMode.capture => 'Capture',
+        MancalaMode.avalanche => 'Avalanche',
+      };
+}
 class MancalaState {
   static const int pitCount = 14;
   static const int southStore = 6;
@@ -88,10 +108,17 @@ class MancalaMove {
 }
 
 class MancalaGame extends TurnGame<MancalaState, MancalaMove> {
-  /// Seeds placed in each side pit at start.
+  /// Average seeds per side pit. The opening is scattered around this rather
+  /// than dealt flat — see [initialState].
   final int seedsPerPit;
 
-  const MancalaGame({this.seedsPerPit = 4});
+  /// Which rule set is in play. See [MancalaMode].
+  final MancalaMode mode;
+
+  const MancalaGame({
+    this.seedsPerPit = 4,
+    this.mode = MancalaMode.capture,
+  });
 
   @override
   String get id => 'mancala';
@@ -104,15 +131,70 @@ class MancalaGame extends TurnGame<MancalaState, MancalaMove> {
     assert(playerIds.length == 2, 'mancala is exactly 2 players');
     assert(seedsPerPit >= 1 && seedsPerPit <= 6);
     final pits = List<int>.filled(MancalaState.pitCount, 0);
+    final opening = scatterOpening(seed: seed, perPit: seedsPerPit);
     for (var i = 0; i < 6; i++) {
-      pits[i] = seedsPerPit;
-      pits[7 + i] = seedsPerPit;
+      pits[i] = opening[i];
+      pits[7 + i] = opening[6 + i];
     }
     return MancalaState(
       pits: pits,
       playerIds: List.of(playerIds),
       currentPlayerId: playerIds[0],
     );
+  }
+
+  /// Twelve pit counts (south 0–5 then north 0–5) scattered from [seed].
+  ///
+  /// A flat 4-per-pit opening makes every game start identically, so the first
+  /// few moves are memorised rather than read. This scatters the same total
+  /// instead, which keeps the sides exactly equal — **both players get the same
+  /// multiset of counts, mirrored** — while making every board a fresh problem.
+  ///
+  /// Mirroring matters: an asymmetric random opening would hand one player an
+  /// advantage before a move is played. Here south's six pits are shuffled and
+  /// north receives the identical six, so the position is balanced by
+  /// construction, not by luck.
+  ///
+  /// Pure and deterministic (a splitmix-style hash, not `Random`), so both
+  /// clients rebuild the same board from the match seed.
+  static List<int> scatterOpening({required int seed, int perPit = 4}) {
+    final total = perPit * 6;
+    // Keep every pit playable and no pit hoarding the side.
+    final minPer = perPit <= 2 ? 1 : 2;
+    final maxPer = perPit + 3;
+
+    final side = List<int>.filled(6, minPer);
+    var left = total - minPer * 6;
+    var h = _mix(seed * 0x9E3779B1 + 0x85EBCA77);
+    // Hand the surplus out one seed at a time to a pit that still has room.
+    var guard = 0;
+    while (left > 0 && guard < 4096) {
+      guard++;
+      h = _mix(h);
+      final i = (h % 6).toInt();
+      if (side[i] >= maxPer) continue;
+      side[i] += 1;
+      left -= 1;
+    }
+    // Fisher–Yates so the *arrangement* varies too, not just the split.
+    for (var i = 5; i > 0; i--) {
+      h = _mix(h);
+      final j = (h % (i + 1)).toInt();
+      final t = side[i];
+      side[i] = side[j];
+      side[j] = t;
+    }
+    return [...side, ...side]; // north mirrors south — equal by construction
+  }
+
+  /// splitmix32-style avalanche, masked to stay non-negative.
+  static int _mix(int x) {
+    var v = x & 0x7fffffff;
+    v = (v ^ (v >> 16)) * 0x7feb352d;
+    v &= 0x7fffffff;
+    v = (v ^ (v >> 15)) * 0x846ca68b;
+    v &= 0x7fffffff;
+    return (v ^ (v >> 16)) & 0x7fffffff;
   }
 
   @override
@@ -167,24 +249,30 @@ class MancalaGame extends TurnGame<MancalaState, MancalaMove> {
       // Own store → chain ends; free re-pick (extra turn) below.
       if (cup == ownStore) break;
 
-      // Side pit with a stack (had marbles already) → pick up ALL and keep
-      // sowing from here. Player does not re-choose.
-      if (isSidePit && pits[cup] >= 2) {
+      // Avalanche only: a side pit that already held seeds (so it now holds at
+      // least 2) is scooped up and sowing continues from there. The player does
+      // not re-choose, and either side counts. Capture mode never relays — one
+      // sow is one pass — which is the whole difference between the rule sets.
+      if (mode == MancalaMode.avalanche && isSidePit && pits[cup] >= 2) {
         hand = pits[cup];
         pits[cup] = 0;
         // Continue loop: next deposits start at the following cup.
         continue;
       }
 
-      // Empty pit (count == 1) or anything else → chain ends.
+      // Landed in an empty pit (count == 1), or capture mode: the sow is over.
       break;
     }
 
     var captured = 0;
     var wasCapture = false;
 
-    // Capture only when the chain ends on an empty own pit.
-    if (state.ownsPit(player, cup) && pits[cup] == 1) {
+    // Capture mode only. Avalanche has no capturing at all — its payoff is the
+    // chain, and bolting capture on top would make it strictly better than the
+    // other mode rather than a different one.
+    if (mode == MancalaMode.capture &&
+        state.ownsPit(player, cup) &&
+        pits[cup] == 1) {
       final opp = MancalaState.opposite(cup);
       if (pits[opp] > 0) {
         captured = pits[opp] + 1;

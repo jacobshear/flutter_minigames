@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui show Picture, PictureRecorder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -543,139 +544,479 @@ class _BoardGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.lerp(boardColor, Colors.white, 0.12)!,
-            boardColor,
-            Color.lerp(boardColor, Colors.black, 0.12)!,
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: boardColor.withValues(alpha: 0.35),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(6),
-      child: GridView.builder(
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: ReversiState.size,
-        ),
-        itemCount: ReversiState.cellCount,
-        itemBuilder: (context, i) {
-          final owner = state.cells[i];
-          final isLegal = legal.contains(i);
-          final flipT = flipCtrls[i]?.value ?? (owner == null ? 0.0 : 1.0);
-          // At flip mid-point (0.5) scale Y → 0; color is new color after 0.5.
-          final scaleY = flipT < 0.5
-              ? (1 - flipT * 2)
-              : ((flipT - 0.5) * 2);
-          final showDark = owner == null
-              ? true
-              : (owner == state.darkId);
-          // During flip from light→dark: first half still light, second dark.
-          // We always paint the *current* owner; flip anim is squash only after
-          // state already updated — so mid-flip we squash then grow new color.
-          final discColor = owner == null
-              ? null
-              : (showDark ? dark : light);
-
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: (!gameOver && (isLegal || owner == null))
-                ? () {
-                    if (isLegal) onTap(i);
-                  }
-                : null,
-            child: CustomPaint(
-              painter: _CellPainter(gridColor: gridColor),
-              child: Center(
-                child: owner != null
-                    ? Transform(
-                        alignment: Alignment.center,
-                        transform: Matrix4.diagonal3Values(1.0, scaleY.clamp(0.05, 1.0), 1.0),
-                        child: _Disc(color: discColor!),
-                      )
-                    : (isLegal && !gameOver
-                        ? Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: hintColor,
-                            ),
-                          )
-                        : null),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _CellPainter extends CustomPainter {
-  final Color gridColor;
-  _CellPainter({required this.gridColor});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = gridColor,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_CellPainter old) => old.gridColor != gridColor;
-}
-
-class _Disc extends StatelessWidget {
-  final Color color;
-  const _Disc({required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1,
-      child: Padding(
-        padding: const EdgeInsets.all(2.5),
-        child: DecoratedBox(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final side = constraints.maxWidth;
+        // A rail of stock around a recessed baize field — the frame is part of
+        // the board's width, so the cells start at [rail].
+        final rail = side * 0.045;
+        return DecoratedBox(
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              center: const Alignment(-0.35, -0.4),
-              colors: [
-                Color.lerp(color, Colors.white, 0.35)!,
-                color,
-                Color.lerp(color, Colors.black, 0.2)!,
-              ],
-              stops: const [0.0, 0.55, 1.0],
-            ),
+            borderRadius: BorderRadius.circular(side * 0.05),
             boxShadow: [
+              // Light is upper-left everywhere on this board, so the board's
+              // own shadow falls down and slightly right.
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.28),
-                blurRadius: 3,
-                offset: const Offset(0, 1.5),
+                color: Colors.black.withValues(alpha: 0.30),
+                blurRadius: side * 0.055,
+                offset: Offset(side * 0.008, side * 0.030),
               ),
             ],
           ),
-        ),
-      ),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _TablePainter(
+                    boardColor: boardColor,
+                    gridColor: gridColor,
+                    rail: rail,
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: Padding(
+                  padding: EdgeInsets.all(rail),
+                  child: GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: ReversiState.size,
+                    ),
+                    itemCount: ReversiState.cellCount,
+                    itemBuilder: (context, i) {
+                      final owner = state.cells[i];
+                      final isLegal = legal.contains(i);
+                      final flipT =
+                          flipCtrls[i]?.value ?? (owner == null ? 0.0 : 1.0);
+                      // Squash to nothing at the half-way point, then grow the
+                      // new face back — the disc is turning over on its edge.
+                      final squash =
+                          flipT < 0.5 ? (1 - flipT * 2) : ((flipT - 0.5) * 2);
+                      final discColor = owner == null
+                          ? null
+                          : (owner == state.darkId ? dark : light);
+
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: (!gameOver && (isLegal || owner == null))
+                            ? () {
+                                if (isLegal) onTap(i);
+                              }
+                            : null,
+                        child: owner != null
+                            ? CustomPaint(
+                                painter: _DiscPainter(
+                                  color: discColor!,
+                                  other: owner == state.darkId ? light : dark,
+                                  squash: squash.clamp(0.0, 1.0),
+                                ),
+                              )
+                            : (isLegal && !gameOver
+                                ? Center(
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: hintColor,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.30),
+                                            blurRadius: 2,
+                                            offset: const Offset(0.5, 1),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                : null),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
+}
+
+/// Rail, baize and engraved grid — everything on the table that never moves.
+/// Recorded once into a [ui.Picture]; the nap texture alone is a few thousand
+/// draw calls and this widget repaints on every flip.
+class _TablePainter extends CustomPainter {
+  final Color boardColor;
+  final Color gridColor;
+  final double rail;
+
+  _TablePainter({
+    required this.boardColor,
+    required this.gridColor,
+    required this.rail,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawPicture(_tableFor(size, boardColor, gridColor, rail));
+  }
+
+  @override
+  bool shouldRepaint(_TablePainter old) =>
+      old.boardColor != boardColor ||
+      old.gridColor != gridColor ||
+      old.rail != rail;
+}
+
+/// Deterministic 0..1 value hash — procedural nap and grain with no assets,
+/// stable across rebuilds so the cached picture never shimmers.
+double _hash2(int x, int y) {
+  var h = x * 374761393 + y * 668265263;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) & 0xFFFF) / 65535.0;
+}
+
+void _paintTable(
+  Canvas canvas,
+  Size size,
+  Color boardColor,
+  Color gridColor,
+  double rail,
+) {
+  final side = size.width;
+  final outer =
+      RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(side * 0.05));
+  canvas.save();
+  canvas.clipRRect(outer);
+
+  // Rail: dark stock, four lengths mitred at the corners. Grain runs *along*
+  // each length — drawing it in both directions everywhere would give the
+  // frame a plaid weave instead of wood.
+  const railBase = Color(0xFF4A3421);
+  canvas.drawRect(Offset.zero & size, Paint()..color = railBase);
+  final grainPaint = Paint()..strokeWidth = math.max(0.7, side * 0.0045);
+  void grain(Rect r, {required bool horizontal, int seed = 0}) {
+    canvas.save();
+    canvas.clipRect(r);
+    final span = horizontal ? r.height : r.width;
+    final lines = (span / math.max(1.6, side * 0.006)).round().clamp(4, 40);
+    for (var i = 0; i < lines; i++) {
+      final h = _hash2(seed, i);
+      grainPaint.color = (h < 0.5 ? Colors.black : Colors.white)
+          .withValues(alpha: 0.04 + 0.10 * (h - 0.5).abs() * 2);
+      final t = (i + 0.5) / lines;
+      if (horizontal) {
+        final y = r.top + t * r.height;
+        canvas.drawLine(Offset(r.left, y), Offset(r.right, y), grainPaint);
+      } else {
+        final x = r.left + t * r.width;
+        canvas.drawLine(Offset(x, r.top), Offset(x, r.bottom), grainPaint);
+      }
+    }
+    canvas.restore();
+  }
+
+  grain(Rect.fromLTWH(0, 0, side, rail), horizontal: true, seed: 1);
+  grain(Rect.fromLTWH(0, size.height - rail, side, rail),
+      horizontal: true, seed: 2);
+  grain(Rect.fromLTWH(0, 0, rail, size.height), horizontal: false, seed: 3);
+  grain(Rect.fromLTWH(side - rail, 0, rail, size.height),
+      horizontal: false, seed: 4);
+  // Mitres.
+  final mitre = Paint()
+    ..strokeWidth = side * 0.003
+    ..color = Colors.black.withValues(alpha: 0.35);
+  canvas.drawLine(Offset.zero, Offset(rail, rail), mitre);
+  canvas.drawLine(Offset(side, 0), Offset(side - rail, rail), mitre);
+  canvas.drawLine(
+      Offset(0, size.height), Offset(rail, size.height - rail), mitre);
+  canvas.drawLine(Offset(side, size.height),
+      Offset(side - rail, size.height - rail), mitre);
+
+  // Baize.
+  final field = Rect.fromLTWH(
+    rail,
+    rail,
+    side - rail * 2,
+    size.height - rail * 2,
+  );
+  canvas.drawRect(
+    field,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color.lerp(boardColor, Colors.white, 0.10)!,
+          boardColor,
+          Color.lerp(boardColor, Colors.black, 0.16)!,
+        ],
+      ).createShader(field),
+  );
+
+  // Nap: a dense, very low-contrast fleck so the cloth isn't a flat fill.
+  canvas.save();
+  canvas.clipRect(field);
+  final fleck = Paint();
+  final n = (side / 3.4).round().clamp(40, 130);
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j < n; j++) {
+      final h = _hash2(i, j);
+      if (h < 0.48) continue;
+      fleck.color = (h > 0.74 ? Colors.white : Colors.black)
+          .withValues(alpha: 0.028 + 0.052 * (h - 0.48) / 0.52);
+      canvas.drawCircle(
+        Offset(
+          field.left + (i + _hash2(i, j + 23)) / n * field.width,
+          field.top + (j + _hash2(i + 61, j)) / n * field.height,
+        ),
+        side * (0.0014 + 0.0014 * _hash2(j, i)),
+        fleck,
+      );
+    }
+  }
+
+  // Engraved grid: a scored line with a lit lip below and right of it.
+  final cell = field.width / ReversiState.size;
+  final score = Paint()
+    ..strokeWidth = math.max(1.0, cell * 0.045)
+    ..color = Color.alphaBlend(gridColor, Colors.transparent)
+        .withValues(alpha: math.max(gridColor.a, 0.34));
+  final lip = Paint()
+    ..strokeWidth = math.max(0.6, cell * 0.026)
+    ..color = Colors.white.withValues(alpha: 0.10);
+  for (var i = 1; i < ReversiState.size; i++) {
+    final x = field.left + i * cell;
+    final y = field.top + i * cell;
+    canvas.drawLine(Offset(x, field.top), Offset(x, field.bottom), score);
+    canvas.drawLine(Offset(x + score.strokeWidth, field.top),
+        Offset(x + score.strokeWidth, field.bottom), lip);
+    canvas.drawLine(Offset(field.left, y), Offset(field.right, y), score);
+    canvas.drawLine(Offset(field.left, y + score.strokeWidth),
+        Offset(field.right, y + score.strokeWidth), lip);
+  }
+
+  // Star points at the 2/6 intersections — the guide dots every real othello
+  // board has, and a free legibility win for judging distance to a corner.
+  for (final (r, c) in const [(2, 2), (2, 6), (6, 2), (6, 6)]) {
+    final p = Offset(field.left + c * cell, field.top + r * cell);
+    canvas.drawCircle(
+      p.translate(cell * 0.02, cell * 0.03),
+      cell * 0.085,
+      Paint()..color = Colors.white.withValues(alpha: 0.16),
+    );
+    canvas.drawCircle(
+      p,
+      cell * 0.085,
+      Paint()..color = Colors.black.withValues(alpha: 0.34),
+    );
+  }
+
+  // Field is sunk below the rail.
+  canvas.drawRect(
+    field,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = rail * 0.55
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.black.withValues(alpha: 0.44),
+          Colors.black.withValues(alpha: 0.12),
+          Colors.white.withValues(alpha: 0.10),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(field),
+  );
+  canvas.restore();
+
+  // One light across the whole board.
+  canvas.drawRect(
+    Offset.zero & size,
+    Paint()
+      ..shader = LinearGradient(
+        begin: const Alignment(-1, -1.3),
+        end: const Alignment(0.7, 1),
+        colors: [
+          Colors.white.withValues(alpha: 0.11),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.14),
+        ],
+        stops: const [0.0, 0.48, 1.0],
+      ).createShader(Offset.zero & size),
+  );
+  canvas.drawRRect(
+    outer.deflate(side * 0.004),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = side * 0.008
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.26),
+          Colors.white.withValues(alpha: 0.02),
+          Colors.black.withValues(alpha: 0.42),
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(Offset.zero & size),
+  );
+  canvas.restore();
+}
+
+class _TableCache {
+  final double w;
+  final int board;
+  final int grid;
+  final double rail;
+  final ui.Picture picture;
+  const _TableCache(this.w, this.board, this.grid, this.rail, this.picture);
+}
+
+/// Two slots: board and preview can be on screen at once at different sizes.
+final List<_TableCache> _tables = [];
+
+ui.Picture _tableFor(Size size, Color board, Color grid, double rail) {
+  for (final t in _tables) {
+    if (t.w == size.width &&
+        t.board == board.toARGB32() &&
+        t.grid == grid.toARGB32() &&
+        t.rail == rail) {
+      return t.picture;
+    }
+  }
+  final recorder = ui.PictureRecorder();
+  _paintTable(Canvas(recorder), size, board, grid, rail);
+  final made = _TableCache(size.width, board.toARGB32(), grid.toARGB32(), rail,
+      recorder.endRecording());
+  _tables.insert(0, made);
+  while (_tables.length > 2) {
+    _tables.removeLast().picture.dispose();
+  }
+  return made.picture;
+}
+
+/// A two-sided othello disc, seen edge-on as it turns.
+///
+/// [squash] is 1 face-on and 0 exactly on edge. Because the disc has real
+/// thickness, at low squash you see the milled rim band rather than the face —
+/// which is what sells the flip. The rim is a blend of both players' colours,
+/// as it is on a moulded two-tone counter.
+class _DiscPainter extends CustomPainter {
+  final Color color;
+  final Color other;
+  final double squash;
+
+  const _DiscPainter({
+    required this.color,
+    required this.other,
+    required this.squash,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = size.shortestSide * 0.40;
+    final thickness = r * 0.22;
+    // The rim hangs below the face, so lift the face by half the thickness to
+    // keep the whole piece optically centred in its square.
+    final c = Offset(size.width / 2, size.height / 2 - thickness * 0.5);
+    final ry = r * squash;
+
+    // Contact shadow on the cloth, tight and down-right.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: c.translate(r * 0.10, r * 0.20 + thickness * 0.5),
+        width: r * 2.0,
+        height: math.max(r * 0.30, ry * 1.7),
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.32)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.14),
+    );
+
+    // Rim band: the disc's edge, always visible under the face and dominant
+    // when the disc is on edge.
+    final rimColor = Color.lerp(color, other, 0.5)!;
+    final rim = Path()
+      ..addOval(Rect.fromCenter(
+          center: c, width: r * 2, height: math.max(ry * 2, r * 0.06)))
+      ..addOval(Rect.fromCenter(
+          center: c.translate(0, thickness),
+          width: r * 2,
+          height: math.max(ry * 2, r * 0.06)))
+      ..addRect(Rect.fromLTWH(c.dx - r, c.dy, r * 2, thickness));
+    canvas.drawPath(
+      rim,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(rimColor, Colors.white, 0.24)!,
+            Color.lerp(rimColor, Colors.black, 0.42)!,
+          ],
+        ).createShader(Rect.fromCircle(center: c, radius: r)),
+    );
+
+    // Face.
+    final face = Rect.fromCenter(center: c, width: r * 2, height: ry * 2);
+    if (ry > 0.4) {
+      canvas.drawOval(
+        face,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.38, -0.45),
+            radius: 1.05,
+            colors: [
+              Color.lerp(color, Colors.white, 0.34)!,
+              color,
+              Color.lerp(color, Colors.black, 0.24)!,
+            ],
+            stops: const [0.0, 0.52, 1.0],
+          ).createShader(Rect.fromCircle(center: c, radius: r)),
+      );
+      // Chamfer where the face rolls into the rim.
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: c, width: r * 1.94, height: math.max(ry * 1.94, 1)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = r * 0.07
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.32),
+              Colors.white.withValues(alpha: 0.02),
+              Colors.black.withValues(alpha: 0.30),
+            ],
+            stops: const [0.0, 0.45, 1.0],
+          ).createShader(Rect.fromCircle(center: c, radius: r)),
+      );
+      // Specular, squashed with the face so it turns with the disc.
+      canvas.save();
+      canvas.clipPath(Path()..addOval(face));
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: c.translate(-r * 0.34, -ry * 0.42),
+          width: r * 0.76,
+          height: ry * 0.52,
+        ),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.30)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.13),
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DiscPainter old) =>
+      old.color != color || old.other != other || old.squash != squash;
 }
 
 // ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ dependencies:
   google_fonts: ^6.2.1
   audioplayers: ^6.1.0
   minigames_core: ^0.1.0
+  minigames_ui: ^0.1.0
   minigame_tictactoe: ^0.1.0
   minigame_connect_four: ^0.1.0
   minigame_dots_and_boxes: ^0.1.0
@@ -41,6 +42,8 @@ dependencies:
   minigame_basketball: any
   minigame_darts: ^0.1.0
   minigame_archery: ^0.1.0
+  minigame_gin_rummy: ^0.1.0
+  minigame_go_fish: ^0.1.0
   minigame_word_bites: ^0.1.0
   # Firebase transport — used by the integration test (and future networked mode).
   firebase_core: ^3.13.0

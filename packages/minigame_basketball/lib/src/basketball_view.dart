@@ -118,6 +118,14 @@ void paintBasketballCourt(
   ).paintAll();
 }
 
+/// A stable pseudo-random in 0..1 for [i]. Deterministic so two renders of the
+/// same frame are byte-identical — the floor's grain must not shimmer, and the
+/// render tests compare frames.
+double _hash(int i) {
+  final s = math.sin(i * 12.9898 + 78.233) * 43758.5453;
+  return s - s.floorToDouble();
+}
+
 class _CourtPainter {
   final Canvas canvas;
   final Size size;
@@ -173,6 +181,37 @@ class _CourtPainter {
     _addNetHalf(scene, far: false);
     _addRimHalf(scene, far: false);
     scene.paint(canvas);
+    _paintFalloff();
+  }
+
+  /// Corner falloff. A gym is lit by fixtures over the court, so the edges of
+  /// the room genuinely fall away — and it puts the value peak on the hoop,
+  /// which is where the player is looking. Weak through the middle so it never
+  /// eats the ball, the rim or a court line.
+  void _paintFalloff() {
+    final reach = math.sqrt(
+          size.width * size.width + size.height * size.height,
+        ) *
+        0.62;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(0, -0.15),
+          radius: 1.0,
+          colors: [
+            const Color(0x00000000),
+            const Color(0x00000000),
+            Colors.black.withValues(alpha: 0.30),
+          ],
+          stops: const [0.0, 0.58, 1.0],
+        ).createShader(
+          Rect.fromCircle(
+            center: Offset(size.width * 0.5, size.height * 0.42),
+            radius: reach,
+          ),
+        ),
+    );
   }
 
   // ---------------------------------------------------------------- backdrop
@@ -185,83 +224,361 @@ class _CourtPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Color.lerp(backdrop, Colors.black, 0.5)!,
-            backdrop,
-            Color.lerp(backdrop, Colors.white, 0.07)!,
+            Color.lerp(backdrop, Colors.black, 0.55)!,
+            Color.lerp(backdrop, Colors.black, 0.18)!,
+            Color.lerp(backdrop, Colors.white, 0.05)!,
           ],
-          stops: const [0.0, 0.6, 1.0],
+          stops: const [0.0, 0.62, 1.0],
         ).createShader(Offset.zero & size),
     );
 
     final wallBase = camera.project(Vec3(0, 0, wallZ));
     if (!wallBase.visible) return;
-    final baseY = wallBase.screen.dy;
-    final scale = wallBase.scale;
 
-    // Ceiling lights, hung high over the court. Drawn here (behind everything)
-    // because they are the furthest thing in the room.
-    for (final lx in const [-2.4, 2.4]) {
-      final at = camera.project(Vec3(lx, 7.6, hoopZ + 1.0));
-      if (!at.visible) continue;
-      final w = 1.5 * at.scale;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(center: at.screen, width: w, height: w * 0.26),
-          Radius.circular(w * 0.1),
-        ),
-        Paint()
-          ..color = const Color(0xFFFFF3D6).withValues(alpha: 0.5)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.22),
+    _paintGymWall();
+    _paintBleachers();
+    _paintCeilingLights();
+  }
+
+  /// The back wall: painted cinder block, a banner course, and the padded base
+  /// every gym has where the wall meets the floor.
+  ///
+  /// Built from projected world coordinates rather than from fractions of
+  /// [wallBase.scale], so the courses actually converge with the room instead of
+  /// staying a stack of parallel screen-space bands.
+  void _paintGymWall() {
+    final wall = _quadPath([
+      Vec3(-16, 0, wallZ),
+      Vec3(16, 0, wallZ),
+      Vec3(16, 11, wallZ),
+      Vec3(-16, 11, wallZ),
+    ]);
+    if (wall == null) return;
+    final base = camera.project(Vec3(0, 0, wallZ));
+    final top = camera.project(Vec3(0, 11, wallZ));
+    if (!base.visible || !top.visible) return;
+
+    canvas.save();
+    canvas.clipPath(wall);
+    canvas.drawPaint(
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.lerp(backdrop, Colors.black, 0.40)!,
+            Color.lerp(backdrop, Colors.white, 0.10)!,
+            Color.lerp(backdrop, Colors.black, 0.22)!,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(Rect.fromLTRB(
+          0,
+          top.screen.dy,
+          size.width,
+          base.screen.dy,
+        )),
+    );
+
+    // Block courses. 0.20 m courses, 0.40 m blocks, half-lap staggered — the
+    // real bond, which is why the wall reads as masonry and not as graph paper.
+    final mortar = Paint()
+      ..strokeWidth = 1.0
+      ..color = Colors.black.withValues(alpha: 0.22);
+    final lit = Paint()
+      ..strokeWidth = 1.0
+      ..color = Colors.white.withValues(alpha: 0.05);
+    for (var c = 0; c < 46; c++) {
+      final y = c * 0.20;
+      if (y > 10.4) break;
+      final a = camera.project(Vec3(-16, y, wallZ));
+      final b = camera.project(Vec3(16, y, wallZ));
+      if (!a.visible || !b.visible) continue;
+      if ((a.screen.dy - base.screen.dy).abs() > size.height * 1.5) continue;
+      canvas.drawLine(a.screen, b.screen, mortar);
+      // The gym is lit from the ceiling, so it is the *upward* face of each
+      // course that catches light. Same rule as every other bevel in here.
+      canvas.drawLine(
+        a.screen.translate(0, 1),
+        b.screen.translate(0, 1),
+        lit,
       );
+      for (var k = -20; k <= 20; k++) {
+        final x = k * 0.40 + (c.isEven ? 0 : 0.20);
+        final j0 = camera.project(Vec3(x, y, wallZ));
+        final j1 = camera.project(Vec3(x, y + 0.20, wallZ));
+        if (!j0.visible || !j1.visible) continue;
+        if (j0.screen.dx < -8 || j0.screen.dx > size.width + 8) continue;
+        canvas.drawLine(j0.screen, j1.screen, mortar);
+      }
     }
 
-    // Bleachers: shallow rows of seating banked against the wall. Cheap, and
-    // they stop the upper half of the frame reading as an empty void.
-    for (var i = 0; i < 7; i++) {
-      final top = baseY - (0.42 + i * 0.34) * scale;
-      final h = 0.26 * scale;
-      if (h < 0.6) break;
-      canvas.drawRect(
-        Rect.fromLTWH(0, top, size.width, h),
-        Paint()
-          ..color = Color.lerp(backdrop, Colors.white, 0.045 + i * 0.013)!,
+    // Banner course high on the wall.
+    final banner = _quadPath([
+      Vec3(-16, 6.1, wallZ - 0.02),
+      Vec3(16, 6.1, wallZ - 0.02),
+      Vec3(16, 7.0, wallZ - 0.02),
+      Vec3(-16, 7.0, wallZ - 0.02),
+    ]);
+    if (banner != null) {
+      canvas.drawPath(
+        banner,
+        Paint()..color = Color.lerp(backdrop, rimColor, 0.30)!,
       );
-    }
-
-    // High windows: a row of dim panels gives the wall a believable size.
-    final winTop = baseY - 5.4 * scale;
-    final winH = 1.5 * scale;
-    if (winH > 2) {
-      for (var i = -3; i <= 3; i++) {
-        final cx = size.width / 2 + i * 2.6 * scale;
-        final rect = Rect.fromLTWH(cx - 0.9 * scale, winTop, 1.8 * scale, winH);
-        if (rect.right < 0 || rect.left > size.width) continue;
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(rect, Radius.circular(winH * 0.08)),
-          Paint()..color = Color.lerp(backdrop, Colors.white, 0.16)!,
+      final edge = camera.project(Vec3(0, 6.1, wallZ - 0.02));
+      final l = camera.project(Vec3(-16, 6.1, wallZ - 0.02));
+      final r = camera.project(Vec3(16, 6.1, wallZ - 0.02));
+      if (edge.visible && l.visible && r.visible) {
+        canvas.drawLine(
+          l.screen,
+          r.screen,
+          Paint()
+            ..strokeWidth = 2.0
+            ..color = Colors.black.withValues(alpha: 0.30),
         );
       }
     }
 
-    // Banner stripe.
-    final stripeTop = baseY - 3.1 * scale;
-    final stripeH = 0.55 * scale;
-    if (stripeH > 1) {
-      canvas.drawRect(
-        Rect.fromLTWH(0, stripeTop, size.width, stripeH),
-        Paint()..color = Color.lerp(backdrop, rimColor, 0.34)!,
+    // Wall padding: the thick vinyl mat behind every baseline, with a lit top
+    // edge and its own contact shadow on the floor.
+    final pad = _quadPath([
+      Vec3(-16, 0, wallZ - 0.06),
+      Vec3(16, 0, wallZ - 0.06),
+      Vec3(16, 1.85, wallZ - 0.06),
+      Vec3(-16, 1.85, wallZ - 0.06),
+    ]);
+    if (pad != null) {
+      canvas.drawPath(
+        pad,
+        Paint()..color = Color.lerp(backdrop, Colors.black, 0.42)!,
       );
-      canvas.drawRect(
-        Rect.fromLTWH(0, stripeTop + stripeH, size.width, stripeH * 0.22),
-        Paint()..color = Colors.black.withValues(alpha: 0.25),
+      final pl = camera.project(Vec3(-16, 1.85, wallZ - 0.06));
+      final pr = camera.project(Vec3(16, 1.85, wallZ - 0.06));
+      if (pl.visible && pr.visible) {
+        canvas.drawLine(
+          pl.screen,
+          pr.screen,
+          Paint()
+            ..strokeWidth = 2.2
+            ..color = Colors.white.withValues(alpha: 0.10),
+        );
+      }
+      // Vertical seams between pad sections.
+      for (var k = -8; k <= 8; k++) {
+        final s0 = camera.project(Vec3(k * 1.9, 0, wallZ - 0.06));
+        final s1 = camera.project(Vec3(k * 1.9, 1.85, wallZ - 0.06));
+        if (!s0.visible || !s1.visible) continue;
+        canvas.drawLine(
+          s0.screen,
+          s1.screen,
+          Paint()
+            ..strokeWidth = 1.0
+            ..color = Colors.black.withValues(alpha: 0.28),
+        );
+      }
+    }
+    canvas.restore();
+  }
+
+  /// Banked seating, built as real 3-D steps.
+  ///
+  /// Each row is a riser (the vertical face), a tread on top of it and a seat
+  /// plank standing proud — all projected quads at real depths, so the rows
+  /// occlude each other and the stand has a thickness. The previous version was
+  /// seven full-width screen rectangles: no perspective, no occlusion, no
+  /// depth.
+  ///
+  /// The camera pitch here is only 0.06 rad, which matters: horizontal surfaces
+  /// at bleacher height project to a couple of pixels, so the tread cannot
+  /// carry the read on its own. What sells it is the **vertical** geometry —
+  /// riser vs seat-front value contrast, the shadow gap under each seat, and
+  /// the stairways, which are the one thing up there that genuinely converges.
+  void _paintBleachers() {
+    const rows = 9;
+    const rise = 0.40;
+    const run = 0.74;
+    final frontZ = wallZ - 0.35;
+
+    // Dark void the whole stand sits in, so the rows have something to be
+    // brighter than.
+    final well = _quadPath([
+      Vec3(-16, 0, frontZ - rows * run),
+      Vec3(16, 0, frontZ - rows * run),
+      Vec3(16, rows * rise + 0.6, frontZ - rows * run),
+      Vec3(-16, rows * rise + 0.6, frontZ - rows * run),
+    ]);
+    if (well != null) {
+      canvas.drawPath(
+        well,
+        Paint()..color = Color.lerp(backdrop, Colors.black, 0.52)!,
       );
     }
 
-    // Skirting where wall meets floor.
-    canvas.drawRect(
-      Rect.fromLTWH(0, baseY - 0.28 * scale, size.width, 0.28 * scale),
-      Paint()..color = Color.lerp(backdrop, Colors.black, 0.4)!,
-    );
+    // Far rows first: a nearer row must cover the one behind it.
+    for (var i = rows - 1; i >= 0; i--) {
+      final y = 0.30 + i * rise;
+      final z = frontZ - i * run;
+      final at = camera.project(Vec3(0, y, z));
+      if (!at.visible) continue;
+
+      // Riser — in shadow, because the light is straight overhead and this face
+      // is vertical.
+      final riser = _quadPath([
+        Vec3(-16, y - rise, z),
+        Vec3(16, y - rise, z),
+        Vec3(16, y, z),
+        Vec3(-16, y, z),
+      ]);
+      if (riser != null) {
+        canvas.drawPath(
+          riser,
+          Paint()
+            ..color =
+                haze(Color.lerp(backdrop, Colors.black, 0.46)!, at.depth),
+        );
+      }
+
+      // Tread — horizontal, so it takes the ceiling light square on and is the
+      // brightest plane in the stand. Only a few pixels tall at this pitch, but
+      // it is the highlight that separates one row from the next.
+      final tread = _quadPath([
+        Vec3(-16, y, z),
+        Vec3(16, y, z),
+        Vec3(16, y, z - run),
+        Vec3(-16, y, z - run),
+      ]);
+      if (tread != null) {
+        canvas.drawPath(
+          tread,
+          Paint()
+            ..color = haze(
+              Color.lerp(backdrop, Colors.white, 0.20 + i * 0.010)!,
+              at.depth,
+            ),
+        );
+      }
+
+      // Seat plank standing on the tread, its front face catching a glancing
+      // amount of light, with a hard shadow line where it meets the step.
+      final seatFront = _quadPath([
+        Vec3(-16, y, z - 0.22),
+        Vec3(16, y, z - 0.22),
+        Vec3(16, y + 0.16, z - 0.22),
+        Vec3(-16, y + 0.16, z - 0.22),
+      ]);
+      if (seatFront != null) {
+        canvas.drawPath(
+          seatFront,
+          Paint()
+            ..color = haze(
+              Color.lerp(backdrop, const Color(0xFF9A7745), 0.62)!,
+              at.depth,
+            ),
+        );
+      }
+      final seatTop = _quadPath([
+        Vec3(-16, y + 0.16, z - 0.22),
+        Vec3(16, y + 0.16, z - 0.22),
+        Vec3(16, y + 0.16, z - 0.62),
+        Vec3(-16, y + 0.16, z - 0.62),
+      ]);
+      if (seatTop != null) {
+        canvas.drawPath(
+          seatTop,
+          Paint()
+            ..color = haze(
+              Color.lerp(backdrop, const Color(0xFFD8B074), 0.68)!,
+              at.depth,
+            ),
+        );
+      }
+    }
+
+    // Stairways. At this pitch these are the only things in the stand that
+    // visibly converge, and they are what turns a stack of bands into a raked
+    // seating deck.
+    for (final ax in const [-7.4, -2.6, 2.6, 7.4]) {
+      for (var i = 0; i < rows; i++) {
+        final y = 0.30 + i * rise;
+        final z = frontZ - i * run;
+        final step = _quadPath([
+          Vec3(ax - 0.55, y + 0.165, z - 0.22),
+          Vec3(ax + 0.55, y + 0.165, z - 0.22),
+          Vec3(ax + 0.55, y + 0.165, z - run),
+          Vec3(ax - 0.55, y + 0.165, z - run),
+        ]);
+        final at = camera.project(Vec3(ax, y, z));
+        if (step == null || !at.visible) continue;
+        canvas.drawPath(
+          step,
+          Paint()
+            ..color = haze(
+              Color.lerp(backdrop, Colors.black, 0.30)!,
+              at.depth,
+            ),
+        );
+      }
+    }
+
+    // Guard rail across the front of the stand.
+    for (final y in const [1.55, 1.95]) {
+      final a = camera.project(Vec3(-16, y, frontZ + 0.18));
+      final b = camera.project(Vec3(16, y, frontZ + 0.18));
+      if (!a.visible || !b.visible) continue;
+      canvas.drawLine(
+        a.screen,
+        b.screen,
+        Paint()
+          ..strokeWidth = (a.scale * 0.05).clamp(1.0, 5.0)
+          ..color = haze(Color.lerp(backdrop, Colors.white, 0.34)!, a.depth),
+      );
+    }
+    for (var k = -8; k <= 8; k++) {
+      final a = camera.project(Vec3(k * 1.9, 0.30, frontZ + 0.18));
+      final b = camera.project(Vec3(k * 1.9, 1.95, frontZ + 0.18));
+      if (!a.visible || !b.visible) continue;
+      canvas.drawLine(
+        a.screen,
+        b.screen,
+        Paint()
+          ..strokeWidth = (a.scale * 0.04).clamp(0.8, 4.0)
+          ..color = haze(Color.lerp(backdrop, Colors.white, 0.24)!, a.depth),
+      );
+    }
+  }
+
+  /// Ceiling fixtures. The committed key light for the whole scene: everything
+  /// below is lit from straight above, which is why every ball shadow here is
+  /// directly under its ball and every bevel is bright on its upper edge.
+  void _paintCeilingLights() {
+    for (final lx in const [-3.6, 0.0, 3.6]) {
+      for (final lz in const [1.0, -4.2]) {
+        final at = camera.project(Vec3(lx, 7.6, hoopZ + lz));
+        if (!at.visible) continue;
+        final w = 1.6 * at.scale;
+        if (w < 4) continue;
+        final rect = Rect.fromCenter(
+          center: at.screen,
+          width: w,
+          height: w * 0.24,
+        );
+        // Housing, then the tube inside it, then the halo. Three passes is what
+        // separates "a light fitting" from "a blurred white smudge".
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect.inflate(w * 0.04), Radius.circular(w * 0.05)),
+          Paint()..color = Color.lerp(backdrop, Colors.black, 0.45)!,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, Radius.circular(w * 0.04)),
+          Paint()..color = const Color(0xFFFFF6DE).withValues(alpha: 0.92),
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect.inflate(w * 0.10), Radius.circular(w * 0.1)),
+          Paint()
+            ..color = const Color(0xFFFFF3D6).withValues(alpha: 0.30)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.20),
+        );
+      }
+    }
   }
 
   // ------------------------------------------------------------------- floor
@@ -294,7 +611,8 @@ class _CourtPainter {
         ).createShader(rect),
     );
 
-    // Planks running down-range: the single strongest convergence cue.
+    // Planks running down-range: the single strongest convergence cue. Each
+    // gets a dark seam and a lit edge, so the boards have a thickness.
     final plank = Paint()..style = PaintingStyle.stroke;
     const zNear = -0.4;
     for (var i = -10; i <= 10; i++) {
@@ -302,26 +620,76 @@ class _CourtPainter {
       final mid = camera.project(Vec3(x, 0, (zNear + wallZ) / 2));
       if (!mid.visible) continue;
       plank
-        ..color = Colors.black.withValues(alpha: 0.10)
+        ..color = Colors.black.withValues(alpha: 0.13)
         ..strokeWidth = (mid.scale * 0.012).clamp(0.5, 3.0);
       _worldLine(Vec3(x, 0, zNear), Vec3(x, 0, wallZ), plank);
+      plank
+        ..color = Colors.white.withValues(alpha: 0.06)
+        ..strokeWidth = (mid.scale * 0.008).clamp(0.5, 2.0);
+      _worldLine(Vec3(x + 0.012, 0, zNear), Vec3(x + 0.012, 0, wallZ), plank);
     }
 
-    // A static overhead-lighting stripe washing down the middle of the court.
-    // Purely decorative — it is scenery, not an aim guide.
-    final glow = _quadPath([
-      Vec3(-1.5, 0.002, 0.2),
-      Vec3(1.5, 0.002, 0.2),
-      Vec3(0.85, 0.002, wallZ),
-      Vec3(-0.85, 0.002, wallZ),
-    ]);
-    if (glow != null) {
-      canvas.drawPath(
-        glow,
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.055)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
-      );
+    // Grain within the planks: fine streaks at stable pseudo-random offsets,
+    // alternating light and dark. Maple is figured, not flat, and this is the
+    // difference between a wood floor and a brown ramp.
+    final grain = Paint()..style = PaintingStyle.stroke;
+    for (var i = 0; i < 70; i++) {
+      final x = -7.8 + 15.6 * _hash(i);
+      final ref = camera.project(Vec3(x, 0, (zNear + wallZ) / 2));
+      if (!ref.visible) continue;
+      final dark = _hash(i + 700) < 0.6;
+      grain
+        ..strokeWidth = (ref.scale * 0.004).clamp(0.4, 1.6)
+        ..color = (dark ? Colors.black : Colors.white)
+            .withValues(alpha: (dark ? 0.035 : 0.025) + _hash(i + 300) * 0.02);
+      _worldLine(Vec3(x, 0, zNear), Vec3(x, 0, wallZ), grain);
+    }
+
+    // End-joints: boards are finite, and the staggered butt joints are what
+    // stop the floor reading as one impossibly long stripe per plank.
+    final joint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = Colors.black.withValues(alpha: 0.10);
+    for (var i = -10; i <= 10; i++) {
+      final x = i * 0.78;
+      for (var k = 0; k < 5; k++) {
+        final z = zNear + (wallZ - zNear) * ((k + _hash(i * 13 + k)) / 5);
+        final a = camera.project(Vec3(x, 0, z));
+        final b = camera.project(Vec3(x + 0.78, 0, z));
+        if (!a.visible || !b.visible) continue;
+        joint.strokeWidth = (a.scale * 0.006).clamp(0.4, 2.0);
+        canvas.drawLine(a.screen, b.screen, joint);
+      }
+    }
+
+    // Pools thrown by the ceiling fixtures, and the sheen the varnish returns.
+    // Anchored on the real floor position under each light rather than painted
+    // as a screen-space stripe, so they sit in the room and foreshorten with it.
+    for (final lx in const [-3.6, 0.0, 3.6]) {
+      for (final lz in const [1.0, -4.2]) {
+        final at = camera.project(Vec3(lx, 0, hoopZ + lz));
+        if (!at.visible) continue;
+        final r = at.scale * 2.6;
+        if (r < 6) continue;
+        canvas.save();
+        canvas.translate(at.screen.dx, at.screen.dy);
+        // Squashed toward the horizon: a circular pool on the floor projects
+        // to a conic, and a round blob is the tell that it was faked.
+        canvas.scale(1.0, 0.34);
+        canvas.drawCircle(
+          Offset.zero,
+          r,
+          Paint()
+            ..blendMode = BlendMode.plus
+            ..shader = RadialGradient(
+              colors: [
+                const Color(0xFFFFF0D2).withValues(alpha: 0.16),
+                const Color(0x00000000),
+              ],
+            ).createShader(Rect.fromCircle(center: Offset.zero, radius: r)),
+        );
+        canvas.restore();
+      }
     }
     canvas.restore();
   }
@@ -359,11 +727,15 @@ class _CourtPainter {
       Vec3(-laneHalf, 0.001, baselineZ),
     ]);
     if (keyPath != null) {
+      // Deliberately translucent. At 0.85 the paint buried every plank seam and
+      // every streak of grain under it, and since the key covers most of the
+      // visible floor from this eyeline, that alone made the court read as a
+      // flat brown ramp. Court paint is a stain on wood, not a sheet over it.
       canvas.drawPath(
         keyPath,
         Paint()
-          ..color = Color.lerp(wood, const Color(0xFF9A4423), 0.55)!
-              .withValues(alpha: 0.85),
+          ..color = Color.lerp(wood, const Color(0xFF8E3A1E), 0.72)!
+              .withValues(alpha: 0.48),
       );
     }
 
@@ -390,8 +762,53 @@ class _CourtPainter {
       );
     }
 
+    // Lane hash marks — the blocks and the shooters' spaces down each side of
+    // the key. Small, but they are the detail that says "a real key" rather
+    // than "a painted rectangle".
+    for (final side in const [-1.0, 1.0]) {
+      for (final f in const [0.18, 0.40, 0.56, 0.72]) {
+        final z = baselineZ - (baselineZ - laneFrontZ) * f;
+        stroke(
+          Vec3(side * laneHalf, 0, z),
+          Vec3(side * (laneHalf + 0.22), 0, z),
+          width: 0.04,
+          alpha: 0.65,
+        );
+      }
+      // The block: a solid rectangle just off the baseline.
+      final block = _quadPath([
+        Vec3(side * laneHalf, 0.002, baselineZ - 1.75),
+        Vec3(side * (laneHalf + 0.22), 0.002, baselineZ - 1.75),
+        Vec3(side * (laneHalf + 0.22), 0.002, baselineZ - 1.24),
+        Vec3(side * laneHalf, 0.002, baselineZ - 1.24),
+      ]);
+      if (block != null) {
+        canvas.drawPath(
+          block,
+          Paint()..color = lineColor.withValues(alpha: 0.85),
+        );
+      }
+    }
+
     circle(Vec3(0, 0.004, laneFrontZ), 1.83, 0.75, 0.05);
-    circle(Vec3(0, 0.004, hoopZ), 1.25, 0.5, 0.04);
+    // Restricted-area arc under the basket.
+    final restricted = _arcPath(
+      Vec3(hx, 0.004, hoopZ),
+      1.25,
+      math.pi,
+      2 * math.pi,
+      segments: 26,
+    );
+    if (restricted != null) {
+      final at = camera.project(Vec3(hx, 0.004, hoopZ));
+      canvas.drawPath(
+        restricted,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = (at.scale * 0.04).clamp(0.8, 8.0)
+          ..color = haze(lineColor, at.depth).withValues(alpha: 0.5),
+      );
+    }
 
     // Three-point arc, drawn from real projected points along the real arc.
     final arc = Path();
@@ -462,6 +879,45 @@ class _CourtPainter {
   void _addStanchion(Scene3 scene) {
     final poleZ = wallZ - 1.1;
     scene.add(Vec3(hx, 1.6, poleZ), (canvas, at) {
+      // Padded base first, so the pole stands *on* something. A post that
+      // simply stops where the floor happens to be reads as a UI rule, not a
+      // rig, and it was the one piece of this scene with no contact anywhere.
+      final foot = _quadPath([
+        Vec3(hx - 0.30, 0, poleZ + 0.10),
+        Vec3(hx + 0.30, 0, poleZ + 0.10),
+        Vec3(hx + 0.30, 0.34, poleZ + 0.10),
+        Vec3(hx - 0.30, 0.34, poleZ + 0.10),
+      ]);
+      final footBounds = foot?.getBounds();
+      if (foot != null && footBounds != null && footBounds.width > 0.5) {
+        // Contact shade on the floor under the pad.
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(footBounds.center.dx, footBounds.bottom),
+            width: footBounds.width * 1.5,
+            height: footBounds.height * 0.5,
+          ),
+          Paint()
+            ..color = Colors.black.withValues(alpha: 0.28)
+            ..maskFilter = MaskFilter.blur(
+              BlurStyle.normal,
+              math.max(1.5, footBounds.width * 0.18),
+            ),
+        );
+        canvas.drawPath(
+          foot,
+          Paint()
+            ..shader = LinearGradient(
+              colors: [
+                haze(const Color(0xFF1B2430), at.depth),
+                haze(const Color(0xFF2C3A4B), at.depth),
+                haze(const Color(0xFF141B24), at.depth),
+              ],
+              stops: const [0.0, 0.38, 1.0],
+            ).createShader(footBounds),
+        );
+      }
+
       final body = _quadPath([
         Vec3(hx - 0.11, 0, poleZ),
         Vec3(hx + 0.11, 0, poleZ),
@@ -469,9 +925,23 @@ class _CourtPainter {
         Vec3(hx - 0.11, 3.3, poleZ),
       ]);
       if (body == null) return;
+      final bounds = body.getBounds();
+      // Across-the-pole falloff: dark edge, lit shoulder, dark edge. A flat
+      // fill makes a cylinder read as a painted stripe on the backdrop.
       canvas.drawPath(
         body,
-        Paint()..color = haze(const Color(0xFF39485B), at.depth),
+        bounds.width > 1.5
+            ? (Paint()
+              ..shader = LinearGradient(
+                colors: [
+                  haze(const Color(0xFF1E2836), at.depth),
+                  haze(const Color(0xFF52657D), at.depth),
+                  haze(const Color(0xFF39485B), at.depth),
+                  haze(const Color(0xFF19212C), at.depth),
+                ],
+                stops: const [0.0, 0.30, 0.62, 1.0],
+              ).createShader(bounds))
+            : (Paint()..color = haze(const Color(0xFF39485B), at.depth)),
       );
       final arm = _quadPath([
         Vec3(hx - 0.07, 3.22, poleZ),
@@ -482,16 +952,24 @@ class _CourtPainter {
       if (arm != null) {
         canvas.drawPath(
           arm,
-          Paint()..color = haze(const Color(0xFF46586D), at.depth),
+          Paint()..color = haze(const Color(0xFF56697F), at.depth),
         );
       }
     });
   }
 
+  /// The backboard, as tempered glass in a frame rather than a painted panel.
+  ///
+  /// Order matters and is the whole trick: the glass is drawn **translucent**,
+  /// so the bleachers and wall behind it show through and it stops reading as a
+  /// white rectangle stuck on the backdrop. Then the sheet's own thickness (a
+  /// visible edge quad at the bottom), then the frame, then the reflections,
+  /// then the painted square on top.
   void _addBackboard(Scene3 scene) {
     const w = BasketballCourt.backboardWidth / 2;
     const yb = BasketballCourt.backboardBottom;
     const yt = yb + BasketballCourt.backboardHeight;
+    const thick = 0.05;
     scene.add(Vec3(hx, (yb + yt) / 2, boardZ), (canvas, at) {
       final face = _quadPath([
         Vec3(hx - w, yb, boardZ),
@@ -500,21 +978,103 @@ class _CourtPainter {
         Vec3(hx - w, yt, boardZ),
       ]);
       if (face == null) return;
-      final glass = haze(const Color(0xFFE2EBF3), at.depth);
-      canvas.drawPath(face, Paint()..color = glass.withValues(alpha: 0.92));
+      final line = (at.scale * 0.03).clamp(0.8, 6.0);
+
+      // Perspex: cool, cold, and mostly transparent. 0.30 keeps the room
+      // legible through it; the sheet is sold by its edges and reflections,
+      // not by its opacity.
+      canvas.drawPath(
+        face,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              haze(const Color(0xFFDDE9F4), at.depth).withValues(alpha: 0.40),
+              haze(const Color(0xFF9FB6CA), at.depth).withValues(alpha: 0.22),
+              haze(const Color(0xFFE8F1FA), at.depth).withValues(alpha: 0.34),
+            ],
+            stops: const [0.0, 0.55, 1.0],
+          ).createShader(face.getBounds()),
+      );
+
+      // Two raking reflections across the sheet — the single clearest "this is
+      // glass" cue there is, and free: they are just skewed bands.
+      final bounds = face.getBounds();
+      canvas.save();
+      canvas.clipPath(face);
+      for (final f in const [0.16, 0.52]) {
+        final x0 = bounds.left + bounds.width * f;
+        canvas.drawPath(
+          Path()
+            ..moveTo(x0, bounds.bottom)
+            ..lineTo(x0 + bounds.width * 0.10, bounds.bottom)
+            ..lineTo(x0 + bounds.width * 0.26, bounds.top)
+            ..lineTo(x0 + bounds.width * 0.16, bounds.top)
+            ..close(),
+          Paint()..color = Colors.white.withValues(alpha: 0.10),
+        );
+      }
+      canvas.restore();
+
+      // The sheet's thickness, seen along the bottom edge because the camera is
+      // below the board. Without it the glass is infinitely thin and the whole
+      // rig reads as a decal.
+      final edge = _quadPath([
+        Vec3(hx - w, yb, boardZ),
+        Vec3(hx + w, yb, boardZ),
+        Vec3(hx + w, yb, boardZ - thick),
+        Vec3(hx - w, yb, boardZ - thick),
+      ]);
+      if (edge != null) {
+        canvas.drawPath(
+          edge,
+          Paint()..color = haze(const Color(0xFFB9C9D8), at.depth),
+        );
+      }
+
+      // Frame: an aluminium channel round the sheet, with the padded bottom
+      // rail every real board carries.
       canvas.drawPath(
         face,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = (at.scale * 0.055).clamp(1.0, 8.0)
-          ..color = haze(rimColor, at.depth),
+          ..strokeWidth = line * 1.6
+          ..color = haze(const Color(0xFF5A6675), at.depth),
       );
+      final padRail = _quadPath([
+        Vec3(hx - w, yb, boardZ - thick - 0.01),
+        Vec3(hx + w, yb, boardZ - thick - 0.01),
+        Vec3(hx + w, yb + 0.09, boardZ - thick - 0.01),
+        Vec3(hx - w, yb + 0.09, boardZ - thick - 0.01),
+      ]);
+      if (padRail != null) {
+        canvas.drawPath(
+          padRail,
+          Paint()
+            ..color =
+                haze(Color.lerp(rimColor, Colors.black, 0.62)!, at.depth),
+        );
+      }
+      // Lit top arris of the frame — the ceiling is the key light.
+      final ft = camera.project(Vec3(hx - w, yt, boardZ));
+      final fr = camera.project(Vec3(hx + w, yt, boardZ));
+      if (ft.visible && fr.visible) {
+        canvas.drawLine(
+          ft.screen.translate(0, line * 0.6),
+          fr.screen.translate(0, line * 0.6),
+          Paint()
+            ..strokeWidth = line * 0.7
+            ..color = Colors.white.withValues(alpha: 0.35),
+        );
+      }
+
       // Shooter's square, sitting just above the rim.
       final inner = _quadPath([
-        Vec3(hx - 0.30, 3.05, boardZ - 0.002),
-        Vec3(hx + 0.30, 3.05, boardZ - 0.002),
-        Vec3(hx + 0.30, 3.50, boardZ - 0.002),
-        Vec3(hx - 0.30, 3.50, boardZ - 0.002),
+        Vec3(hx - 0.30, 3.05, boardZ - 0.004),
+        Vec3(hx + 0.30, 3.05, boardZ - 0.004),
+        Vec3(hx + 0.30, 3.50, boardZ - 0.004),
+        Vec3(hx - 0.30, 3.50, boardZ - 0.004),
       ]);
       if (inner != null) {
         canvas.drawPath(
@@ -545,11 +1105,11 @@ class _CourtPainter {
     scene.add(anchor, (canvas, at) {
       final path = _arcPath(centre, BasketballCourt.rimRadius, a0, a1);
       if (path == null) return;
-      final width = (at.scale * BasketballCourt.rimThickness * 2.6)
-          .clamp(1.6, 22.0)
+      final width = (at.scale * BasketballCourt.rimThickness * 1.7)
+          .clamp(1.4, 14.0)
           .toDouble();
       canvas.drawPath(
-        path.shift(Offset(0, width * 0.42)),
+        path.shift(Offset(0, width * 0.55)),
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
@@ -565,7 +1125,7 @@ class _CourtPainter {
           ..color = haze(rimColor, at.depth),
       );
       canvas.drawPath(
-        path.shift(Offset(0, -width * 0.24)),
+        path.shift(Offset(0, -width * 0.30)),
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
@@ -576,38 +1136,79 @@ class _CourtPainter {
     });
   }
 
-  /// Net strands for one half of the ring, tapering to a smaller circle below.
+  /// Net cord for one half of the ring.
+  ///
+  /// ## Why it is a mesh and not a fringe
+  ///
+  /// A basketball net is twelve cords hung from the ring and knotted to their
+  /// neighbours, which makes a lattice of diamonds — and the diamonds are what
+  /// a ball visibly *pushes through*. Twelve independent curves hanging in
+  /// parallel read as a lampshade at rest and as nothing at all in motion. So
+  /// the strands here cross: each cord spirals one way, and a mirrored set
+  /// spirals the other, meeting at the knot courses.
+  ///
+  /// ## How it reacts
+  ///
+  /// [BasketballView.netWobble] rings from 1 to 0 after a ball passes through.
+  /// It does three things at once, which together are what make the whip read:
+  /// the cone gets **longer** (the net is dragged down), **wider at the mouth**
+  /// (the ball forced it open on the way past), and the spiral **unwinds** —
+  /// so the whole mesh visibly snaps and recovers rather than just changing
+  /// size. The cords also thicken slightly under load, because a net under
+  /// tension catches more light.
   void _addNetHalf(Scene3 scene, {required bool far}) {
     final centre = view.hoopCentre;
     final wobble = view.netWobble.clamp(0.0, 1.0);
-    final depth = 0.42 * (1 + 0.45 * wobble);
-    final bottomR = BasketballCourt.rimRadius * (0.60 + 0.32 * wobble);
+    // A decaying ring rather than a straight ramp: the net overshoots, comes
+    // back, and settles, which is the shape of a real one snapping back.
+    final ring = wobble == 0
+        ? 0.0
+        : math.sin(wobble * math.pi * 1.6) * wobble;
+    final depth = 0.40 * (1 + 0.50 * wobble);
+    const rimR = BasketballCourt.rimRadius;
+    final mouthR = rimR * (1 + 0.10 * ring.abs());
+    final bottomR = rimR * (0.58 + 0.34 * wobble);
+    final twist = 0.30 * (1 - 0.75 * ring);
     final anchor = Vec3(
       centre.x,
       centre.y - depth * 0.5,
-      centre.z + (far ? 1 : -1) * BasketballCourt.rimRadius * 0.5,
+      centre.z + (far ? 1 : -1) * rimR * 0.5,
     );
+
     scene.add(anchor, (canvas, at) {
-      final strandPaint = Paint()
+      final width = (at.scale * 0.014).clamp(0.7, 4.5) * (1 + 0.25 * wobble);
+      final cord = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = (at.scale * 0.013).clamp(0.7, 4.0)
-        ..color = haze(Colors.white, at.depth).withValues(alpha: 0.72);
+        ..strokeWidth = width
+        ..color = haze(Colors.white, at.depth)
+            .withValues(alpha: 0.62 + 0.24 * wobble);
+      // Cords are white nylon lit from directly above, so they carry a shadow
+      // side. Drawing it first, offset down, gives the mesh a thickness.
+      final cordShadow = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = width
+        ..color = Colors.black.withValues(alpha: 0.22);
 
-      const strands = 12;
-      for (var i = 0; i <= strands; i++) {
-        final a = (far ? 0.0 : math.pi) + math.pi * i / strands;
-        // Strands twist as they descend — real nets are braided.
-        final b = a + 0.26;
+      const strands = 8;
+      final a0 = far ? 0.0 : math.pi;
+
+      /// One cord from the ring to the bottom hoop, spiralling by [dir].
+      Path? cordPath(int i, double dir) {
+        final a = a0 + math.pi * i / strands;
+        final b = a + twist * dir;
+        final m = (a + b) / 2;
         final top = Vec3(
-          centre.x + math.cos(a) * BasketballCourt.rimRadius,
+          centre.x + math.cos(a) * mouthR,
           centre.y,
-          centre.z + math.sin(a) * BasketballCourt.rimRadius,
+          centre.z + math.sin(a) * mouthR,
         );
+        // Waist pinch: the net narrows fastest just under the ring.
         final mid = Vec3(
-          centre.x + math.cos((a + b) / 2) * BasketballCourt.rimRadius * 0.84,
+          centre.x + math.cos(m) * (rimR * 0.78),
           centre.y - depth * 0.5,
-          centre.z + math.sin((a + b) / 2) * BasketballCourt.rimRadius * 0.84,
+          centre.z + math.sin(m) * (rimR * 0.78),
         );
         final bottom = Vec3(
           centre.x + math.cos(b) * bottomR,
@@ -617,30 +1218,42 @@ class _CourtPainter {
         final pa = camera.project(top);
         final pm = camera.project(mid);
         final pb = camera.project(bottom);
-        if (!pa.visible || !pm.visible || !pb.visible) continue;
-        canvas.drawPath(
-          Path()
-            ..moveTo(pa.screen.dx, pa.screen.dy)
-            ..quadraticBezierTo(
-              pm.screen.dx * 2 - (pa.screen.dx + pb.screen.dx) / 2,
-              pm.screen.dy * 2 - (pa.screen.dy + pb.screen.dy) / 2,
-              pb.screen.dx,
-              pb.screen.dy,
-            ),
-          strandPaint,
-        );
+        if (!pa.visible || !pm.visible || !pb.visible) return null;
+        return Path()
+          ..moveTo(pa.screen.dx, pa.screen.dy)
+          ..quadraticBezierTo(
+            pm.screen.dx * 2 - (pa.screen.dx + pb.screen.dx) / 2,
+            pm.screen.dy * 2 - (pa.screen.dy + pb.screen.dy) / 2,
+            pb.screen.dx,
+            pb.screen.dy,
+          );
       }
 
-      // Two horizontal courses, which is what actually reads as a cone rather
-      // than a fringe.
+      for (final dir in const [1.0, -1.0]) {
+        for (var i = 0; i <= strands; i++) {
+          final path = cordPath(i, dir);
+          if (path == null) continue;
+          canvas.drawPath(path.shift(Offset(0, width * 0.5)), cordShadow);
+        }
+      }
+      for (final dir in const [1.0, -1.0]) {
+        for (var i = 0; i <= strands; i++) {
+          final path = cordPath(i, dir);
+          if (path == null) continue;
+          canvas.drawPath(path, cord);
+        }
+      }
+
+      // Knot courses: the horizontal rings the diamonds are tied off on. These
+      // are what read as a cone rather than a fringe.
       final coursePaint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = strandPaint.strokeWidth
-        ..color = haze(Colors.white, at.depth).withValues(alpha: 0.5);
-      for (final f in const [0.45, 0.92]) {
-        final r = BasketballCourt.rimRadius +
-            (bottomR - BasketballCourt.rimRadius) * f;
+        ..strokeWidth = width * 0.9
+        ..color = haze(Colors.white, at.depth)
+            .withValues(alpha: 0.45 + 0.2 * wobble);
+      for (final f in const [0.34, 0.66, 0.95]) {
+        final r = rimR * 0.86 + (bottomR - rimR * 0.86) * f;
         final course = _arcPath(
           Vec3(centre.x, centre.y - depth * f, centre.z),
           r,

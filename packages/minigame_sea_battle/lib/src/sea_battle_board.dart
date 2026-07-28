@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -433,20 +434,9 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
           content = _buildBattle(scheme, state, enemy);
         }
 
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        return DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(26),
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.35),
-              radius: 1.5,
-              colors: [
-                Color.lerp(table, Colors.white, 0.07)!,
-                table,
-                Color.lerp(table, Colors.black, 0.26)!,
-              ],
-              stops: const [0.0, 0.45, 1.0],
-            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.18),
@@ -455,6 +445,12 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
               ),
             ],
           ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: CustomPaint(
+              painter: _FeltPainter(table),
+              child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -498,7 +494,7 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                             child: AnimatedSwitcher(
                               duration: const Duration(milliseconds: 200),
                               child: pillMsg == null
-                                  ? const SizedBox.shrink()
+                                  ? const SizedBox.shrink(key: ValueKey('pill-empty'))
                                   : Container(
                                       key: ValueKey(pillMsg),
                                       padding: const EdgeInsets.symmetric(
@@ -542,6 +538,9 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                 ),
               ),
             ],
+          ),
+              ),
+            ),
           ),
         );
       },
@@ -763,6 +762,389 @@ class _SeaGeom {
 }
 
 // ---------------------------------------------------------------------------
+// Materials
+//
+// One committed light for the whole game: a soft key from the upper left. The
+// grids are plotting boards — a painted-steel frame around a recessed chart —
+// so the frame's lip is lit up-left while the chart's lip, being below it,
+// reverses. Pegs and hulls obey the same key.
+// ---------------------------------------------------------------------------
+
+const Offset _kLight = Offset(-0.38, -0.45);
+
+/// Deterministic hash in `[0, 1)` — no `Random` anywhere in painting.
+double _noise(int x, int y, int seed) {
+  var n = (x * 374761393) ^ (y * 668265263) ^ (seed * 1274126177);
+  n = (n ^ (n >> 13)) * 1274126177;
+  n = n ^ (n >> 16);
+  return (n & 0x3fffffff) / 0x3fffffff;
+}
+
+/// Cached chart surface (frame, sea, grid, ruler), keyed on size and palette.
+class _Chart {
+  final double w;
+  final double h;
+  final int water;
+  final int line;
+  final bool compact;
+  final ui.Picture picture;
+
+  _Chart(this.w, this.h, this.water, this.line, this.compact, this.picture);
+
+  bool matches(Size s, Color wa, Color l, bool c) =>
+      w == s.width &&
+      h == s.height &&
+      compact == c &&
+      // ignore: deprecated_member_use
+      water == wa.value &&
+      // ignore: deprecated_member_use
+      line == l.value;
+}
+
+final List<_Chart> _charts = [];
+
+ui.Picture _chartFor(
+  Size size,
+  _SeaGeom geom,
+  Color water,
+  Color line,
+  bool compact,
+) {
+  for (final c in _charts) {
+    if (c.matches(size, water, line, compact)) return c.picture;
+  }
+  final recorder = ui.PictureRecorder();
+  _paintChart(Canvas(recorder), size, geom, water, line, compact);
+  final made = _Chart(
+    size.width,
+    size.height,
+    // ignore: deprecated_member_use
+    water.value,
+    // ignore: deprecated_member_use
+    line.value,
+    compact,
+    recorder.endRecording(),
+  );
+  _charts.insert(0, made);
+  while (_charts.length > 4) {
+    _charts.removeLast().picture.dispose();
+  }
+  return made.picture;
+}
+
+void _paintChart(
+  Canvas canvas,
+  Size size,
+  _SeaGeom geom,
+  Color water,
+  Color line,
+  bool compact,
+) {
+  final w = size.width;
+  final rect = Offset.zero & size;
+  final radius = Radius.circular(w * 0.05);
+  final slab = RRect.fromRectAndRadius(rect, radius);
+  final chart = Rect.fromLTWH(
+    geom.pad,
+    geom.pad,
+    geom.cell * seaBattleBoardSize,
+    geom.cell * seaBattleBoardSize,
+  );
+
+  // Frame: painted steel a few steps darker and greyer than the sea.
+  final frame = Color.lerp(water, const Color(0xFF20303C), 0.62)!;
+
+  // Contact shadow: tight core plus a wide ambient falloff, away from the key.
+  canvas.drawRRect(
+    slab.shift(Offset(w * 0.010, w * 0.016)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.28)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.030),
+  );
+  canvas.drawRRect(
+    slab.shift(Offset(w * 0.003, w * 0.005)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.24)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.008),
+  );
+
+  // Frame face, with a brushed grain running across it.
+  canvas.save();
+  canvas.clipRRect(slab);
+  canvas.drawRect(rect, Paint()..color = frame);
+  final brush = Paint()..strokeWidth = 0.8;
+  final rows = (size.height / 3).ceil();
+  for (var y = 0; y < rows; y++) {
+    final j = _noise(y, 1, 29);
+    brush.color = (j > 0.5 ? Colors.white : Colors.black)
+        .withValues(alpha: 0.020 + j * 0.030);
+    canvas.drawLine(Offset(0, y * 3.0), Offset(w, y * 3.0 + 0.6), brush);
+  }
+  canvas.drawRect(
+    rect,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment(_kLight.dx * 2.2, _kLight.dy * 2.0),
+        end: Alignment(-_kLight.dx * 2.2, -_kLight.dy * 2.0),
+        colors: [
+          Colors.white.withValues(alpha: 0.16),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.18),
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(rect),
+  );
+  canvas.restore();
+
+  // Frame lip: raised, so lit up-left and shaded down-right.
+  canvas.drawRRect(
+    slab.deflate(w * 0.004),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.008
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.30),
+          Colors.white.withValues(alpha: 0.03),
+          Colors.black.withValues(alpha: 0.24),
+        ],
+      ).createShader(rect),
+  );
+
+  // Sea, recessed into the frame.
+  canvas.save();
+  canvas.clipRect(chart);
+  canvas.drawRect(
+    chart,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color.lerp(water, Colors.white, 0.18)!,
+          water,
+          Color.lerp(water, const Color(0xFF27596F), 0.30)!,
+        ],
+      ).createShader(chart),
+  );
+
+  // Swell: long, low, deterministic wave crests so the sea has surface
+  // without competing with the pegs for attention.
+  final swell = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round;
+  final bands = (chart.height / (geom.cell * 0.38)).round().clamp(8, 60);
+  for (var i = 0; i < bands; i++) {
+    final j = _noise(i, 2, 41);
+    final k = _noise(i, 2, 67);
+    final y = chart.top + (i + j) / bands * chart.height;
+    final amp = geom.cell * (0.05 + j * 0.10);
+    swell
+      ..strokeWidth = math.max(0.5, geom.cell * (0.02 + k * 0.030))
+      ..color = (k > 0.55 ? Colors.white : const Color(0xFF1E5670))
+          .withValues(alpha: 0.030 + j * 0.055);
+    final path = Path()..moveTo(chart.left, y);
+    final segs = 4;
+    for (var sIdx = 1; sIdx <= segs; sIdx++) {
+      final x = chart.left + chart.width * sIdx / segs;
+      final cx = chart.left + chart.width * (sIdx - 0.5) / segs;
+      path.quadraticBezierTo(
+          cx, y + (sIdx.isEven ? amp : -amp), x, y);
+    }
+    canvas.drawPath(path, swell);
+  }
+
+  // Depth vignette: the chart is a recess, so its walls darken the edges.
+  canvas.drawRect(
+    chart,
+    Paint()
+      ..shader = RadialGradient(
+        center: Alignment(_kLight.dx * 0.6, _kLight.dy * 0.6),
+        radius: 0.95,
+        colors: [
+          Colors.transparent,
+          Colors.black.withValues(alpha: 0.14),
+        ],
+        stops: const [0.55, 1.0],
+      ).createShader(chart),
+  );
+  canvas.restore();
+
+  // Grid: hairline plotting lines, each with a faint shadow on the key side
+  // so they read as scored into the chart rather than drawn over it.
+  final lw = math.max(0.7, geom.cell * 0.035);
+  final ink = Paint()
+    ..color = line
+    ..strokeWidth = lw;
+  final score = Paint()
+    ..color = Colors.black.withValues(alpha: 0.10)
+    ..strokeWidth = lw;
+  for (var i = 0; i <= seaBattleBoardSize; i++) {
+    final d = geom.pad + i * geom.cell;
+    canvas.drawLine(Offset(chart.left, d - lw * 0.7),
+        Offset(chart.right, d - lw * 0.7), score);
+    canvas.drawLine(Offset(d - lw * 0.7, chart.top),
+        Offset(d - lw * 0.7, chart.bottom), score);
+    canvas.drawLine(Offset(chart.left, d), Offset(chart.right, d), ink);
+    canvas.drawLine(Offset(d, chart.top), Offset(d, chart.bottom), ink);
+  }
+
+  // The chart sits below the frame face, so its lip reverses the frame's:
+  // shadow on the near wall, light catching the far one.
+  canvas.drawRect(
+    chart.inflate(lw * 1.6),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = lw * 3.2
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.black.withValues(alpha: 0.38),
+          Colors.black.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.16),
+        ],
+      ).createShader(chart),
+  );
+
+  // Coordinate ruler stamped into the frame. Skipped on the small own-fleet
+  // grid, where there is no room to set it legibly.
+  final glyph = geom.pad * 0.52;
+  if (!compact && glyph >= 6) {
+    for (var i = 0; i < seaBattleBoardSize; i++) {
+      _stamp(
+        canvas,
+        String.fromCharCode(65 + i),
+        Offset(chart.left + (i + 0.5) * geom.cell, geom.pad / 2),
+        glyph,
+      );
+      _stamp(
+        canvas,
+        '${i + 1}',
+        Offset(geom.pad / 2, chart.top + (i + 0.5) * geom.cell),
+        glyph,
+      );
+    }
+  }
+}
+
+/// Draws [text] centred on [at] as a stamped mark on the painted frame: a
+/// light offset below the dark glyph, as a struck character would catch a
+/// top-left key.
+void _stamp(Canvas canvas, String text, Offset at, double size) {
+  for (final (dy, color) in [
+    (1.0, Colors.white.withValues(alpha: 0.16)),
+    (0.0, Colors.black.withValues(alpha: 0.38)),
+  ]) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: size,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, at - Offset(tp.width / 2, tp.height / 2 - dy));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Felt table
+// ---------------------------------------------------------------------------
+
+class _FeltCache {
+  final double w;
+  final double h;
+  final int felt;
+  final ui.Picture picture;
+
+  _FeltCache(this.w, this.h, this.felt, this.picture);
+
+  bool matches(Size s, Color f) =>
+      w == s.width &&
+      h == s.height &&
+      // ignore: deprecated_member_use
+      felt == f.value;
+}
+
+final List<_FeltCache> _felts = [];
+
+/// Napped felt: a lit wash from the key, a deterministic fibre speckle, and a
+/// vignette that seats the panel in the surrounding dark.
+class _FeltPainter extends CustomPainter {
+  final Color felt;
+
+  const _FeltPainter(this.felt);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final f in _felts) {
+      if (f.matches(size, felt)) {
+        canvas.drawPicture(f.picture);
+        return;
+      }
+    }
+    final recorder = ui.PictureRecorder();
+    _record(Canvas(recorder), size);
+    final made = _FeltCache(
+      size.width,
+      size.height,
+      // ignore: deprecated_member_use
+      felt.value,
+      recorder.endRecording(),
+    );
+    _felts.insert(0, made);
+    while (_felts.length > 3) {
+      _felts.removeLast().picture.dispose();
+    }
+    canvas.drawPicture(made.picture);
+  }
+
+  void _record(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(_kLight.dx, _kLight.dy),
+          radius: 1.35,
+          colors: [
+            Color.lerp(felt, Colors.white, 0.10)!,
+            felt,
+            Color.lerp(felt, Colors.black, 0.34)!,
+          ],
+          stops: const [0.0, 0.42, 1.0],
+        ).createShader(rect),
+    );
+    final nap = Paint()
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+    final cols = (size.width / 5).ceil();
+    final rows = (size.height / 5).ceil();
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        final j = _noise(x, y, 7);
+        if (j < 0.45) continue;
+        final k = _noise(x, y, 19);
+        nap.color = (j > 0.78 ? Colors.white : Colors.black)
+            .withValues(alpha: 0.012 + k * 0.016);
+        final px = x * 5.0 + k * 5;
+        final py = y * 5.0 + j * 5;
+        canvas.drawLine(Offset(px, py), Offset(px + 1.6 + k, py + 0.8), nap);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FeltPainter old) => old.felt != felt;
+}
+
+// ---------------------------------------------------------------------------
 // Grid painter
 // ---------------------------------------------------------------------------
 
@@ -839,51 +1221,10 @@ class _SeaGridPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final slab =
-        RRect.fromRectAndRadius(rect, Radius.circular(size.width * 0.05));
-
-    // Ground shadow — the sea slab floats just above the felt.
-    canvas.drawRRect(
-      slab.shift(const Offset(0, 4)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.22)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-    );
-
-    // Water.
-    canvas.drawRRect(
-      slab,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.lerp(water, Colors.white, 0.16)!,
-            water,
-            Color.lerp(water, const Color(0xFF31708F), 0.22)!,
-          ],
-        ).createShader(rect),
-    );
-    canvas.drawRRect(
-      slab.deflate(0.75),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = Colors.white.withValues(alpha: 0.22),
-    );
-
-    // Grid lines.
-    final line = Paint()
-      ..color = gridLine
-      ..strokeWidth = math.max(0.7, geom.cell * 0.035);
-    for (var i = 0; i <= seaBattleBoardSize; i++) {
-      final d = geom.pad + i * geom.cell;
-      canvas.drawLine(
-          Offset(geom.pad, d), Offset(size.width - geom.pad, d), line);
-      canvas.drawLine(
-          Offset(d, geom.pad), Offset(d, size.height - geom.pad), line);
-    }
+    // Frame, sea texture, grid and coordinate ruler never move: one cached
+    // picture, so only the fleet and the pegs cost anything per frame.
+    canvas.drawPicture(
+        _chartFor(size, geom, water, gridLine, spec.compact));
 
     // Ship hulls.
     for (final ship in spec.ships) {
@@ -950,32 +1291,58 @@ class _SeaGridPainter extends CustomPainter {
         ? Color.lerp(shipColor, const Color(0xFF23282E), 0.55)!
         : shipColor;
 
+    // Two-part contact shadow, pushed away from the key light.
     canvas.drawRRect(
-      rr.shift(Offset(0, geom.cell * 0.06)),
+      rr.shift(Offset(-_kLight.dx * geom.cell * 0.16,
+          -_kLight.dy * geom.cell * 0.18)),
       Paint()
-        ..color = Colors.black.withValues(alpha: 0.18)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, geom.cell * 0.1),
+        ..color = Colors.black.withValues(alpha: 0.22)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, geom.cell * 0.16),
     );
+    canvas.drawRRect(
+      rr.shift(Offset(-_kLight.dx * geom.cell * 0.05,
+          -_kLight.dy * geom.cell * 0.06)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.24)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, geom.cell * 0.05),
+    );
+    // Painted steel: a bright deck edge on the key side, a core shadow across
+    // the middle, and a thin bounce off the water on the far side.
     canvas.drawRRect(
       rr,
       Paint()
         ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          begin: Alignment(_kLight.dx * 2.2, _kLight.dy * 2.2),
+          end: Alignment(-_kLight.dx * 2.2, -_kLight.dy * 2.2),
           colors: [
-            Color.lerp(base, Colors.white, 0.28)!,
+            Color.lerp(base, Colors.white, 0.42)!,
+            Color.lerp(base, Colors.white, 0.10)!,
             base,
-            Color.lerp(base, Colors.black, 0.22)!,
+            Color.lerp(base, Colors.black, 0.34)!,
+            Color.lerp(base, Colors.white, 0.10)!,
           ],
+          stops: const [0.0, 0.24, 0.52, 0.88, 1.0],
         ).createShader(r),
+    );
+    // Hull seam running the length of the deck.
+    canvas.drawLine(
+      ship.horizontal
+          ? Offset(r.left + r.width * 0.08, r.center.dy)
+          : Offset(r.center.dx, r.top + r.height * 0.08),
+      ship.horizontal
+          ? Offset(r.right - r.width * 0.08, r.center.dy)
+          : Offset(r.center.dx, r.bottom - r.height * 0.08),
+      Paint()
+        ..strokeWidth = math.max(0.6, geom.cell * 0.025)
+        ..color = Colors.black.withValues(alpha: 0.16),
     );
     canvas.drawRRect(
       rr,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = math.max(1, geom.cell * 0.05)
-        ..color = Color.lerp(base, Colors.black, 0.35)!
-            .withValues(alpha: 0.6),
+        ..color = Color.lerp(base, Colors.black, 0.45)!
+            .withValues(alpha: 0.55),
     );
 
     // Deck detail: a porthole per cell (skip on the tiny grid).
@@ -1001,19 +1368,43 @@ class _SeaGridPainter extends CustomPainter {
         ..color = Colors.black.withValues(alpha: 0.28 * scale.clamp(0, 1))
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.5),
     );
+    // Contact shadow: the peg is pushed into the board, so the shadow is
+    // tight and sits opposite the key.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: c.translate(-_kLight.dx * r * 0.55, -_kLight.dy * r * 0.6),
+        width: r * 2.0,
+        height: r * 1.7,
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.30 * scale.clamp(0, 1))
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.28),
+    );
     canvas.drawCircle(
       c,
       r,
       Paint()
         ..shader = RadialGradient(
-          center: const Alignment(-0.35, -0.4),
+          center: Alignment(_kLight.dx * 1.5, _kLight.dy * 1.5),
+          radius: 1.05,
           colors: [
-            Color.lerp(hitColor, Colors.white, 0.45)!,
+            Color.lerp(hitColor, Colors.white, 0.55)!,
             hitColor,
-            Color.lerp(hitColor, Colors.black, 0.3)!,
+            Color.lerp(hitColor, Colors.black, 0.42)!,
           ],
-          stops: const [0.0, 0.55, 1.0],
+          stops: const [0.0, 0.58, 1.0],
         ).createShader(Rect.fromCircle(center: c, radius: r)),
+    );
+    // Specular bead on the moulded plastic head.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: c + Offset(_kLight.dx * r * 0.9, _kLight.dy * r * 0.9),
+        width: r * 0.60,
+        height: r * 0.40,
+      ),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.55 * scale.clamp(0, 1))
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.14),
     );
   }
 
@@ -1021,13 +1412,26 @@ class _SeaGridPainter extends CustomPainter {
     final r = geom.cell * (spec.compact ? 0.13 : 0.11) * scale.clamp(0.0, 1.2);
     if (r <= 0.2) return;
     canvas.drawCircle(
-      c.translate(0, r * 0.25),
-      r,
+      c.translate(-_kLight.dx * r * 0.7, -_kLight.dy * r * 0.8),
+      r * 1.05,
       Paint()
-        ..color = Colors.black.withValues(alpha: 0.12)
+        ..color = Colors.black.withValues(alpha: 0.26)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.4),
     );
-    canvas.drawCircle(c, r, Paint()..color = missColor);
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(_kLight.dx * 1.4, _kLight.dy * 1.4),
+          colors: [
+            Colors.white,
+            missColor,
+            Color.lerp(missColor, const Color(0xFF6E7C88), 0.5)!,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(Rect.fromCircle(center: c, radius: r)),
+    );
   }
 
   void _paintShot(Canvas canvas, _ShotAnim shot) {

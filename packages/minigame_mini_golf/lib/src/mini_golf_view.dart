@@ -14,8 +14,13 @@ class MiniGolfBallView {
   /// Radius in world units.
   final double radius;
 
-  /// Accumulated roll angle, radians — drives the dimple pattern spinning.
+  /// Accumulated roll angle, radians — kept for anything that just wants a
+  /// scalar; the markings are drawn through [roll].
   final double spin;
+
+  /// The ball's 3-D orientation, integrated from its travel. This is what makes
+  /// it read as rolling rather than sliding.
+  final BallRoll roll;
 
   /// True once the ball has dropped: it is drawn sunk in the cup.
   final bool holed;
@@ -28,8 +33,38 @@ class MiniGolfBallView {
     required this.position,
     this.radius = MiniGolfCourse.ballRadius,
     this.spin = 0,
+    this.roll = BallRoll.identity,
     this.holed = false,
     this.accent,
+  });
+
+  /// True when the ball's centre has dropped below the green — it is inside the
+  /// cup and must be drawn *through* the mouth so the near lip covers it.
+  bool get inCup => position.y < MiniGolfCourse.ballRadius * 0.35;
+}
+
+/// A strike on a rail or a solid, still fresh enough to show.
+///
+/// Purely presentational: the simulation already resolved the bounce, this only
+/// records where to scuff the paint and how hard.
+class MiniGolfImpactView {
+  /// Contact point, world `(x, z)`.
+  final Offset at;
+
+  /// Unit surface normal in the ground plane, pointing back at the ball.
+  final Offset normal;
+
+  /// 0..1 severity — how fast the ball went into the surface.
+  final double strength;
+
+  /// 0 = the instant it happened, 1 = fully faded.
+  final double age;
+
+  const MiniGolfImpactView({
+    required this.at,
+    required this.normal,
+    required this.strength,
+    required this.age,
   });
 }
 
@@ -70,11 +105,15 @@ class MiniGolfView {
   /// the ball, which is what a one-off still wants.
   final MiniGolfCamera? rig;
 
+  /// Rail and obstacle strikes still fading.
+  final List<MiniGolfImpactView> impacts;
+
   const MiniGolfView({
     required this.course,
     required this.ball,
     this.aim,
     this.rig,
+    this.impacts = const [],
   });
 
   /// A view of [course] with the ball parked on the tee — the frame a hole

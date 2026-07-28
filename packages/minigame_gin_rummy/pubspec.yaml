@@ -1,0 +1,30 @@
+name: minigame_gin_rummy
+description: >-
+  Gin Rummy for flutter_minigames — draw, discard, meld and knock, with a
+  pure TurnGame reducer.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+topics:
+  - games
+  - turn-based
+  - cards
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.10.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  minigames_core: ^0.1.0
+  minigames_ui: ^0.1.0
+  minigames_cards: ^0.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:

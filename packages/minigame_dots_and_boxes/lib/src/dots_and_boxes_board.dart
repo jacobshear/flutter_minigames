@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui show Picture, PictureRecorder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -304,14 +305,33 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
                           child: Opacity(
                             opacity: enter.clamp(0.0, 1.0),
                             child: Container(
+                              clipBehavior: Clip.antiAlias,
                               decoration: BoxDecoration(
-                                color: boardColor,
                                 borderRadius: BorderRadius.circular(28),
+                                // A pressed-fibre panel, not paper: the warm
+                                // tone plus the top-left lift is what the grain
+                                // in _paintPanel sits on.
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color.lerp(boardColor, Colors.white, 0.30)!,
+                                    Color.lerp(boardColor, Colors.black, 0.05)!,
+                                    Color.lerp(boardColor, Colors.black, 0.19)!,
+                                  ],
+                                  stops: const [0.0, 0.52, 1.0],
+                                ),
+                                border: Border.all(
+                                  color: Colors.black.withValues(alpha: 0.10),
+                                  width: 1,
+                                ),
                                 boxShadow: [
+                                  // Light is upper-left across this board, so
+                                  // the panel's own shadow drops down-right.
                                   BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.08),
-                                    blurRadius: 28,
-                                    offset: const Offset(0, 14),
+                                    color: Colors.black.withValues(alpha: 0.16),
+                                    blurRadius: 26,
+                                    offset: const Offset(3, 13),
                                   ),
                                 ],
                               ),
@@ -798,7 +818,10 @@ class _GridPainter extends CustomPainter {
     final n = state.n;
     final step = size.width / n;
     final stroke = size.width * 0.028;
-    final dotR = size.width * 0.028;
+    final dotR = size.width * 0.030;
+
+    // The panel the pegs are driven into: a drilled board, not white space.
+    canvas.drawPicture(_panelFor(size, n, dotColor));
 
     // Boxes (under edges)
     for (var r = 0; r < n; r++) {
@@ -812,22 +835,54 @@ class _GridPainter extends CustomPainter {
         final color = _playerColor(owner);
         final cx = (c + 0.5) * step;
         final cy = (r + 0.5) * step;
-        final half = step * 0.42 * t;
+        final half = step * 0.44 * t;
         final rect = Rect.fromCenter(
           center: Offset(cx, cy),
           width: half * 2,
           height: half * 2,
         );
+        final rr = RRect.fromRectAndRadius(rect, Radius.circular(step * 0.10));
+        // A claimed box is a felt tile dropped into the square: a shadow under
+        // it, a tinted body, and a lit top-left edge.
         canvas.drawRRect(
-          RRect.fromRectAndRadius(rect, Radius.circular(step * 0.12)),
-          Paint()..color = color.withValues(alpha: 0.22 + 0.2 * t),
+          rr.shift(Offset(step * 0.012, step * 0.024)),
+          Paint()
+            ..color = Colors.black.withValues(alpha: 0.20 * t)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, step * 0.022),
+        );
+        canvas.drawRRect(
+          rr,
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color.withValues(alpha: (0.34 + 0.16 * t).clamp(0.0, 1.0)),
+                color.withValues(alpha: (0.20 + 0.14 * t).clamp(0.0, 1.0)),
+              ],
+            ).createShader(rect),
+        );
+        canvas.drawRRect(
+          rr.deflate(step * 0.008),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = step * 0.016
+            ..shader = LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withValues(alpha: 0.24 * t),
+                Colors.black.withValues(alpha: 0.16 * t),
+              ],
+            ).createShader(rect),
         );
         // Monogram
         final tp = TextPainter(
           text: TextSpan(
             text: state.playerIds.indexOf(owner) == 0 ? '1' : '2',
             style: TextStyle(
-              color: color.withValues(alpha: 0.85 * t),
+              color: Color.lerp(color, Colors.black, 0.35)!
+                  .withValues(alpha: 0.90 * t),
               fontWeight: FontWeight.w800,
               fontSize: step * 0.28,
             ),
@@ -841,16 +896,24 @@ class _GridPainter extends CustomPainter {
       }
     }
 
-    // Free edge guides (very subtle grid)
+    // Free edge guides — scored channels in the panel rather than floating
+    // grey bars, so an unclaimed edge reads as "nothing here yet".
     final guide = Paint()
       ..color = freeEdge
-      ..strokeWidth = stroke * 0.55
+      ..strokeWidth = stroke * 0.34
       ..strokeCap = StrokeCap.round;
+    final guideLip = Paint()
+      ..color = Colors.white.withValues(alpha: 0.42)
+      ..strokeWidth = stroke * 0.18
+      ..strokeCap = StrokeCap.round;
+    final lipOff = stroke * 0.20;
     for (var r = 0; r <= n; r++) {
       for (var c = 0; c < n; c++) {
         if (state.hEdges[r * n + c] != null) continue;
         final a = Offset(c * step, r * step);
         final b = Offset((c + 1) * step, r * step);
+        canvas.drawLine(
+            a.translate(0, lipOff), b.translate(0, lipOff), guideLip);
         canvas.drawLine(a, b, guide);
       }
     }
@@ -859,6 +922,8 @@ class _GridPainter extends CustomPainter {
         if (state.vEdges[r * (n + 1) + c] != null) continue;
         final a = Offset(c * step, r * step);
         final b = Offset(c * step, (r + 1) * step);
+        canvas.drawLine(
+            a.translate(lipOff, 0), b.translate(lipOff, 0), guideLip);
         canvas.drawLine(a, b, guide);
       }
     }
@@ -893,68 +958,265 @@ class _GridPainter extends CustomPainter {
       }
     }
 
-    // Claimed edges (stroke-in)
-    for (var r = 0; r <= n; r++) {
-      for (var c = 0; c < n; c++) {
-        final idx = r * n + c;
-        final owner = state.hEdges[idx];
-        if (owner == null) continue;
-        final t = Curves.easeOutCubic
-            .transform((edgeProgress['h:$idx'] ?? 1.0).clamp(0.0, 1.0));
-        final a = Offset(c * step, r * step);
-        final b = Offset((c + 1) * step, r * step);
-        final end = Offset.lerp(a, b, t)!;
+    // Claimed edges: a lacquered bar strung peg to peg. Shadow first (all of
+    // them), then bodies — otherwise a bar's shadow lands on its neighbour.
+    void bar(Offset a, Offset b, double t, Color color, bool shadowPass) {
+      final end = Offset.lerp(a, b, t)!;
+      final w = stroke * (0.92 + 0.26 * t);
+      if (shadowPass) {
         canvas.drawLine(
-          a,
-          end,
+          a.translate(stroke * 0.16, stroke * 0.26),
+          end.translate(stroke * 0.16, stroke * 0.26),
           Paint()
-            ..color = _playerColor(owner)
-            ..strokeWidth = stroke * (0.9 + 0.25 * t)
-            ..strokeCap = StrokeCap.round,
+            ..color = Colors.black.withValues(alpha: 0.30)
+            ..strokeWidth = w
+            ..strokeCap = StrokeCap.round
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, stroke * 0.22),
         );
+        return;
       }
+      final box = Rect.fromPoints(a, end).inflate(w);
+      canvas.drawLine(
+        a,
+        end,
+        Paint()
+          ..strokeWidth = w
+          ..strokeCap = StrokeCap.round
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.lerp(color, Colors.white, 0.34)!,
+              color,
+              Color.lerp(color, Colors.black, 0.30)!,
+            ],
+            stops: const [0.0, 0.5, 1.0],
+          ).createShader(box),
+      );
+      // Highlight bead along the lit edge — the bar is round in section.
+      canvas.drawLine(
+        a.translate(-w * 0.10, -w * 0.17),
+        end.translate(-w * 0.10, -w * 0.17),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.38)
+          ..strokeWidth = w * 0.24
+          ..strokeCap = StrokeCap.round,
+      );
     }
-    for (var r = 0; r < n; r++) {
-      for (var c = 0; c <= n; c++) {
-        final idx = r * (n + 1) + c;
-        final owner = state.vEdges[idx];
-        if (owner == null) continue;
-        final t = Curves.easeOutCubic
-            .transform((edgeProgress['v:$idx'] ?? 1.0).clamp(0.0, 1.0));
-        final a = Offset(c * step, r * step);
-        final b = Offset(c * step, (r + 1) * step);
-        final end = Offset.lerp(a, b, t)!;
-        canvas.drawLine(
-          a,
-          end,
-          Paint()
-            ..color = _playerColor(owner)
-            ..strokeWidth = stroke * (0.9 + 0.25 * t)
-            ..strokeCap = StrokeCap.round,
-        );
+
+    for (final shadowPass in const [true, false]) {
+      for (var r = 0; r <= n; r++) {
+        for (var c = 0; c < n; c++) {
+          final idx = r * n + c;
+          final owner = state.hEdges[idx];
+          if (owner == null) continue;
+          final t = Curves.easeOutCubic
+              .transform((edgeProgress['h:$idx'] ?? 1.0).clamp(0.0, 1.0));
+          bar(Offset(c * step, r * step), Offset((c + 1) * step, r * step), t,
+              _playerColor(owner), shadowPass);
+        }
+      }
+      for (var r = 0; r < n; r++) {
+        for (var c = 0; c <= n; c++) {
+          final idx = r * (n + 1) + c;
+          final owner = state.vEdges[idx];
+          if (owner == null) continue;
+          final t = Curves.easeOutCubic
+              .transform((edgeProgress['v:$idx'] ?? 1.0).clamp(0.0, 1.0));
+          bar(Offset(c * step, r * step), Offset(c * step, (r + 1) * step), t,
+              _playerColor(owner), shadowPass);
+        }
       }
     }
 
-    // Dots on top
+    // Pegs on top — brass studs standing proud of the panel, each with its own
+    // contact shadow so the bars visibly run underneath them.
     for (var r = 0; r <= n; r++) {
       for (var c = 0; c <= n; c++) {
-        final o = Offset(c * step, r * step);
-        canvas.drawCircle(
-          o,
-          dotR,
-          Paint()..color = Colors.white,
-        );
-        canvas.drawCircle(
-          o,
-          dotR * 0.78,
-          Paint()..color = dotColor,
-        );
+        _paintPeg(canvas, Offset(c * step, r * step), dotR, dotColor);
       }
     }
   }
 
   @override
   bool shouldRepaint(_GridPainter old) => true;
+}
+
+// ---------------------------------------------------------------------------
+// Pegs and panel
+// ---------------------------------------------------------------------------
+
+/// One peg: a turned stud sunk into the panel. Light is upper-left, matching
+/// the bars, the box tiles and the panel's own bevel.
+void _paintPeg(Canvas canvas, Offset c, double r, Color color) {
+  // Contact shadow on the panel.
+  canvas.drawCircle(
+    c.translate(r * 0.16, r * 0.26),
+    r * 0.98,
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.32)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.28),
+  );
+  // Collar: the washer the peg is seated in.
+  canvas.drawCircle(
+    c,
+    r,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color.lerp(color, Colors.white, 0.18)!,
+          Color.lerp(color, Colors.black, 0.45)!,
+        ],
+      ).createShader(Rect.fromCircle(center: c, radius: r)),
+  );
+  // Head.
+  final head = Rect.fromCircle(center: c, radius: r * 0.80);
+  canvas.drawCircle(
+    c,
+    r * 0.80,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.42, -0.48),
+        radius: 1.05,
+        colors: [
+          Color.lerp(color, Colors.white, 0.72)!,
+          Color.lerp(color, Colors.white, 0.22)!,
+          Color.lerp(color, Colors.black, 0.18)!,
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(head),
+  );
+  // Specular pip.
+  canvas.drawCircle(
+    c.translate(-r * 0.30, -r * 0.34),
+    r * 0.22,
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.65)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.12),
+  );
+}
+
+/// Deterministic 0..1 value hash — procedural panel texture, no assets, stable
+/// across rebuilds so the cached picture never shimmers.
+double _hash2(int x, int y) {
+  var h = x * 374761393 + y * 668265263;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) & 0xFFFF) / 65535.0;
+}
+
+void _paintPanel(Canvas canvas, Size size, int n, Color dotColor) {
+  final step = size.width / n;
+  // The panel bleeds past the peg grid — the board widget pads around it, and
+  // the material should run under that padding rather than stop at the pegs.
+  final panel = Rect.fromLTWH(0, 0, size.width, size.height)
+      .inflate(step * 0.62);
+
+  // Pressed-board speckle: dense, tiny, low contrast. This is the whole reason
+  // the surface stops reading as blank paper.
+  canvas.save();
+  canvas.clipRect(panel);
+  final fleck = Paint();
+  final k = (size.width / 3.2).round().clamp(40, 140);
+  for (var i = 0; i < k; i++) {
+    for (var j = 0; j < k; j++) {
+      final h = _hash2(i, j);
+      if (h < 0.52) continue;
+      fleck.color = (h > 0.80 ? Colors.white : const Color(0xFF6B5B44))
+          .withValues(alpha: 0.045 + 0.11 * (h - 0.52) / 0.48);
+      canvas.drawCircle(
+        Offset(
+          panel.left + (i + _hash2(i, j + 37)) / k * panel.width,
+          panel.top + (j + _hash2(i + 19, j)) / k * panel.height,
+        ),
+        size.width * (0.0014 + 0.0016 * _hash2(j, i)),
+        fleck,
+      );
+    }
+  }
+
+  // Drilled seats: every peg sits in a countersunk hole, so the panel shows a
+  // ring of shadow around each one even before the peg is drawn.
+  for (var r = 0; r <= n; r++) {
+    for (var c = 0; c <= n; c++) {
+      final o = Offset(c * step, r * step);
+      canvas.drawCircle(
+        o,
+        size.width * 0.040,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = size.width * 0.014
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.black.withValues(alpha: 0.16),
+              Colors.white.withValues(alpha: 0.30),
+            ],
+          ).createShader(
+              Rect.fromCircle(center: o, radius: size.width * 0.045)),
+      );
+    }
+  }
+
+  // One light across the panel, plus a vignette so the stock has a centre.
+  canvas.drawRect(
+    panel,
+    Paint()
+      ..shader = LinearGradient(
+        begin: const Alignment(-1, -1.3),
+        end: const Alignment(0.8, 1),
+        colors: [
+          Colors.white.withValues(alpha: 0.26),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.10),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(panel),
+  );
+  canvas.drawRect(
+    panel,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.2, -0.25),
+        radius: 0.95,
+        colors: [
+          Colors.white.withValues(alpha: 0.10),
+          Colors.black.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.13),
+        ],
+        stops: const [0.0, 0.55, 1.0],
+      ).createShader(panel),
+  );
+  canvas.restore();
+}
+
+class _PanelCache {
+  final double w;
+  final int n;
+  final int dot;
+  final ui.Picture picture;
+  const _PanelCache(this.w, this.n, this.dot, this.picture);
+}
+
+final List<_PanelCache> _panels = [];
+
+ui.Picture _panelFor(Size size, int n, Color dotColor) {
+  for (final p in _panels) {
+    if (p.w == size.width && p.n == n && p.dot == dotColor.toARGB32()) {
+      return p.picture;
+    }
+  }
+  final recorder = ui.PictureRecorder();
+  _paintPanel(Canvas(recorder), size, n, dotColor);
+  final made =
+      _PanelCache(size.width, n, dotColor.toARGB32(), recorder.endRecording());
+  _panels.insert(0, made);
+  while (_panels.length > 2) {
+    _panels.removeLast().picture.dispose();
+  }
+  return made.picture;
 }
 
 // ---------------------------------------------------------------------------

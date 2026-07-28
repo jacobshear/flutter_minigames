@@ -57,6 +57,19 @@ class LiveBall {
   /// True once it has passed down through the hoop.
   bool made = false;
 
+  /// True once this ball has touched the iron or the glass.
+  ///
+  /// The make test is purely geometric and never asks this — it must not, or
+  /// the tuning changes. It exists so the *presentation* can tell the two kinds
+  /// of made shot apart: a ball that dropped without touching anything whips
+  /// the net one way, a ball that rattled round the ring and fell in another,
+  /// and firing the same animation and the same sample for both is what makes a
+  /// scoring game feel like it is not watching.
+  bool touchedIron = false;
+
+  /// A make that touched nothing on the way in.
+  bool get swish => made && !touchedIron;
+
   /// True once it has stopped rolling.
   bool atRest = false;
 
@@ -242,7 +255,7 @@ class BasketballRoundSim {
     for (final ball in live) {
       ball.age += dt;
       if (ball.netWobble > 0) {
-        ball.netWobble = (ball.netWobble - dt * 2.4).clamp(0.0, 1.0);
+        ball.netWobble = (ball.netWobble - dt * 1.9).clamp(0.0, 1.0);
       }
       if (ball.atRest) {
         ball.restAge += dt;
@@ -271,7 +284,11 @@ class BasketballRoundSim {
           BasketballCourt.makeRadius,
         )) {
       ball.made = true;
-      ball.netWobble = 1;
+      // A clean drop hits the cords at full speed and snaps them; a ball that
+      // has already spent its pace bouncing round the ring pushes through with
+      // much less. Same animation, different amplitude — which is the whole
+      // difference between a swish and a rattle-in on screen.
+      ball.netWobble = ball.touchedIron ? 0.62 : 1.0;
       makes++;
       onHit?.call(
         BasketballHit(BasketballHitKind.made, body.velocity.length, ball),
@@ -286,7 +303,8 @@ class BasketballRoundSim {
       );
       if (normal != null) {
         final impact = body.velocity.length;
-        body.bounce(normal, restitution: 0.5, friction: 0.22);
+        ball.touchedIron = true;
+        body.bounce(normal, restitution: 0.44, friction: 0.30);
         onHit?.call(BasketballHit(BasketballHitKind.rim, impact, ball));
       } else {
         const half = BasketballCourt.backboardWidth / 2;
@@ -302,6 +320,7 @@ class BasketballRoundSim {
         );
         if (t != null) {
           final impact = body.velocity.length;
+          ball.touchedIron = true;
           body.position = Vec3(to.x, to.y, boardZ);
           body.bounce(const Vec3(0, 0, -1), restitution: 0.42, friction: 0.15);
           onHit?.call(

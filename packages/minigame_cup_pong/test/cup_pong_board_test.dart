@@ -88,6 +88,45 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets(
+      'the drop/removal animation runs its full duration without altering '
+      'the recorded outcome', (tester) async {
+    final c = await _controller(LocalTransport());
+    await tester.pumpWidget(_host(c));
+    await tester.pump();
+
+    final start =
+        tester.getCenter(find.byType(CupPongBoard)) + const Offset(0, 180);
+    final gesture = await tester.startGesture(start);
+    for (var i = 0; i < 8; i++) {
+      await gesture.moveBy(const Offset(0, -22));
+      await tester.pump(const Duration(milliseconds: 12));
+    }
+    await gesture.up();
+    await _settle(tester);
+
+    // Whatever the sim decided, it is decided: the board submits once and the
+    // ball-in-the-cup animation, the splash and the cup's removal are all
+    // purely visual over it. Pumping through every one of them — well past the
+    // 0.40 s drop and the 0.85 s removal — must not move a single number.
+    final afterResolve = c.state!;
+    final throws = afterResolve.throws;
+    final cups = {
+      for (final p in afterResolve.playerIds) p: afterResolve.remainingOf(p),
+    };
+    for (var i = 0; i < 120; i++) {
+      await tester.pump(const Duration(milliseconds: 32));
+    }
+    expect(c.state!.throws, throws,
+        reason: 'the animation must not resubmit or replay the throw');
+    for (final p in c.state!.playerIds) {
+      expect(c.state!.remainingOf(p), cups[p]);
+    }
+    expect(tester.takeException(), isNull);
+
+    await _unmount(tester);
+  });
+
   testWidgets('a downward drag never throws', (tester) async {
     final c = await _controller(LocalTransport());
     await tester.pumpWidget(_host(c));

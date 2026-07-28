@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -328,21 +329,24 @@ class _FillerBoardState extends State<FillerBoard>
 
         final grid = AspectRatio(
           aspectRatio: FillerState.cols / FillerState.rows,
-          child: Container(
-            padding: const EdgeInsets.all(7),
+          child: DecoratedBox(
             decoration: BoxDecoration(
-              color: slab,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.30),
-                  offset: const Offset(0, 5),
-                  blurRadius: 12,
+                  color: Colors.black.withValues(alpha: 0.34),
+                  offset: const Offset(0, 6),
+                  blurRadius: 14,
                 ),
               ],
             ),
+            child: Padding(
+            padding: const EdgeInsets.all(9),
             child: Stack(
               children: [
+                Positioned.fill(
+                  child: CustomPaint(painter: _TrayPainter(slab)),
+                ),
                 Positioned.fill(
                   child: CustomPaint(
                     painter: _FillerGridPainter(frame: frame),
@@ -365,7 +369,7 @@ class _FillerBoardState extends State<FillerBoard>
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 220),
                         child: pillMsg == null
-                            ? const SizedBox.shrink()
+                            ? const SizedBox.shrink(key: ValueKey('pill-empty'))
                             : Container(
                                 key: ValueKey(pillMsg),
                                 padding: const EdgeInsets.symmetric(
@@ -393,25 +397,15 @@ class _FillerBoardState extends State<FillerBoard>
                 ),
               ],
             ),
+            ),
           ),
         );
 
         // Felt table the grid + swatches sit on. Player 2's chip hugs the
         // top-right, Player 1's the bottom-left — mirroring the start corners.
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        return DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(26),
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.35),
-              radius: 1.5,
-              colors: [
-                Color.lerp(table, Colors.white, 0.07)!,
-                table,
-                Color.lerp(table, Colors.black, 0.26)!,
-              ],
-              stops: const [0.0, 0.45, 1.0],
-            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.18),
@@ -420,6 +414,12 @@ class _FillerBoardState extends State<FillerBoard>
               ),
             ],
           ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: CustomPaint(
+              painter: _FeltPainter(table),
+              child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Transform.scale(
             scale: 0.94 + 0.06 * enter,
             child: Opacity(
@@ -474,6 +474,9 @@ class _FillerBoardState extends State<FillerBoard>
               ),
             ),
           ),
+              ),
+            ),
+          ),
         );
       },
     );
@@ -492,6 +495,72 @@ class _GridFrame {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Materials
+//
+// One committed light: a soft key from the upper left. Filler is the one game
+// here where colour identity is the whole read, so the tile material is built
+// only from *neutral* light — a white lift up-left and a black fall down-right,
+// identical for every colour. Hue and saturation are never touched, so no two
+// palette colours can drift toward each other.
+// ---------------------------------------------------------------------------
+
+const Offset _kLight = Offset(-0.38, -0.45);
+
+/// Deterministic hash in `[0, 1)` — no `Random` anywhere in painting.
+double _noise(int x, int y, int seed) {
+  var n = (x * 374761393) ^ (y * 668265263) ^ (seed * 1274126177);
+  n = (n ^ (n >> 13)) * 1274126177;
+  n = n ^ (n >> 16);
+  return (n & 0x3fffffff) / 0x3fffffff;
+}
+
+/// Body and bevel shaders for one tile size + colour, built in tile-local
+/// coordinates so the grid painter can reuse six of them per frame instead of
+/// allocating a shader per cell.
+class _TileMaterial {
+  final ui.Shader body;
+  final ui.Shader bevel;
+
+  const _TileMaterial(this.body, this.bevel);
+}
+
+final Map<int, _TileMaterial> _tileMaterials = {};
+
+_TileMaterial _tileMaterialFor(double w, double h, Color color) {
+  // ignore: deprecated_member_use
+  final key = Object.hash(w.round(), h.round(), color.value);
+  final cached = _tileMaterials[key];
+  if (cached != null) return cached;
+  final local = Rect.fromLTWH(0, 0, w, h);
+  final made = _TileMaterial(
+    // Matte moulded tile: a shallow neutral ramp, brightest at the key corner.
+    LinearGradient(
+      begin: Alignment(_kLight.dx * 2.4, _kLight.dy * 2.2),
+      end: Alignment(-_kLight.dx * 2.4, -_kLight.dy * 2.2),
+      colors: [
+        Color.lerp(color, Colors.white, 0.13)!,
+        color,
+        Color.lerp(color, Colors.black, 0.15)!,
+      ],
+      stops: const [0.0, 0.52, 1.0],
+    ).createShader(local),
+    // Moulded lip: lit where the key strikes it, shaded on the far side.
+    LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withValues(alpha: 0.34),
+        Colors.white.withValues(alpha: 0.05),
+        Colors.black.withValues(alpha: 0.22),
+      ],
+    ).createShader(local),
+  );
+  if (_tileMaterials.length > 24) _tileMaterials.clear();
+  _tileMaterials[key] = made;
+  return made;
+}
+
 class _FillerGridPainter extends CustomPainter {
   final _GridFrame frame;
 
@@ -501,40 +570,212 @@ class _FillerGridPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final cellW = size.width / FillerState.cols;
     final cellH = size.height / FillerState.rows;
-    final gap = math.min(cellW, cellH) * 0.075;
+    final gap = math.min(cellW, cellH) * 0.085;
+    final tw = cellW - gap;
+    final th = cellH - gap;
     final radius = Radius.circular(math.min(cellW, cellH) * 0.22);
-    final paint = Paint();
+    final local = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, tw, th), radius);
+    final lip = math.max(0.7, math.min(tw, th) * 0.055);
+    final bodyPaint = Paint();
+    final bevelPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = lip;
+    final flashPaint = Paint();
+    final shadowPaint = Paint()..color = Colors.black.withValues(alpha: 0.32);
+    final drop = Offset(-_kLight.dx * lip * 1.6, -_kLight.dy * lip * 1.6);
 
     for (var i = 0; i < FillerState.cellCount; i++) {
       final r = FillerState.rowOf(i);
       final c = FillerState.colOf(i);
-      final rect = Rect.fromLTWH(
-        c * cellW + gap / 2,
-        r * cellH + gap / 2,
-        cellW - gap,
-        cellH - gap,
-      );
       final scale = frame.popScale?[i] ?? 1;
-      final drawRect = scale == 1
-          ? rect
-          : Rect.fromCenter(
-              center: rect.center,
-              width: rect.width * scale,
-              height: rect.height * scale,
-            );
-      paint.color = frame.colors[i];
-      canvas.drawRRect(RRect.fromRectAndRadius(drawRect, radius), paint);
+      final color = frame.colors[i];
+      final mat = _tileMaterialFor(tw, th, color);
+
+      canvas.save();
+      canvas.translate(c * cellW + gap / 2, r * cellH + gap / 2);
+      if (scale != 1) {
+        canvas.translate(tw / 2, th / 2);
+        canvas.scale(scale);
+        canvas.translate(-tw / 2, -th / 2);
+      }
+      // Contact shadow onto the tray, pushed away from the key.
+      canvas.drawRRect(local.shift(drop), shadowPaint);
+      bodyPaint.shader = mat.body;
+      canvas.drawRRect(local, bodyPaint);
+      bevelPaint.shader = mat.bevel;
+      canvas.drawRRect(local.deflate(lip / 2), bevelPaint);
       final flash = frame.flash?[i] ?? 0;
       if (flash > 0) {
-        paint.color = Colors.white.withValues(alpha: flash);
-        canvas.drawRRect(RRect.fromRectAndRadius(drawRect, radius), paint);
-        paint.color = frame.colors[i];
+        flashPaint.color = Colors.white.withValues(alpha: flash);
+        canvas.drawRRect(local, flashPaint);
       }
+      canvas.restore();
     }
   }
 
   @override
   bool shouldRepaint(_FillerGridPainter oldDelegate) => true;
+}
+
+/// The recessed tray the tiles sit in: a machined dark panel with a lip that
+/// is shaded where the key strikes it and lit on the far side, because the
+/// well is *below* the surrounding frame.
+class _TrayPainter extends CustomPainter {
+  final Color slab;
+
+  const _TrayPainter(this.slab);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final outer = Rect.fromLTWH(-9, -9, size.width + 18, size.height + 18);
+    final frame = RRect.fromRectAndRadius(outer, const Radius.circular(16));
+    canvas.drawRRect(
+      frame,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(slab, Colors.white, 0.16)!,
+            slab,
+            Color.lerp(slab, Colors.black, 0.45)!,
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(outer),
+    );
+    // Outer lip of the frame: lit up-left, dark down-right.
+    canvas.drawRRect(
+      frame.deflate(1),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.22),
+            Colors.white.withValues(alpha: 0.02),
+            Colors.black.withValues(alpha: 0.35),
+          ],
+        ).createShader(outer),
+    );
+    // The playfield is routed into the frame, so its lip reverses.
+    final well = Rect.fromLTWH(-3, -3, size.width + 6, size.height + 6);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(well, const Radius.circular(10)),
+      Paint()
+        ..color = Color.lerp(slab, Colors.black, 0.30)!,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(well, const Radius.circular(10)).deflate(1.2),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.black.withValues(alpha: 0.55),
+            Colors.black.withValues(alpha: 0.12),
+            Colors.white.withValues(alpha: 0.10),
+          ],
+        ).createShader(well),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_TrayPainter old) => old.slab != slab;
+}
+
+// ---------------------------------------------------------------------------
+// Felt table
+// ---------------------------------------------------------------------------
+
+class _FeltCache {
+  final double w;
+  final double h;
+  final int felt;
+  final ui.Picture picture;
+
+  _FeltCache(this.w, this.h, this.felt, this.picture);
+
+  bool matches(Size s, Color f) =>
+      w == s.width &&
+      h == s.height &&
+      // ignore: deprecated_member_use
+      felt == f.value;
+}
+
+final List<_FeltCache> _felts = [];
+
+/// Napped felt: a lit wash from the key, a deterministic fibre speckle, and a
+/// vignette that seats the panel in the surrounding dark.
+class _FeltPainter extends CustomPainter {
+  final Color felt;
+
+  const _FeltPainter(this.felt);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final f in _felts) {
+      if (f.matches(size, felt)) {
+        canvas.drawPicture(f.picture);
+        return;
+      }
+    }
+    final recorder = ui.PictureRecorder();
+    _record(Canvas(recorder), size);
+    final made = _FeltCache(
+      size.width,
+      size.height,
+      // ignore: deprecated_member_use
+      felt.value,
+      recorder.endRecording(),
+    );
+    _felts.insert(0, made);
+    while (_felts.length > 3) {
+      _felts.removeLast().picture.dispose();
+    }
+    canvas.drawPicture(made.picture);
+  }
+
+  void _record(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(_kLight.dx, _kLight.dy),
+          radius: 1.35,
+          colors: [
+            Color.lerp(felt, Colors.white, 0.10)!,
+            felt,
+            Color.lerp(felt, Colors.black, 0.34)!,
+          ],
+          stops: const [0.0, 0.42, 1.0],
+        ).createShader(rect),
+    );
+    final nap = Paint()
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+    final cols = (size.width / 5).ceil();
+    final rows = (size.height / 5).ceil();
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        final j = _noise(x, y, 7);
+        if (j < 0.45) continue;
+        final k = _noise(x, y, 19);
+        nap.color = (j > 0.78 ? Colors.white : Colors.black)
+            .withValues(alpha: 0.012 + k * 0.016);
+        final px = x * 5.0 + k * 5;
+        final py = y * 5.0 + j * 5;
+        canvas.drawLine(Offset(px, py), Offset(px + 1.6 + k, py + 0.8), nap);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FeltPainter old) => old.felt != felt;
 }
 
 /// GP-style score chip: territory-color dot, name, big count.
@@ -643,20 +884,31 @@ class _SwatchState extends State<_Swatch> {
           child: AspectRatio(
             aspectRatio: 1,
             child: DecoratedBox(
+              // Same moulded-tile material as the grid, so the swatches read
+              // as the pieces you are about to place rather than flat chips.
               decoration: BoxDecoration(
-                color: widget.color,
+                gradient: LinearGradient(
+                  begin: Alignment(_kLight.dx * 2.4, _kLight.dy * 2.2),
+                  end: Alignment(-_kLight.dx * 2.4, -_kLight.dy * 2.2),
+                  colors: [
+                    Color.lerp(widget.color, Colors.white, 0.13)!,
+                    widget.color,
+                    Color.lerp(widget.color, Colors.black, 0.15)!,
+                  ],
+                  stops: const [0.0, 0.52, 1.0],
+                ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: Colors.white.withValues(
-                    alpha: widget.enabled ? 0.55 : 0.10,
+                    alpha: widget.enabled ? 0.34 : 0.08,
                   ),
                   width: 1.6,
                 ),
                 boxShadow: widget.enabled
                     ? [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.25),
-                          offset: const Offset(0, 3),
+                          color: Colors.black.withValues(alpha: 0.32),
+                          offset: const Offset(2, 3),
                           blurRadius: 6,
                         ),
                       ]

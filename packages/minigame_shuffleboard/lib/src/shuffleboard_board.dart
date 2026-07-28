@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:forge2d/forge2d.dart' show Vector2;
 import 'package:minigames_core/minigames_core.dart';
 import 'package:minigames_flame/minigames_flame.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'shuffleboard_game.dart';
 import 'shuffleboard_style.dart';
@@ -45,8 +46,14 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
   ShuffleboardState? _state;
   GameOutcome? _outcome;
 
-  String _pill = '';
-  Timer? _pillTimer;
+  // The transient centre message. Held as plain fields and handed to a single
+  // GameNotice, which owns the animation and the retract timer — the board no
+  // longer runs a Timer of its own, and repeating the same text (two "+8"s in a
+  // row is ordinary play) can never collide with its own outgoing copy.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.info;
+  Color? _noticeAccent;
+  bool _noticeSticky = false;
   bool _celebrated = false;
 
   // Assigned in initState — NOT a `late` inline initializer. A `late` field
@@ -92,34 +99,38 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
       ..onAimChanged = () => setState(() {});
     _scene = scene;
     _celebrated = false;
-    _pill = '';
+    _clearNotice();
     _confetti = const [];
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
     if (s != null) {
       scene.applyState(s, _actingFor(s));
-      if (_outcome != null) {
-        _celebrated = true;
-      } else {
-        _showPill('${_labelFor(s.currentPlayerId)}’s slide');
-      }
+      // Whose slide it is is a standing fact, not an event: it lives in the
+      // header GamePill, so binding announces nothing.
+      if (_outcome != null) _celebrated = true;
     }
     _sub = widget.controller.stateStream.listen(_onState);
   }
 
-  /// Sets the centre pill. Transient pills (a shot result, whose-turn-it-is)
-  /// auto-clear after a few seconds; the win/draw pill is [sticky] and stays.
-  /// Assigns synchronously — callers own the surrounding setState.
-  void _showPill(String text, {bool sticky = false}) {
-    _pillTimer?.cancel();
-    _pill = text;
-    if (!sticky && text.isNotEmpty) {
-      _pillTimer = Timer(const Duration(seconds: 3), () {
-        if (!mounted) return;
-        setState(() => _pill = '');
-      });
-    }
+  /// Raises the centre notice. Assigns synchronously — callers own the
+  /// surrounding setState. [sticky] keeps it up (the win); everything else
+  /// retracts itself via [GameNotice.autoDismiss].
+  void _showNotice(
+    String text, {
+    GameNoticeTone tone = GameNoticeTone.info,
+    Color? accent,
+    bool sticky = false,
+  }) {
+    _notice = text;
+    _noticeTone = tone;
+    _noticeAccent = accent;
+    _noticeSticky = sticky;
+  }
+
+  void _clearNotice() {
+    _notice = null;
+    _noticeSticky = false;
   }
 
   String _actingFor(ShuffleboardState s) =>
@@ -128,7 +139,6 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
   @override
   void dispose() {
     _sub?.cancel();
-    _pillTimer?.cancel();
     _confettiCtrl.dispose();
     super.dispose();
   }
@@ -141,20 +151,39 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
     if (!mounted) return;
     widget.style.sounds.onLaunch?.call();
     if (widget.style.haptics) HapticFeedback.mediumImpact();
-    setState(() => _showPill(''));
+    setState(_clearNotice);
   }
 
   Duration _lastClack = Duration.zero;
+  double _lastClackStrength = 0;
   final Stopwatch _clock = Stopwatch()..start();
 
-  void _onCollision() {
+  /// A puck-on-puck contact, [strength] 0..1 scaled by closing speed.
+  ///
+  /// The sound hook takes no arguments (the host app owns the SFX bank), so the
+  /// weight of an impact is carried by *what* fires rather than how loud: a
+  /// graze is silent, a nudge clicks, a solid hit thumps. The haptic steps up
+  /// with the same curve, which is what actually sells the hit on device.
+  void _onCollision(double strength) {
     if (!mounted) return;
-    // Throttle: a single contact can report many times per settle.
+    if (strength < 0.06) return; // a graze, not a hit
+    // Throttle: one contact can report many times per settle. A noticeably
+    // harder hit still gets through — otherwise the loudest moment of a break
+    // is the one that gets swallowed.
     final now = _clock.elapsed;
-    if (now - _lastClack < const Duration(milliseconds: 70)) return;
+    final tooSoon = now - _lastClack < const Duration(milliseconds: 70);
+    if (tooSoon && strength < _lastClackStrength + 0.25) return;
     _lastClack = now;
+    _lastClackStrength = strength;
     widget.style.sounds.onCollision?.call();
-    if (widget.style.haptics) HapticFeedback.selectionClick();
+    if (!widget.style.haptics) return;
+    if (strength > 0.55) {
+      HapticFeedback.mediumImpact();
+    } else if (strength > 0.25) {
+      HapticFeedback.lightImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
   }
 
   void _onSlideSettled(ShuffleboardMove move, PuckStatus status, int value) {
@@ -167,15 +196,31 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
       style.sounds.onFoul?.call();
       if (style.haptics) HapticFeedback.selectionClick();
     }
-    final shotPill = switch (status) {
-      PuckStatus.inZone => '+$value',
-      PuckStatus.offEnd => 'Off the end!',
-      PuckStatus.foul => 'Foul',
-      PuckStatus.onBoard => 'On the board',
+    // The seat that actually took this slide — read before submitMove, which
+    // can hand the turn over synchronously.
+    final shooter = _state?.currentPlayerId;
+    final (text, tone) = switch (status) {
+      PuckStatus.inZone when value > 0 => (
+          '+$value ${value == 1 ? 'POINT' : 'POINTS'}',
+          GameNoticeTone.score,
+        ),
+      PuckStatus.inZone => ('IN THE ZONE', GameNoticeTone.info),
+      PuckStatus.offEnd => ('OFF THE END', GameNoticeTone.warn),
+      PuckStatus.foul => ('FOUL', GameNoticeTone.warn),
+      PuckStatus.onBoard => ('ON THE BOARD', GameNoticeTone.info),
     };
     // Submit the settled outcome as the move.
     widget.controller.submitMove(move);
-    if (mounted) setState(() => _showPill(shotPill));
+    if (!mounted) return;
+    setState(() => _showNotice(
+          text,
+          tone: tone,
+          // A score wears the shooter's colour, so the notice says who as well
+          // as what; a refusal keeps the warn red.
+          accent: tone == GameNoticeTone.score && shooter != null
+              ? _accentFor(shooter)
+              : null,
+        ));
   }
 
   void _onState(ShuffleboardState next) {
@@ -193,10 +238,11 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
 
     if (outcome != null && !_celebrated) {
       _celebrate(outcome, next);
-    } else if (outcome == null) {
-      // Announce whose slide is up next (only if we didn't just set a shot pill
-      // via _onSlideSettled in the same frame — that pill wins for a beat).
-      if (isFresh) _showPill('${_labelFor(next.currentPlayerId)}’s slide');
+    } else if (outcome == null && isFresh) {
+      // New game: drop whatever the last match ended on. Whose slide it is
+      // reads off the header pill, so there is nothing to announce.
+      _celebrated = false;
+      _clearNotice();
     }
 
     setState(() {
@@ -214,10 +260,11 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
       style.sounds.onWin?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    _showPill(
+    _showNotice(
       outcome.isDraw
           ? 'DRAW'
-          : '${_labelFor(outcome.winnerId!)} wins'.toUpperCase(),
+          : '${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
+      tone: outcome.isDraw ? GameNoticeTone.info : GameNoticeTone.win,
       sticky: true,
     );
     if (style.confetti && !outcome.isDraw) {
@@ -281,6 +328,16 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
         : widget.style.player2Label;
   }
 
+  /// Seat colour, resolved against the cached scheme so callbacks off the
+  /// build path can use it too.
+  Color _accentFor(String playerId) {
+    final s = _state;
+    final isP1 = s == null || playerId == s.playerIds.first;
+    return isP1
+        ? widget.style.resolvePlayer1(_scheme)
+        : widget.style.resolvePlayer2(_scheme);
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -321,17 +378,36 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
       ),
       child: Column(
         children: [
-          // Far player (top).
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _PlayerChip(
-              label: _labelFor(p2),
-              score: state.scoreOf(p2),
-              remaining: state.remainingOf(p2),
-              accent: style.resolvePlayer2(scheme),
-              active: _outcome == null && state.currentPlayerId == p2,
-              winner: _outcome?.winnerId == p2,
-            ),
+          // Far player (top), and the standing "whose slide" pill beside it.
+          // Turn is a fact, not an event: it sits here permanently instead of
+          // flashing across the lane for three seconds and leaving.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _PlayerChip(
+                label: _labelFor(p2),
+                score: state.scoreOf(p2),
+                remaining: state.remainingOf(p2),
+                accent: style.resolvePlayer2(scheme),
+                active: _outcome == null && state.currentPlayerId == p2,
+                winner: _outcome?.winnerId == p2,
+              ),
+              const SizedBox(width: 8),
+              // No Spacer here: a Spacer is a flex-1 Expanded, so it split the
+              // free width with the pill and left it ellipsising its own
+              // player name. spaceBetween does the same job for free.
+              Flexible(
+                child: GamePill(
+                  text: _outcome == null
+                      ? '${_labelFor(state.currentPlayerId)}’s slide'
+                      : 'Match over',
+                  accent: _outcome == null
+                      ? _accentFor(state.currentPlayerId)
+                      : null,
+                  dot: _outcome == null,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           // Flex to the height we're given so the whole game fits on screen —
@@ -377,11 +453,14 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
                     Positioned.fill(
                       child: IgnorePointer(
                         child: Center(
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 220),
-                            child: _pill.isEmpty
-                                ? const SizedBox.shrink()
-                                : _Pill(key: ValueKey(_pill), text: _pill),
+                          child: GameNotice(
+                            message: _notice,
+                            tone: _noticeTone,
+                            accent: _noticeAccent,
+                            strong: _noticeSticky,
+                            autoDismiss: _noticeSticky
+                                ? null
+                                : const Duration(milliseconds: 1700),
                           ),
                         ),
                       ),
@@ -491,18 +570,37 @@ class ShuffleboardScene extends FlameGame {
   /// extreme left/right start. Also the slider's min / (1 - max) bound.
   static const double startEdgeInset = puckR / tableW;
 
-  // Tuned so a full-power flick clears the whole lane (overshoot is possible)
-  // and the far 3-point band is reachable at roughly half-to-two-thirds power.
+  // Power mapping. Measured against the sim (see the tuning note on
+  // [_glideFriction]): with the friction model below, an impulse of 14 is the
+  // point where a straight slide just runs off the far lip, so mapping full
+  // drag to 14 spends the *whole* drag range on outcomes the player wants —
+  // foul → on-board → 1 → 2 → 3 → off the end. The old maxImpulse of 20 threw
+  // away the top 40% of the drag (everything above ~0.6 power was "off the
+  // end"), which is what made hard shots feel unreadable.
   static const _aim = AimToImpulse(
     maxDrag: 200,
-    maxImpulse: 20,
-    minImpulse: 3.5,
+    maxImpulse: 14,
+    minImpulse: 4,
     deadZone: 10,
   );
 
   // Lower linear damping than the harness default (1.7) so the disc carries far
   // enough down a 13-unit lane to reach the far scoring bands.
-  static const _simConfig = TableSimConfig(linearDamping: 1.15);
+  static const _simConfig = TableSimConfig(linearDamping: 0.95);
+
+  /// Constant deceleration (world units/s²) applied on top of Forge2D's viscous
+  /// [TableSimConfig.linearDamping], i.e. Coulomb friction — the wax-and-sand
+  /// kind, which takes a fixed bite out of speed per second instead of a
+  /// fraction of it.
+  ///
+  /// Why: pure viscous damping decays exponentially, so a puck never actually
+  /// stops — it creeps. Measured on the old constants, every single slide took
+  /// **4.2–5.2 s** to trip the settle threshold, most of it spent crawling the
+  /// last half-unit. With this term the same shots settle in 1.6–2.7 s and,
+  /// more importantly, the last moment of travel is a definite stop rather than
+  /// an asymptote. [_simConfig] damping was dropped 1.15 → 0.95 so the reachable
+  /// distance stays in the same ballpark.
+  static const double _glideFriction = 1.6;
 
   late TableSimulation _sim;
   ShuffleboardState? _state;
@@ -514,9 +612,24 @@ class ShuffleboardScene extends FlameGame {
   // Off-the-far-end fall animation: purely visual, decoupled from the (trusted)
   // physics. When a disc is removed at the edge we spawn a [_Falling] that
   // tumbles over the lip; scoring already treated it as off-end.
-  static const double _fallDuration = 0.5;
+  static const double _fallDuration = kShuffleboardFallDuration;
   final List<_Falling> _falling = [];
   final Set<String> _fellIds = {};
+
+  // Slide spin: a puck that only translates reads as gliding on rails. Each
+  // disc integrates a facing angle from how far it has travelled, and the
+  // painter turns its cap markings through it.
+  final Map<String, SlideSpin> _spin = {};
+  final Map<String, Vector2> _lastPos = {};
+
+  // Contact rings — a short expanding pulse at the point of impact so a hit
+  // lands as a beat rather than an instantaneous change of direction.
+  static const double _impactDuration = 0.3;
+
+  /// Closing speed that reads as a full-strength hit. A full-power slide leaves
+  /// the hand at roughly 16 units/s, so a head-on strike at speed saturates.
+  static const double _impactReferenceSpeed = 12;
+  final List<_Impact> _impacts = [];
 
   /// Where the current shooter starts across the lane (0 = left rail,
   /// 1 = right rail). Reset to centre for every new slide; the below-board
@@ -528,7 +641,9 @@ class ShuffleboardScene extends FlameGame {
   Offset? _aimNow;
 
   void Function()? onLaunch;
-  void Function()? onCollision;
+
+  /// Puck-on-puck contact, with a 0..1 strength from the closing speed.
+  void Function(double strength)? onCollision;
   void Function()? onAimChanged;
   void Function(ShuffleboardMove move, PuckStatus status, int value)? onSettled;
 
@@ -555,7 +670,7 @@ class ShuffleboardScene extends FlameGame {
           d.position.x < -tableW / 2 ||
           d.position.x > tableW / 2,
     )
-      ..onDiscCollision = ((_, __) => onCollision?.call())
+      ..onDiscCollision = _handleContact
       ..onSettled = _handleSettled;
     // Only the near end (bottom, the shooter's baseline) is walled; the far end
     // and both sides are open so discs can slide off them.
@@ -603,11 +718,18 @@ class ShuffleboardScene extends FlameGame {
     _accum = 0;
     _startNx = 0.5; // every new slide starts centred
     _sim = _buildSim(state, acting);
+    // Discs are re-seated from state here, so drop the roll baseline — the jump
+    // from the old pose to the new one must not be integrated as travel. The
+    // accumulated facing itself carries over, so a puck keeps the orientation
+    // it came to rest at.
+    _lastPos.clear();
     // A fresh match (New game) starts with a clean slate; mid-match rebuilds
     // keep any in-flight fall animating across the settle→rebuild.
     if (state.pucks.isEmpty && state.frame == 0) {
       _falling.clear();
       _fellIds.clear();
+      _spin.clear();
+      _impacts.clear();
     }
   }
 
@@ -686,17 +808,70 @@ class ShuffleboardScene extends FlameGame {
       }
       _falling.removeWhere((f) => f.t >= _fallDuration);
     }
+    if (_impacts.isNotEmpty) {
+      for (final i in _impacts) {
+        i.t += dt;
+      }
+      _impacts.removeWhere((i) => i.t >= _impactDuration);
+    }
     if (!_sim.isRunning) return;
     _accum += dt;
     var steps = 0;
     final h = _sim.config.fixedDt;
     while (_accum >= h && steps < 8) {
+      _applyGlideFriction(h);
       _sim.step();
+      _integrateSpin();
       _accum -= h;
       steps++;
       if (!_sim.isRunning) break;
     }
     _spawnFallsForNewlyRemoved();
+  }
+
+  /// Take a fixed bite out of every disc's speed each step — see
+  /// [_glideFriction] for why viscous damping alone isn't enough.
+  void _applyGlideFriction(double h) {
+    for (final d in _sim.discs) {
+      if (d.removed) continue;
+      final v = d.body.linearVelocity;
+      final speed = v.length;
+      if (speed <= 1e-6) continue;
+      final drop = math.min(_glideFriction * h, speed);
+      v.scale((speed - drop) / speed);
+    }
+  }
+
+  /// Turn each moving disc by how far it travelled this step.
+  void _integrateSpin() {
+    for (final d in _sim.discs) {
+      if (d.removed) continue;
+      final p = d.position;
+      final prev = _lastPos[d.id];
+      if (prev != null) {
+        (_spin[d.id] ??= SlideSpin(d.id))
+            .advance(p.x - prev.x, p.y - prev.y, d.radius);
+      }
+      _lastPos[d.id] = Vector2(p.x, p.y);
+    }
+  }
+
+  /// Bridge a Forge2D contact into a strength-scaled cue plus a contact ring.
+  /// Strength is the closing speed along the line of centres, normalized — a
+  /// graze reads ~0, a full-power strike reads 1.
+  void _handleContact(DiscBody a, DiscBody b) {
+    final n = b.position - a.position;
+    final len = n.length;
+    if (len < 1e-6) return;
+    n.scale(1 / len);
+    final rel = a.body.linearVelocity - b.body.linearVelocity;
+    final closing = rel.dot(n);
+    if (closing <= 0) return; // separating — the tail of a contact, not a hit
+    final strength = (closing / _impactReferenceSpeed).clamp(0.0, 1.0);
+    final mid = (a.position + b.position)..scale(0.5);
+    final nm = _toNorm(mid);
+    _impacts.add(_Impact(nx: nm.nx, ny: nm.ny, strength: strength));
+    onCollision?.call(strength);
   }
 
   /// Any disc removed this frame (slid off the far end) gets one fall animation,
@@ -714,32 +889,40 @@ class ShuffleboardScene extends FlameGame {
       final overTop = -n.ny; // >0 if past the far lip
       final overLeft = -n.nx;
       final overRight = n.nx - 1;
-      late final _FallEdge edge;
+      late final FallEdge edge;
       late final double along;
       late final double carry;
       late final double spinDir;
       if (overLeft >= overTop && overLeft >= overRight) {
-        edge = _FallEdge.left;
+        edge = FallEdge.left;
         along = n.ny.clamp(0.0, 1.0);
         carry = v.y / tableL;
         spinDir = v.y >= 0 ? 1.0 : -1.0;
       } else if (overRight >= overTop && overRight >= overLeft) {
-        edge = _FallEdge.right;
+        edge = FallEdge.right;
         along = n.ny.clamp(0.0, 1.0);
         carry = v.y / tableL;
         spinDir = v.y >= 0 ? -1.0 : 1.0;
       } else {
-        edge = _FallEdge.top;
+        edge = FallEdge.top;
         along = n.nx.clamp(0.0, 1.0);
         carry = v.x / tableW;
         spinDir = v.x >= 0 ? 1.0 : -1.0;
       }
+      // Exit speed perpendicular to the lip, normalized — a puck that dribbles
+      // over topples slowly, one that is blasted off launches clear of it.
+      final exit = switch (edge) {
+        FallEdge.top || FallEdge.bottom => (-v.y / tableL).abs(),
+        FallEdge.left || FallEdge.right => (v.x / tableW).abs(),
+      };
       _falling.add(_Falling(
         edge: edge,
         along: along,
         carry: carry,
         color: color,
         spinDir: spinDir,
+        exit: exit.clamp(0.0, 1.6),
+        spin0: _spin[d.id]?.angle ?? 0,
       ));
     }
   }
@@ -806,6 +989,7 @@ class ShuffleboardScene extends FlameGame {
           color: style.colorFor(scheme, owner, playerIds),
           score: score,
           isShooter: identical(d, _shooter),
+          spin: (_spin[d.id]?.angle ?? 0) + d.angle,
         ),
       );
     }
@@ -827,74 +1011,64 @@ class ShuffleboardScene extends FlameGame {
 
     final falling = <FallingPuck>[];
     for (final f in _falling) {
-      final p = (f.t / _fallDuration).clamp(0.0, 1.0);
-      // A lip is right at the board edge with no runway to fly into, so the
-      // puck tips over IN PLACE: it stays at the edge, foreshortens hard along
-      // the axis perpendicular to that edge, sinks into shadow and fades — a
-      // little momentum carry + spin sells the drop. `edgeIn → edgeOut` walks
-      // the centre from just inside the lip to just past it.
-      const edgeIn = 0.012;
-      final edgeOut = 0.012 - 0.032 * p;
-      final carry = f.carry * p * 0.12;
-      final foreshorten = 1 - 0.9 * p; // perpendicular squash
-      double nx, ny, sx, sy;
-      switch (f.edge) {
-        case _FallEdge.top:
-          nx = f.along + carry;
-          ny = edgeOut;
-          sx = 1;
-          sy = foreshorten;
-        case _FallEdge.left:
-          nx = edgeOut;
-          ny = f.along + carry;
-          sx = foreshorten;
-          sy = 1;
-        case _FallEdge.right:
-          nx = 1 - edgeIn + 0.032 * p; // mirror of edgeOut on the right rail
-          ny = f.along + carry;
-          sx = foreshorten;
-          sy = 1;
-      }
-      falling.add(
-        FallingPuck(
-          nx: nx,
-          ny: ny,
-          radiusFrac: puckR / tableW,
-          color: Color.lerp(f.color, Colors.black, 0.55 * p)!,
-          scale: 1 - 0.3 * p,
-          squashX: sx,
-          squashY: sy,
-          alpha: p < 0.5 ? 1.0 : (1 - (p - 0.5) / 0.5),
-          spin: p * 0.4 * f.spinDir,
-        ),
-      );
+      falling.add(shuffleboardFallFrame(
+        edge: f.edge,
+        along: f.along,
+        carry: f.carry,
+        exit: f.exit,
+        spinDir: f.spinDir,
+        spin0: f.spin0,
+        color: f.color,
+        radiusFrac: puckR / tableW,
+        progress: (f.t / _fallDuration).clamp(0.0, 1.0),
+        aspect: tableW / tableL,
+      ));
     }
+
+    final impacts = <ImpactRing>[
+      for (final i in _impacts)
+        ImpactRing(
+          nx: i.nx,
+          ny: i.ny,
+          strength: i.strength,
+          t: (i.t / _impactDuration).clamp(0.0, 1.0),
+          radiusFrac: puckR / tableW,
+        ),
+    ];
 
     paintShuffleboardTable(
       canvas,
       Size(size.x, size.y),
-      ShuffleboardView(pucks: pucks, aim: aim, falling: falling),
+      ShuffleboardView(
+        pucks: pucks,
+        aim: aim,
+        falling: falling,
+        impacts: impacts,
+      ),
       style,
       scheme,
     );
   }
 }
 
-/// Which open edge a disc slid off — drives how its fall tips over the lip.
-enum _FallEdge { top, left, right }
-
 /// One in-flight off-the-edge fall. Scene-private; the painter gets a computed
-/// [FallingPuck] each frame.
+/// [FallingPuck] each frame from [shuffleboardFallFrame].
 class _Falling {
-  final _FallEdge edge;
+  final FallEdge edge;
 
-  /// Position along the exiting edge (nx for [top]; ny for [left]/[right]).
+  /// Position along the exiting edge (nx for [FallEdge.top]; ny for the sides).
   final double along;
 
   /// Normalized velocity component parallel to that edge (carries the disc
   /// along the lip as it drops).
   final double carry;
+
+  /// Normalized speed perpendicular to the lip at the moment it left.
+  final double exit;
   final double spinDir;
+
+  /// Facing the disc had accumulated when it went over.
+  final double spin0;
   final Color color;
   double t = 0;
 
@@ -902,14 +1076,175 @@ class _Falling {
     required this.edge,
     required this.along,
     required this.carry,
+    required this.exit,
     required this.color,
     required this.spinDir,
+    required this.spin0,
   });
+}
+
+/// One live contact pulse (scene-private; the painter gets an [ImpactRing]).
+class _Impact {
+  final double nx;
+  final double ny;
+  final double strength;
+  double t = 0;
+
+  _Impact({required this.nx, required this.ny, required this.strength});
+}
+
+/// A disc's accumulated facing, integrated from how far it has slid.
+///
+/// A shuffleboard weight is a flat disc: it does not roll like a ball, but it
+/// does *turn* as it travels, and its cap markings turning is the difference
+/// between a puck that slides and a sprite that is being dragged around. The
+/// angle grows with distance travelled over radius (so it is frame-rate and
+/// speed independent — the same journey always produces the same turn), scaled
+/// by [turnsPerRadius] to keep it a lazy drift rather than a spin.
+///
+/// Direction is fixed per disc id: two pucks side by side turn opposite ways,
+/// which reads as each one having its own bias, exactly like real weights.
+class SlideSpin {
+  /// Radians turned per radius travelled.
+  static const double turnsPerRadius = 0.16;
+
+  double _angle = 0;
+  final double _dir;
+
+  SlideSpin(String id) : _dir = (id.hashCode & 1) == 0 ? 1.0 : -1.0;
+
+  /// Accumulated facing in radians.
+  double get angle => _angle;
+
+  /// Turn after travelling ([dx], [dy]) with the given [radius] (same units).
+  void advance(double dx, double dy, double radius) {
+    if (radius <= 0) return;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 1e-9) return;
+    _angle += (dist / radius) * turnsPerRadius * _dir;
+  }
+}
+
+/// How long a puck takes to tip over a lip and fall out of sight.
+const double kShuffleboardFallDuration = 0.62;
+
+/// Fraction of [kShuffleboardFallDuration] spent tipping over the lip before
+/// the puck is clear of it and simply falling.
+const double _kTipPhase = 0.32;
+
+/// The drawable state of a puck [progress] (0..1) through its fall off [edge].
+///
+/// Pure, so the fall reads identically in the live scene and in tests. The
+/// model is two beats:
+///
+/// 1. **Tip** — the puck pivots over the lip. It walks outward from just inside
+///    the edge to just past it while foreshortening along the axis
+///    perpendicular to the lip, and its cylindrical side wall comes into view
+///    ([FallingPuck.rim]) — which is what actually says "tipping" rather than
+///    "shrinking".
+/// 2. **Fall** — clear of the lip, it drops away from the camera. Because the
+///    camera looks down at the table, a falling puck tracks *outward* along the
+///    ray it left on while getting smaller, so outward drift and scale are tied
+///    together. It keeps the lateral momentum it left with ([carry]), keeps
+///    tumbling (the perpendicular squash swings through edge-on and opens back
+///    out on the far face), sinks into shadow and fades.
+FallingPuck shuffleboardFallFrame({
+  required FallEdge edge,
+  required double along,
+  required double carry,
+  required double exit,
+  required double spinDir,
+  required double spin0,
+  required Color color,
+  required double radiusFrac,
+  required double progress,
+  double aspect = 1,
+}) {
+  final p = progress.clamp(0.0, 1.0);
+  // Outward displacement, in normalized board units, measured from the lip.
+  final tip = (p / _kTipPhase).clamp(0.0, 1.0);
+  final fall = p <= _kTipPhase ? 0.0 : (p - _kTipPhase) / (1 - _kTipPhase);
+  // Gravity: distance grows with the square of time, and a puck blasted off
+  // carries further out before the drop takes over.
+  final drop = fall * fall;
+  final outward =
+      0.012 * tip + (0.075 + 0.055 * exit) * drop + 0.030 * exit * fall;
+
+  // Tumble: the disc pitches over the lip, so the face we see foreshortens to
+  // an edge and then opens back out — |cos| of a pitch that keeps turning.
+  // Tumbling is constant angular velocity, so the pitch runs on *time*
+  // ([fall]), not on the quadratic drop — driving it from the drop left the
+  // puck stuck edge-on and invisible through the middle of the animation.
+  final pitch = 2.9 * (0.42 * tip + 0.58 * fall);
+  final foreshorten = math.max(0.06, math.cos(pitch).abs());
+  // The side wall shows most when the face is closest to edge-on.
+  final rim = (1 - foreshorten).clamp(0.0, 1.0);
+
+  // Perspective: further away is smaller.
+  final scale = 1 / (1 + 1.9 * drop);
+
+  // Lateral momentum keeps carrying it along the lip, bleeding off as it falls.
+  final slide = carry * (0.10 * tip + 0.16 * fall);
+
+  // [outward] is measured in lane-width units; on the ends it has to be
+  // converted so the puck travels the same number of *pixels* off a short edge
+  // as off a long one.
+  final outEnd = outward * aspect;
+
+  double nx, ny, sx, sy, rimDx, rimDy;
+  switch (edge) {
+    case FallEdge.top:
+      nx = along + slide;
+      ny = -outEnd;
+      sx = 1;
+      sy = foreshorten;
+      rimDx = 0;
+      rimDy = -1;
+    case FallEdge.bottom:
+      nx = along + slide;
+      ny = 1 + outEnd;
+      sx = 1;
+      sy = foreshorten;
+      rimDx = 0;
+      rimDy = 1;
+    case FallEdge.left:
+      nx = -outward;
+      ny = along + slide;
+      sx = foreshorten;
+      sy = 1;
+      rimDx = -1;
+      rimDy = 0;
+    case FallEdge.right:
+      nx = 1 + outward;
+      ny = along + slide;
+      sx = foreshorten;
+      sy = 1;
+      rimDx = 1;
+      rimDy = 0;
+  }
+
+  return FallingPuck(
+    nx: nx,
+    ny: ny,
+    radiusFrac: radiusFrac,
+    color: Color.lerp(color, Colors.black, 0.22 * tip + 0.34 * drop)!,
+    scale: scale,
+    squashX: sx,
+    squashY: sy,
+    alpha: p < 0.7 ? 1.0 : (1 - (p - 0.7) / 0.3),
+    spin: spin0 + spinDir * (0.5 * tip + 2.2 * fall),
+    rim: rim,
+    rimDx: rimDx,
+    rimDy: rimDy,
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Shared table painter — used by the live scene AND by static previews/tests.
 // ---------------------------------------------------------------------------
+
+/// Which open edge a disc slid off — drives how its fall tips over the lip.
+enum FallEdge { top, bottom, left, right }
 
 /// A puck to draw, in normalized lane coords.
 class RenderPuck {
@@ -924,6 +1259,10 @@ class RenderPuck {
   final int score;
   final bool isShooter;
 
+  /// Accumulated facing in radians (see [SlideSpin]). The cap markings turn
+  /// through it; the body shading does not, since the light does not move.
+  final double spin;
+
   const RenderPuck({
     required this.nx,
     required this.ny,
@@ -931,6 +1270,30 @@ class RenderPuck {
     required this.color,
     this.score = 0,
     this.isShooter = false,
+    this.spin = 0,
+  });
+}
+
+/// A short expanding pulse at the point of a puck-on-puck contact.
+class ImpactRing {
+  final double nx;
+  final double ny;
+
+  /// 0..1 closing speed of the hit.
+  final double strength;
+
+  /// 0..1 progress through the pulse.
+  final double t;
+
+  /// Puck radius as a fraction of the lane width (sets the ring's scale).
+  final double radiusFrac;
+
+  const ImpactRing({
+    required this.nx,
+    required this.ny,
+    required this.strength,
+    required this.t,
+    required this.radiusFrac,
   });
 }
 
@@ -972,6 +1335,16 @@ class FallingPuck {
   final double alpha;
   final double spin;
 
+  /// How much of the puck's cylindrical side wall is turned toward the viewer
+  /// (0 = flat on, face only; 1 = fully edge-on). Seeing the edge come round is
+  /// what reads as *tipping* rather than merely shrinking.
+  final double rim;
+
+  /// Unit direction, in screen space, pointing away from the lip it left by —
+  /// the side wall is drawn on that side of the face.
+  final double rimDx;
+  final double rimDy;
+
   const FallingPuck({
     required this.nx,
     required this.ny,
@@ -982,6 +1355,9 @@ class FallingPuck {
     required this.squashY,
     required this.alpha,
     required this.spin,
+    this.rim = 0,
+    this.rimDx = 0,
+    this.rimDy = -1,
   });
 }
 
@@ -990,17 +1366,26 @@ class ShuffleboardView {
   final List<RenderPuck> pucks;
   final AimView? aim;
   final List<FallingPuck> falling;
+  final List<ImpactRing> impacts;
 
   const ShuffleboardView({
     required this.pucks,
     this.aim,
     this.falling = const [],
+    this.impacts = const [],
   });
 }
 
-/// Draws the full wood lane, scoring bands, foul line, pucks and aim indicator
-/// into [size]. Pure — no Flame or widget state — so a `CustomPainter` can call
-/// it for a static snapshot (screenshots/tests) exactly as the live scene does.
+/// The one committed light for this table: a lamp hanging above and to the
+/// upper-left. Every bevel, sheen and cast shadow in this file obeys it —
+/// highlights sit on the upper-left of a form, shadows fall down-right.
+const Alignment _kLight = Alignment(-0.42, -0.58);
+const Offset _kShadowDir = Offset(0.42, 0.66);
+
+/// Draws the room, the hardwood table, the maple lane with its painted scoring
+/// inlays, the pucks and the aim indicator into [size]. Pure — no Flame or
+/// widget state — so a `CustomPainter` can call it for a static snapshot
+/// (screenshots/tests) exactly as the live scene does.
 void paintShuffleboardTable(
   Canvas canvas,
   Size size,
@@ -1013,54 +1398,102 @@ void paintShuffleboardTable(
   final zone = style.resolveZone(scheme);
   final foul = style.resolveFoulLine(scheme);
 
+  final w = size.width;
   final full = Offset.zero & size;
 
-  // Walnut frame (full bleed).
-  canvas.drawRect(
-    full,
+  _paintRoom(canvas, size);
+
+  // --- the table: a solid hardwood box standing on the floor ----------------
+  //
+  // The far end is deliberately given room above it. Every open lip in this
+  // game is a cliff a puck can go over, and the far end is the one players
+  // aim at, so the fall has to have somewhere to happen: the table stops short
+  // of the top of the frame and the floor shows beyond it. The near end, which
+  // is the one walled edge in the sim, runs right to the bottom.
+  final tableRect = Rect.fromLTRB(
+    w * 0.030,
+    w * 0.150,
+    size.width - w * 0.030,
+    size.height - w * 0.030,
+  );
+  // Square-ish at the far end (a cut end, flush with the lip), rounded at the
+  // near end where the backstop wraps round.
+  final tableRR = RRect.fromRectAndCorners(
+    tableRect,
+    topLeft: Radius.circular(w * 0.012),
+    topRight: Radius.circular(w * 0.012),
+    bottomLeft: Radius.circular(w * 0.055),
+    bottomRight: Radius.circular(w * 0.055),
+  );
+
+  // Contact shadow on the floor, thrown down-right by the overhead lamp.
+  canvas.drawRRect(
+    tableRR.shift(_kShadowDir * (w * 0.035)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.55)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.045),
+  );
+  // The apron's own thickness: a darker copy peeking out below the top face.
+  canvas.drawRRect(
+    tableRR.shift(Offset(0, w * 0.014)),
+    Paint()..color = Color.lerp(frame, Colors.black, 0.62)!,
+  );
+
+  // Stained walnut top face.
+  canvas.drawRRect(
+    tableRR,
     Paint()
       ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          Color.lerp(frame, Colors.white, 0.12)!,
+          Color.lerp(frame, Colors.white, 0.16)!,
           frame,
-          Color.lerp(frame, Colors.black, 0.3)!,
+          Color.lerp(frame, Colors.black, 0.34)!,
         ],
-      ).createShader(full),
+        stops: const [0.0, 0.46, 1.0],
+      ).createShader(tableRect),
   );
-
-  // Lane inset in the frame.
-  final margin = size.width * 0.07;
-  final laneRect = Rect.fromLTRB(
-    margin,
-    margin * 0.7,
-    size.width - margin,
-    size.height - margin * 0.7,
-  );
-  final laneRR =
-      RRect.fromRectAndRadius(laneRect, Radius.circular(size.width * 0.04));
-
-  // Recess shadow under the lane.
+  _paintApronGrain(canvas, tableRect, frame);
+  // Lit upper-left edge / dark lower-right edge of the apron.
   canvas.drawRRect(
-    laneRR.shift(const Offset(0, 2)),
+    tableRR.deflate(w * 0.004),
     Paint()
-      ..color = Colors.black.withValues(alpha: 0.35)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
-  );
-  canvas.drawRRect(
-    laneRR,
-    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1, w * 0.005)
       ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
         colors: [
-          Color.lerp(lane, Colors.white, 0.14)!,
-          lane,
-          Color.lerp(lane, const Color(0xFF9A6E3E), 0.5)!,
+          Colors.white.withValues(alpha: 0.22),
+          Colors.white.withValues(alpha: 0.02),
+          Colors.black.withValues(alpha: 0.30),
         ],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(laneRect),
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(tableRect),
+  );
+
+  // --- the lane: maple boards let into the frame ---------------------------
+  final laneRect = Rect.fromLTRB(
+    tableRect.left + w * 0.052,
+    tableRect.top + w * 0.014,
+    tableRect.right - w * 0.052,
+    tableRect.bottom - w * 0.040,
+  );
+  final laneRR = RRect.fromRectAndCorners(
+    laneRect,
+    topLeft: Radius.circular(w * 0.005),
+    topRight: Radius.circular(w * 0.005),
+    bottomLeft: Radius.circular(w * 0.018),
+    bottomRight: Radius.circular(w * 0.018),
+  );
+
+  // The routed recess the lane sits in: dark all round, deepest down-right.
+  canvas.drawRRect(
+    laneRR.inflate(w * 0.010).shift(_kShadowDir * (w * 0.006)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.55)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.014),
   );
 
   canvas.save();
@@ -1069,85 +1502,104 @@ void paintShuffleboardTable(
   double xOf(double nx) => laneRect.left + nx * laneRect.width;
   double yOf(double ny) => laneRect.top + ny * laneRect.height;
 
-  // Wood grain streaks (vertical, faint).
-  final grain = Paint()
-    ..color = Colors.black.withValues(alpha: 0.05)
-    ..strokeWidth = math.max(0.6, size.width * 0.006);
-  for (var i = 1; i < 10; i++) {
-    final x = laneRect.left + laneRect.width * (i / 10);
-    canvas.drawLine(
-        Offset(x, laneRect.top), Offset(x, laneRect.bottom), grain);
-  }
-
-  // Scoring bands at the far end (top): 3 nearest the edge, then 2, then 1.
-  final bandLines = [
-    (ShuffleboardGame.zone3Line, 3, 0.30),
-    (ShuffleboardGame.zone2Line, 2, 0.22),
-    (ShuffleboardGame.zone1Line, 1, 0.15),
-  ];
-  var prevY = laneRect.top;
-  for (final (line, label, alpha) in bandLines) {
-    final bottom = yOf(line);
-    final r = Rect.fromLTRB(laneRect.left, prevY, laneRect.right, bottom);
-    canvas.drawRect(r, Paint()..color = zone.withValues(alpha: alpha));
-    // Band divider.
-    canvas.drawLine(
-      Offset(laneRect.left, bottom),
-      Offset(laneRect.right, bottom),
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.45)
-        ..strokeWidth = math.max(1, size.width * 0.008),
-    );
-    _bandLabel(canvas, Offset(laneRect.left + laneRect.width * 0.5,
-        (prevY + bottom) / 2), '$label', size.width * 0.11);
-    prevY = bottom;
-  }
-
-  // Foul line — pucks must fully cross it (toward the far edge) to count.
-  final foulY = yOf(ShuffleboardGame.foulLine);
-  canvas.drawLine(
-    Offset(laneRect.left, foulY),
-    Offset(laneRect.right, foulY),
-    Paint()
-      ..color = foul
-      ..strokeWidth = math.max(1.5, size.width * 0.012),
-  );
-  // Base line (near shooter line).
-  final baseY = yOf(0.985);
-  canvas.drawLine(
-    Offset(laneRect.left, baseY),
-    Offset(laneRect.right, baseY),
-    Paint()
-      ..color = Colors.black.withValues(alpha: 0.25)
-      ..strokeWidth = math.max(1, size.width * 0.01),
-  );
+  _paintMapleBoards(canvas, laneRect, lane);
+  _paintWaxSheen(canvas, laneRect);
+  // Markings go on over the wax, not under it — otherwise the sheen washes the
+  // scoring lines out and the bands stop reading at a glance.
+  _paintScoringInlays(canvas, laneRect, zone, w);
+  _paintFoulLine(canvas, laneRect, foul, yOf(ShuffleboardGame.foulLine), w);
+  _paintBackstop(canvas, laneRect, frame, yOf(0.955));
+  _paintLaneEdgeShading(canvas, laneRect, laneRR, w);
 
   // Pucks.
   for (final p in view.pucks) {
-    _paintPuck(canvas, Offset(xOf(p.nx), yOf(p.ny)),
-        p.radiusFrac * laneRect.width, p);
+    _paintPuck(
+      canvas,
+      Offset(xOf(p.nx), yOf(p.ny)),
+      p.radiusFrac * laneRect.width,
+      p,
+    );
+  }
+
+  // Contact pulses, over the pucks so a hit reads even in a cluster.
+  for (final i in view.impacts) {
+    _paintImpact(
+      canvas,
+      Offset(xOf(i.nx), yOf(i.ny)),
+      i.radiusFrac * laneRect.width,
+      i,
+    );
   }
 
   // Aim indicator.
   final aim = view.aim;
   if (aim != null) {
-    _paintAim(canvas, Offset(xOf(aim.nx), yOf(aim.ny)), aim,
-        laneRect.width, size);
+    _paintAim(
+        canvas, Offset(xOf(aim.nx), yOf(aim.ny)), aim, laneRect.width, size);
   }
 
   canvas.restore();
 
-  // Inner lip.
+  // The lip: the lane's own edge, catching the lamp on the upper-left.
   canvas.drawRRect(
     laneRR.deflate(0.8),
     Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..color = Colors.white.withValues(alpha: 0.14),
+      ..strokeWidth = math.max(1.2, w * 0.005)
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.30),
+          Colors.white.withValues(alpha: 0.06),
+          Colors.black.withValues(alpha: 0.22),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(laneRect),
   );
 
-  // Falling pucks — drawn last and OUTSIDE the lane clip so they tumble over the
-  // far lip and off the top edge instead of being clipped at the boundary.
+  // The far lip itself — the edge everything falls over. Bright cut edge on
+  // top, hard shadow dropping away underneath it onto the floor.
+  canvas.drawRect(
+    Rect.fromLTRB(tableRect.left, tableRect.top - w * 0.028,
+        tableRect.right, tableRect.top),
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [
+          Colors.black.withValues(alpha: 0.55),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromLTRB(tableRect.left,
+          tableRect.top - w * 0.028, tableRect.right, tableRect.top)),
+  );
+  canvas.drawLine(
+    Offset(laneRect.left, laneRect.top + w * 0.002),
+    Offset(laneRect.right, laneRect.top + w * 0.002),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.34)
+      ..strokeWidth = math.max(1.2, w * 0.005),
+  );
+
+  // Room vignette, so the whole thing sits in a space rather than on a page.
+  canvas.drawRect(
+    full,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.1, -0.20),
+        radius: 1.15,
+        colors: [
+          Colors.transparent,
+          Colors.black.withValues(alpha: 0.07),
+          Colors.black.withValues(alpha: 0.26),
+        ],
+        stops: const [0.55, 0.82, 1.0],
+      ).createShader(full),
+  );
+
+  // Falling pucks — drawn last and OUTSIDE the lane clip so they tumble over
+  // the lip and off the table instead of being clipped at the boundary.
   for (final f in view.falling) {
     _paintFallingPuck(
       canvas,
@@ -1158,145 +1610,606 @@ void paintShuffleboardTable(
   }
 }
 
+/// The room the table stands in: a dark stained floor with the pool of light
+/// the lamp throws on it, falling off toward the corners.
+void _paintRoom(Canvas canvas, Size size) {
+  final full = Offset.zero & size;
+  const floor = Color(0xFF3B2A1F);
+  canvas.drawRect(full, Paint()..color = floor);
+  // Floorboards, running across the room so they read as *not* the lane.
+  final board = Paint()
+    ..color = Colors.black.withValues(alpha: 0.22)
+    ..strokeWidth = math.max(0.8, size.width * 0.004);
+  final step = size.width * 0.19;
+  for (var y = step; y < size.height; y += step) {
+    canvas.drawLine(Offset(0, y), Offset(size.width, y), board);
+  }
+  // Lamp pool, centred a little above and left of the table.
+  canvas.drawRect(
+    full,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.25, -0.85),
+        radius: 1.25,
+        colors: [
+          const Color(0xFF8A6244).withValues(alpha: 0.70),
+          const Color(0xFF4A3221).withValues(alpha: 0.34),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.42, 1.0],
+      ).createShader(full),
+  );
+}
+
+/// Long grain along the apron rails plus mitre lines into the corners, so the
+/// frame reads as four pieces of stained hardwood rather than a bevelled box.
+void _paintApronGrain(Canvas canvas, Rect t, Color frame) {
+  canvas.save();
+  canvas.clipRect(t);
+  final rnd = math.Random(7);
+  final light = Paint()
+    ..color = Colors.white.withValues(alpha: 0.045)
+    ..strokeWidth = math.max(0.6, t.width * 0.004);
+  final dark = Paint()
+    ..color = Colors.black.withValues(alpha: 0.16)
+    ..strokeWidth = math.max(0.6, t.width * 0.003);
+  for (var i = 0; i < 22; i++) {
+    final x = t.left + rnd.nextDouble() * t.width;
+    canvas.drawLine(
+      Offset(x, t.top),
+      Offset(x + (rnd.nextDouble() - 0.5) * t.width * 0.03, t.bottom),
+      rnd.nextBool() ? light : dark,
+    );
+  }
+  // Mitre joints.
+  final mitre = Paint()
+    ..color = Colors.black.withValues(alpha: 0.30)
+    ..strokeWidth = math.max(0.8, t.width * 0.004);
+  final c = t.width * 0.16;
+  canvas.drawLine(t.topLeft, t.topLeft + Offset(c, c), mitre);
+  canvas.drawLine(t.topRight, t.topRight + Offset(-c, c), mitre);
+  canvas.drawLine(t.bottomLeft, t.bottomLeft + Offset(c, -c), mitre);
+  canvas.drawLine(t.bottomRight, t.bottomRight + Offset(-c, -c), mitre);
+  canvas.restore();
+}
+
+/// The playing surface: hard maple boards laid down-lane, each a slightly
+/// different cut of timber, separated by real seams with a lit left shoulder.
+void _paintMapleBoards(Canvas canvas, Rect lane, Color base) {
+  const boards = 7;
+  final bw = lane.width / boards;
+  // Base wash, cooler and darker toward the far end so the lane has depth.
+  canvas.drawRect(
+    lane,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color.lerp(base, const Color(0xFF7C5A33), 0.34)!,
+          base,
+          Color.lerp(base, Colors.white, 0.05)!,
+          Color.lerp(base, const Color(0xFF8A6238), 0.30)!,
+        ],
+        stops: const [0.0, 0.34, 0.62, 1.0],
+      ).createShader(lane),
+  );
+
+  for (var i = 0; i < boards; i++) {
+    final x0 = lane.left + i * bw;
+    final r = Rect.fromLTRB(x0, lane.top, x0 + bw, lane.bottom);
+    // Deterministic per-board tone: some boards run pinker, some paler.
+    final t = (((i * 37) % 11) / 11.0) - 0.5;
+    canvas.drawRect(
+      r,
+      Paint()
+        ..color = (t >= 0
+                ? Color.lerp(base, Colors.white, t * 0.13)!
+                : Color.lerp(base, const Color(0xFF8E6636), -t * 0.20)!)
+            .withValues(alpha: 0.55),
+    );
+    _paintBoardGrain(canvas, r, i);
+    if (i > 0) {
+      // Seam: a dark gap with the lamp catching its left shoulder.
+      canvas.drawLine(
+        Offset(x0, lane.top),
+        Offset(x0, lane.bottom),
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.34)
+          ..strokeWidth = math.max(1.0, lane.width * 0.0035),
+      );
+      canvas.drawLine(
+        Offset(x0 - math.max(1.0, lane.width * 0.0035), lane.top),
+        Offset(x0 - math.max(1.0, lane.width * 0.0035), lane.bottom),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.13)
+          ..strokeWidth = math.max(0.8, lane.width * 0.0025),
+      );
+    }
+  }
+}
+
+/// Figure inside one board: a few wandering grain lines running down-lane.
+void _paintBoardGrain(Canvas canvas, Rect b, int seed) {
+  final rnd = math.Random(seed * 91 + 3);
+  final segments = 7;
+  for (var g = 0; g < 5; g++) {
+    final x = b.left + (0.12 + 0.76 * rnd.nextDouble()) * b.width;
+    final sway = b.width * (0.06 + rnd.nextDouble() * 0.14);
+    final path = Path()..moveTo(x, b.top);
+    for (var s = 1; s <= segments; s++) {
+      final y = b.top + b.height * (s / segments);
+      final yPrev = b.top + b.height * ((s - 1) / segments);
+      final cx = x + math.sin(s * 1.7 + seed) * sway;
+      path.quadraticBezierTo(cx, (y + yPrev) / 2, x, y);
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(0.6, b.width * (0.02 + rnd.nextDouble() * 0.03))
+        ..color = (rnd.nextDouble() < 0.35 ? Colors.white : Colors.black)
+            .withValues(alpha: rnd.nextDouble() < 0.35 ? 0.05 : 0.055),
+    );
+  }
+}
+
+/// Scoring zones as painted-and-inlaid lines rather than flat colour bands:
+/// a shallow tint, a routed groove, a cream paint line, and the value painted
+/// at each side of the lane the way a real table is marked out.
+void _paintScoringInlays(Canvas canvas, Rect lane, Color zone, double w) {
+  double yOf(double ny) => lane.top + ny * lane.height;
+  const cream = Color(0xFFF3E7CC);
+
+  // The tint carries the value: 3 is the richest band, 1 the faintest, and
+  // each fades toward its own scoring line so the lane reads as three steps
+  // rather than one wash. At the old 0.15/0.11/0.07 the three bands were
+  // indistinguishable at phone size — you could only tell them apart by the
+  // painted numbers, which is the opposite of how a real table reads.
+  final bands = [
+    (ShuffleboardGame.zone3Line, '3', 0.34),
+    (ShuffleboardGame.zone2Line, '2', 0.21),
+    (ShuffleboardGame.zone1Line, '1', 0.10),
+  ];
+  var prevY = lane.top;
+  for (final (line, label, tint) in bands) {
+    final bottom = yOf(line);
+    final band = Rect.fromLTRB(lane.left, prevY, lane.right, bottom);
+    canvas.drawRect(
+      band,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            zone.withValues(alpha: tint),
+            zone.withValues(alpha: tint * 0.62),
+          ],
+        ).createShader(band),
+    );
+    // Routed groove + painted line. The groove sits just below the paint so
+    // the line reads as standing proud under a light from above.
+    final lw = math.max(1.4, w * 0.0075);
+    canvas.drawLine(
+      Offset(lane.left, bottom + lw * 0.75),
+      Offset(lane.right, bottom + lw * 0.75),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.30)
+        ..strokeWidth = lw,
+    );
+    canvas.drawLine(
+      Offset(lane.left, bottom),
+      Offset(lane.right, bottom),
+      Paint()
+        ..color = cream.withValues(alpha: 0.92)
+        ..strokeWidth = lw,
+    );
+    _bandLabel(canvas, Offset(lane.left + lane.width * 0.14,
+        (prevY + bottom) / 2), label, lane.width * 0.125);
+    _bandLabel(canvas, Offset(lane.right - lane.width * 0.14,
+        (prevY + bottom) / 2), label, lane.width * 0.125);
+    prevY = bottom;
+  }
+}
+
+/// The foul line: pucks must cross it to count, so it is the crispest mark on
+/// the lane — a deep groove with a hard-edged painted line over it.
+void _paintFoulLine(Canvas canvas, Rect lane, Color foul, double y, double w) {
+  final lw = math.max(1.6, w * 0.009);
+  canvas.drawLine(
+    Offset(lane.left, y + lw * 0.8),
+    Offset(lane.right, y + lw * 0.8),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.32)
+      ..strokeWidth = lw,
+  );
+  canvas.drawLine(
+    Offset(lane.left, y),
+    Offset(lane.right, y),
+    Paint()
+      ..color = foul
+      ..strokeWidth = lw,
+  );
+  canvas.drawLine(
+    Offset(lane.left, y - lw * 0.55),
+    Offset(lane.right, y - lw * 0.55),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.18)
+      ..strokeWidth = math.max(0.8, w * 0.003),
+  );
+}
+
+/// The near backstop — the one walled edge in the sim, so it gets a real piece
+/// of raised timber rather than a painted line.
+void _paintBackstop(Canvas canvas, Rect lane, Color frame, double y) {
+  final r = Rect.fromLTRB(lane.left, y, lane.right, lane.bottom);
+  canvas.drawRect(
+    r,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color.lerp(frame, Colors.white, 0.20)!,
+          frame,
+          Color.lerp(frame, Colors.black, 0.35)!,
+        ],
+        stops: const [0.0, 0.35, 1.0],
+      ).createShader(r),
+  );
+  canvas.drawLine(
+    r.topLeft,
+    r.topRight,
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.26)
+      ..strokeWidth = math.max(1, lane.width * 0.005),
+  );
+  // The bumper casts a thin shadow up-lane (light is in front of it).
+  canvas.drawRect(
+    Rect.fromLTRB(r.left, r.top - lane.width * 0.03, r.right, r.top),
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [
+          Colors.black.withValues(alpha: 0.22),
+          Colors.transparent,
+        ],
+      ).createShader(
+          Rect.fromLTRB(r.left, r.top - lane.width * 0.03, r.right, r.top)),
+  );
+}
+
+/// Wax: a broad specular band running the length of the lane, plus the lamp's
+/// own reflection near the far end. Low alpha on purpose — it should register
+/// as "this surface is slick", not as a white stripe.
+void _paintWaxSheen(Canvas canvas, Rect lane) {
+  canvas.drawRect(
+    lane,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.0),
+          Colors.white.withValues(alpha: 0.085),
+          Colors.white.withValues(alpha: 0.035),
+          Colors.white.withValues(alpha: 0.0),
+        ],
+        stops: const [0.06, 0.30, 0.52, 0.88],
+      ).createShader(lane),
+  );
+  final hot = Rect.fromCenter(
+    center: Offset(
+        lane.left + lane.width * 0.38, lane.top + lane.height * 0.26),
+    width: lane.width * 1.5,
+    height: lane.height * 0.75,
+  );
+  canvas.drawRect(
+    lane,
+    Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.075),
+          Colors.white.withValues(alpha: 0.0),
+        ],
+      ).createShader(hot),
+  );
+}
+
+/// Occlusion where the lane meets the frame, and the lit shoulder on the side
+/// the lamp is on.
+void _paintLaneEdgeShading(
+    Canvas canvas, Rect lane, RRect laneRR, double w) {
+  canvas.drawRRect(
+    laneRR.deflate(w * 0.022),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.044
+      ..color = Colors.black.withValues(alpha: 0.20)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.020),
+  );
+  canvas.drawLine(
+    Offset(lane.left + w * 0.004, lane.top),
+    Offset(lane.left + w * 0.004, lane.bottom),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.10)
+      ..strokeWidth = math.max(1, w * 0.004),
+  );
+}
+
+void _paintImpact(Canvas canvas, Offset c, double r, ImpactRing i) {
+  final t = i.t.clamp(0.0, 1.0);
+  if (t >= 1 || i.strength <= 0.02) return;
+  final ease = 1 - math.pow(1 - t, 2.2).toDouble();
+  final radius = r * (0.55 + 1.7 * ease);
+  final fade = (1 - t) * (1 - t);
+  canvas.drawCircle(
+    c,
+    radius,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(0.8, r * 0.18 * (1 - 0.7 * t))
+      ..color = Colors.white.withValues(alpha: 0.55 * i.strength * fade),
+  );
+  if (t < 0.35) {
+    canvas.drawCircle(
+      c,
+      r * 0.7,
+      Paint()
+        ..color = Colors.white
+            .withValues(alpha: 0.22 * i.strength * (1 - t / 0.35))
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.4),
+    );
+  }
+}
+
 void _paintFallingPuck(Canvas canvas, Offset c, double r, FallingPuck f) {
   if (r <= 0.3 || f.alpha <= 0.01) return;
-  final bounds = Rect.fromCircle(center: c, radius: r * 2);
+  final bounds = Rect.fromCircle(center: c, radius: r * 3);
   canvas.saveLayer(
     bounds,
     Paint()..color = Colors.white.withValues(alpha: f.alpha.clamp(0.0, 1.0)),
   );
-  canvas.save();
-  // Tumble + shrink + foreshorten about the puck centre.
-  canvas.translate(c.dx, c.dy);
-  canvas.rotate(f.spin);
-  canvas.scale(f.scale * f.squashX, f.scale * f.squashY);
-  canvas.translate(-c.dx, -c.dy);
 
-  final base = f.color;
+  final sx = f.scale * f.squashX;
+  final sy = f.scale * f.squashY;
+
+  // The cylindrical side wall, revealed on the far side of the face as the
+  // puck tips over the lip. Drawn first so the face sits on top of it.
+  if (f.rim > 0.02) {
+    final thick = r * 0.34 * f.rim * f.scale;
+    final side = Offset(f.rimDx, f.rimDy) * thick;
+    canvas.save();
+    canvas.translate(c.dx + side.dx, c.dy + side.dy);
+    canvas.scale(sx, sy);
+    canvas.drawCircle(
+      Offset.zero,
+      r,
+      Paint()..color = Color.lerp(f.color, Colors.black, 0.55)!,
+    );
+    canvas.restore();
+  }
+
+  canvas.save();
+  canvas.translate(c.dx, c.dy);
+  canvas.scale(sx, sy);
+  canvas.translate(-c.dx, -c.dy);
+  _paintPuckFace(canvas, c, r, f.color, f.spin);
+  canvas.restore();
+
+  canvas.restore();
+}
+
+void _bandLabel(Canvas canvas, Offset center, String text, double fontSize) {
+  void draw(Offset at, Color color) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, at - Offset(tp.width / 2, tp.height / 2));
+  }
+
+  // Painted-on numerals: a dark impression under a cream stencil.
+  draw(center + Offset(0, fontSize * 0.045),
+      Colors.black.withValues(alpha: 0.28));
+  draw(center, const Color(0xFFF3E7CC).withValues(alpha: 0.80));
+}
+
+/// The steel body + coloured cap of one weight, with every marking that should
+/// turn as the puck slides drawn through [spin]. Shared by resting and falling
+/// pucks so a puck looks like the same object on its way over the lip.
+void _paintPuckFace(Canvas canvas, Offset c, double r, Color base, double spin) {
+  // Steel body.
   canvas.drawCircle(
     c,
     r,
     Paint()
       ..shader = RadialGradient(
-        center: const Alignment(-0.35, -0.4),
-        colors: [
-          Color.lerp(base, Colors.white, 0.5)!,
-          base,
-          Color.lerp(base, Colors.black, 0.35)!,
+        center: _kLight,
+        colors: const [
+          Color(0xFFF4F6F9),
+          Color(0xFFB4BAC4),
+          Color(0xFF6A707B),
         ],
         stops: const [0.0, 0.55, 1.0],
       ).createShader(Rect.fromCircle(center: c, radius: r)),
   );
-  canvas.drawCircle(
-    c,
-    r * 0.5,
+
+  // Knurling on the steel rim — the clearest read of rotation on the puck.
+  canvas.save();
+  canvas.translate(c.dx, c.dy);
+  canvas.rotate(spin);
+  final tick = Paint()
+    ..color = Colors.black.withValues(alpha: 0.22)
+    ..strokeWidth = math.max(0.6, r * 0.055)
+    ..strokeCap = StrokeCap.round;
+  for (var i = 0; i < 18; i++) {
+    final a = i * (math.pi * 2 / 18);
+    final ca = math.cos(a), sa = math.sin(a);
+    canvas.drawLine(
+      Offset(ca * r * 0.81, sa * r * 0.81),
+      Offset(ca * r * 0.96, sa * r * 0.96),
+      tick,
+    );
+  }
+  canvas.restore();
+
+  // Rim light / rim shade, fixed to the lamp (these must NOT rotate).
+  final rimRect = Rect.fromCircle(center: c, radius: r * 0.93);
+  canvas.drawArc(
+    rimRect,
+    math.pi * 1.05,
+    math.pi * 0.75,
+    false,
     Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.3, -0.35),
-        colors: [
-          Color.lerp(base, Colors.white, 0.32)!,
-          Color.lerp(base, Colors.black, 0.15)!,
-        ],
-      ).createShader(Rect.fromCircle(center: c, radius: r * 0.5)),
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = r * 0.11
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white.withValues(alpha: 0.50),
+  );
+  canvas.drawArc(
+    rimRect,
+    math.pi * 0.08,
+    math.pi * 0.72,
+    false,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = r * 0.11
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.black.withValues(alpha: 0.30),
   );
 
-  canvas.restore();
-  canvas.restore();
-}
+  // Coloured cap.
+  final capR = r * 0.70;
+  canvas.drawCircle(
+    c,
+    capR,
+    Paint()
+      ..shader = RadialGradient(
+        center: _kLight,
+        colors: [
+          Color.lerp(base, Colors.white, 0.42)!,
+          base,
+          Color.lerp(base, Colors.black, 0.38)!,
+        ],
+        stops: const [0.0, 0.55, 1.0],
+      ).createShader(Rect.fromCircle(center: c, radius: capR)),
+  );
+  canvas.drawCircle(
+    c,
+    capR,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = r * 0.05
+      ..color = Colors.black.withValues(alpha: 0.28),
+  );
 
-void _bandLabel(Canvas canvas, Offset center, String text, double fontSize) {
-  final tp = TextPainter(
-    text: TextSpan(
-      text: text,
-      style: TextStyle(
-        color: Colors.white.withValues(alpha: 0.85),
-        fontSize: fontSize,
-        fontWeight: FontWeight.w800,
-      ),
+  // Cap markings — the slot and its index notch turn with the puck.
+  canvas.save();
+  canvas.translate(c.dx, c.dy);
+  canvas.rotate(spin);
+  canvas.drawRRect(
+    RRect.fromRectAndRadius(
+      Rect.fromCenter(
+          center: Offset.zero, width: capR * 1.30, height: capR * 0.20),
+      Radius.circular(capR * 0.10),
     ),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
+    Paint()..color = Colors.black.withValues(alpha: 0.30),
+  );
+  canvas.drawRRect(
+    RRect.fromRectAndRadius(
+      Rect.fromCenter(
+          center: Offset(0, -capR * 0.055),
+          width: capR * 1.30,
+          height: capR * 0.07),
+      Radius.circular(capR * 0.04),
+    ),
+    Paint()..color = Colors.white.withValues(alpha: 0.22),
+  );
+  canvas.drawCircle(
+    Offset(0, -capR * 0.56),
+    capR * 0.13,
+    Paint()..color = Colors.black.withValues(alpha: 0.34),
+  );
+  canvas.restore();
+
+  // Specular hit on the cap, fixed to the lamp.
+  canvas.save();
+  canvas.translate(c.dx + _kLight.x * capR * 0.55,
+      c.dy + _kLight.y * capR * 0.55);
+  canvas.rotate(-0.6);
+  canvas.drawOval(
+    Rect.fromCenter(
+        center: Offset.zero, width: capR * 0.66, height: capR * 0.34),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.30)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, capR * 0.16),
+  );
+  canvas.restore();
+
+  // Silhouette.
+  canvas.drawCircle(
+    c,
+    r,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(0.6, r * 0.05)
+      ..color = Colors.black.withValues(alpha: 0.35),
+  );
 }
 
 void _paintPuck(Canvas canvas, Offset c, double r, RenderPuck p) {
   if (r <= 0.4) return;
-  // Contact shadow.
+  // Contact shadow, thrown down-right by the lamp and tight to the puck — a
+  // weight sits ON the wax, it does not hover above it.
   canvas.drawCircle(
-    c.translate(0, r * 0.24),
-    r * 1.02,
+    c + _kShadowDir * (r * 0.30),
+    r * 0.98,
     Paint()
-      ..color = Colors.black.withValues(alpha: 0.3)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.4),
+      ..color = Colors.black.withValues(alpha: 0.34)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.30),
   );
   // Score highlight ring behind scoring pucks.
   if (p.score > 0) {
     canvas.drawCircle(
       c,
-      r * 1.28,
+      r * 1.30,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.16
+        ..strokeWidth = r * 0.14
         ..color = const Color(0xFFF4B740).withValues(alpha: 0.85),
     );
+    canvas.drawCircle(
+      c,
+      r * 1.30,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.24
+        ..color = const Color(0xFFF4B740).withValues(alpha: 0.22)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.22),
+    );
   }
-  // Metal weight body.
-  final base = p.color;
-  canvas.drawCircle(
-    c,
-    r,
-    Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.35, -0.4),
-        colors: [
-          Color.lerp(base, Colors.white, 0.5)!,
-          base,
-          Color.lerp(base, Colors.black, 0.35)!,
-        ],
-        stops: const [0.0, 0.55, 1.0],
-      ).createShader(Rect.fromCircle(center: c, radius: r)),
-  );
-  // Cap ring (the puck's chrome collar).
-  canvas.drawCircle(
-    c,
-    r * 0.66,
-    Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = r * 0.1
-      ..color = Colors.white.withValues(alpha: 0.4),
-  );
-  canvas.drawCircle(
-    c,
-    r * 0.5,
-    Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.3, -0.35),
-        colors: [
-          Color.lerp(base, Colors.white, 0.32)!,
-          Color.lerp(base, Colors.black, 0.15)!,
-        ],
-      ).createShader(Rect.fromCircle(center: c, radius: r * 0.5)),
-  );
-  // Silhouette outline.
-  canvas.drawCircle(
-    c,
-    r,
-    Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = r * 0.06
-      ..color = Colors.black.withValues(alpha: 0.3),
-  );
   // Shooter gets a soft aim halo.
   if (p.isShooter) {
     canvas.drawCircle(
       c,
-      r * 1.5,
+      r * 1.48,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.1
+        ..strokeWidth = r * 0.09
         ..color = Colors.white.withValues(alpha: 0.5),
     );
   }
+  _paintPuckFace(canvas, c, r, p.color, p.spin);
 }
 
 void _paintAim(
@@ -1349,32 +2262,6 @@ void _paintAim(
 // ---------------------------------------------------------------------------
 // Chrome
 // ---------------------------------------------------------------------------
-
-class _Pill extends StatelessWidget {
-  final String text;
-
-  const _Pill({super.key, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 1.0,
-        ),
-      ),
-    );
-  }
-}
 
 class _PlayerChip extends StatelessWidget {
   final String label;
@@ -1433,12 +2320,24 @@ class _PlayerChip extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          // The score is the point of the whole screen — it outweighs the name
+          // beside it rather than matching it.
           Text(
             '$score',
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              fontSize: 19,
+              height: 1,
+              letterSpacing: -0.5,
+              shadows: active || winner
+                  ? [
+                      Shadow(
+                        color: accent.withValues(alpha: 0.7),
+                        blurRadius: 10,
+                      ),
+                    ]
+                  : null,
             ),
           ),
           const SizedBox(width: 6),

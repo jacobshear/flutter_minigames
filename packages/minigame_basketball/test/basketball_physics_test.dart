@@ -262,6 +262,111 @@ void main() {
     });
   });
 
+  group('a made shot knows how it went in', () {
+    test('a dead-centre shot is a swish and touches nothing', () {
+      final ball = simulateShot(mode: BasketballHoopMode.normal, aim: 0);
+      expect(ball.made, isTrue);
+      expect(ball.touchedIron, isFalse);
+      expect(ball.swish, isTrue);
+    });
+
+    test('a shot at the edge of the window rattles in', () {
+      // Inside the make window but far enough off-line to catch iron first.
+      // This is the shot the presentation has to tell apart from a swish.
+      final ball = simulateShot(mode: BasketballHoopMode.normal, aim: -0.085);
+      expect(ball.made, isTrue, reason: 'still a basket');
+      expect(ball.touchedIron, isTrue, reason: 'but it went in off the ring');
+      expect(ball.swish, isFalse);
+    });
+
+    test('a rattle-in whips the net less than a swish does', () {
+      final swish = simulateShot(mode: BasketballHoopMode.normal, aim: 0);
+      final rattle = simulateShot(mode: BasketballHoopMode.normal, aim: -0.085);
+      expect(swish.made && rattle.made, isTrue);
+      // Both are captured at rest, so compare what the sim set at the moment of
+      // the make rather than the decayed value: re-run to the make itself.
+      // Built exactly as simulateShot does — the ready ball's lateral offset is
+      // randomised, and a rattle aim only rattles from the offset it was
+      // measured at.
+      double wobbleAtMake(double aim) {
+        final sim = BasketballRoundSim(
+          mode: BasketballHoopMode.normal,
+          rng: math.Random(1),
+        );
+        sim.ready = LiveBall(
+          id: -1,
+          spawnX: 0,
+          body: Projectile(
+            position: BasketballCourt.spawnPoint,
+            velocity: Vec3.zero,
+            config: BasketballCourt.throwConfig,
+          ),
+        );
+        final b = sim.shoot(aim)!;
+        for (var i = 0; i < 600; i++) {
+          sim.advance(BasketballCourt.throwConfig.fixedDt);
+          if (b.made) return b.netWobble;
+        }
+        return 0;
+      }
+
+      expect(wobbleAtMake(0), greaterThan(wobbleAtMake(-0.085)),
+          reason: 'a clean drop hits the cords at full pace');
+    });
+
+    test('the net settles again — the wobble is a ring, not a latch', () {
+      final sim = BasketballRoundSim(
+        mode: BasketballHoopMode.normal,
+        rng: math.Random(1),
+      );
+      sim.ready = LiveBall(
+        id: -1,
+        spawnX: 0,
+        body: Projectile(
+          position: BasketballCourt.spawnPoint,
+          velocity: Vec3.zero,
+          config: BasketballCourt.throwConfig,
+        ),
+      );
+      final ball = sim.shoot(0)!;
+      var peak = 0.0;
+      for (var i = 0; i < 600; i++) {
+        sim.advance(BasketballCourt.throwConfig.fixedDt);
+        if (ball.netWobble > peak) peak = ball.netWobble;
+        if (ball.made && ball.netWobble == 0) break;
+      }
+      expect(peak, greaterThan(0.9));
+      expect(ball.netWobble, 0, reason: 'it has to relax back');
+    });
+
+    test('spin accumulates with distance travelled', () {
+      final sim = BasketballRoundSim(
+        mode: BasketballHoopMode.normal,
+        rng: math.Random(1),
+      );
+      final ball = sim.shoot(0)!;
+      // A ball waiting on the line is given a random idle spin, so absolute
+      // spin is not monotonic — what has to grow is how far it has turned
+      // *since launch*.
+      final launchSpin = ball.spin;
+      final samples = <double>[];
+      var lastZ = ball.position.z;
+      for (var i = 0; i < 200 && !ball.made; i++) {
+        sim.advance(BasketballCourt.throwConfig.fixedDt);
+        if (ball.position.z > lastZ + 0.25) {
+          samples.add((ball.spin - launchSpin).abs());
+          lastZ = ball.position.z;
+        }
+      }
+      expect(samples.length, greaterThan(4),
+          reason: 'the ball has to cover ground');
+      for (var i = 1; i < samples.length; i++) {
+        expect(samples[i], greaterThan(samples[i - 1]),
+            reason: 'a ball in flight keeps turning');
+      }
+    });
+  });
+
   group('cadence', () {
     test('balls respawn on a 250 ms cooldown and several fly at once', () {
       final sim = BasketballRoundSim(

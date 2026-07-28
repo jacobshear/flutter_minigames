@@ -18,6 +18,7 @@ dependencies:
   flutter:
     sdk: flutter
   minigames_core: ^0.1.0
+  minigames_ui: ^0.1.0
   minigames_words: ^0.1.0
 
 dev_dependencies:

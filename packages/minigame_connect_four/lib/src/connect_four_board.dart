@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui show Picture, PictureRecorder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -450,15 +451,17 @@ class _ToyBoard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius),
         boxShadow: [
+          // One light, one shadow direction: the toy is lit from the upper
+          // left, so its shadow falls down and slightly right.
           BoxShadow(
-            color: boardColor.withValues(alpha: 0.38),
-            blurRadius: 30,
-            offset: const Offset(0, 16),
+            color: Colors.black.withValues(alpha: 0.26),
+            blurRadius: 26,
+            offset: const Offset(3, 14),
           ),
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 5,
+            offset: const Offset(1, 2),
           ),
         ],
       ),
@@ -466,19 +469,14 @@ class _ToyBoard extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // 1) Back well (visible through the punched holes).
+          // 1) Back well (visible through the punched holes) — a real cavity
+          //    with column slots, not a flat gradient.
           Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(radius),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color.lerp(holeColor, Colors.black, 0.08)!,
-                    Color.lerp(holeColor, Colors.black, 0.16)!,
-                  ],
-                ),
+            child: CustomPaint(
+              painter: _WellPainter(
+                holeColor: holeColor,
+                pad: pad,
+                radius: radius,
               ),
             ),
           ),
@@ -608,58 +606,253 @@ class _DiscsPainter extends CustomPainter {
     }
   }
 
-  void _paintDisc(Canvas canvas, double r, Color color, {required double winGlow}) {
-    final c = Offset.zero;
-    if (winGlow > 0) {
-      canvas.drawCircle(
-        c,
-        r * 1.2,
-        Paint()
-          ..color = color.withValues(alpha: winGlow)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.5),
-      );
-    }
-    final rect = Rect.fromCircle(center: c, radius: r);
-    canvas.drawCircle(
-      c,
-      r,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.35, -0.4),
-          radius: 0.95,
-          colors: [
-            Color.lerp(color, Colors.white, 0.42)!,
-            color,
-            Color.lerp(color, Colors.black, 0.22)!,
-          ],
-          stops: const [0.0, 0.55, 1.0],
-        ).createShader(rect),
-    );
-    canvas.drawCircle(
-      c,
-      r * 0.78,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.06
-        ..color = Colors.white.withValues(alpha: 0.2),
-    );
-    canvas.drawCircle(
-      c.translate(-r * 0.12, -r * 0.15),
-      r * 0.42,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.45, -0.55),
-          radius: 0.55,
-          colors: [
-            Colors.white.withValues(alpha: 0.55),
-            Colors.white.withValues(alpha: 0.0),
-          ],
-        ).createShader(Rect.fromCircle(center: c, radius: r)),
-    );
-  }
+  void _paintDisc(Canvas canvas, double r, Color color,
+          {required double winGlow}) =>
+      paintCheckerDisc(canvas, Offset.zero, r, color, winGlow: winGlow);
 
   @override
   bool shouldRepaint(_DiscsPainter old) => true; // driven by drop anims
+}
+
+/// One translucent-plastic checker, lit from the upper left.
+///
+/// The read we're after is a moulded acrylic counter sitting *inside* a slot:
+/// a contact shadow on the back wall behind it, a saturated rim where the light
+/// passes through the thick edge, the moulded concentric ring real counters
+/// have, and a single specular highlight up-left. Every offset here points
+/// down-right for shadow / up-left for light — the board and faceplate agree.
+void paintCheckerDisc(
+  Canvas canvas,
+  Offset c,
+  double r,
+  Color color, {
+  double winGlow = 0,
+}) {
+  if (winGlow > 0) {
+    canvas.drawCircle(
+      c,
+      r * 1.2,
+      Paint()
+        ..color = color.withValues(alpha: winGlow)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.5),
+    );
+  }
+
+  // Cast shadow onto the back wall of the well.
+  canvas.drawCircle(
+    c.translate(r * 0.10, r * 0.14),
+    r * 0.99,
+    Paint()
+      ..color = const Color(0x5C000000)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.16),
+  );
+
+  final rect = Rect.fromCircle(center: c, radius: r);
+
+  // Body. Translucent plastic is lightest where it is thinnest and where the
+  // light enters, and glows a little on the far side from transmitted light —
+  // hence the second, weaker lift at the lower right rather than a flat falloff.
+  canvas.drawCircle(
+    c,
+    r,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.38, -0.45),
+        radius: 1.05,
+        colors: [
+          Color.lerp(color, Colors.white, 0.52)!,
+          Color.lerp(color, Colors.white, 0.10)!,
+          color,
+          Color.lerp(color, Colors.black, 0.30)!,
+        ],
+        stops: const [0.0, 0.36, 0.68, 1.0],
+      ).createShader(rect),
+  );
+
+  // Transmitted light bleeding through the thick lower-right edge.
+  canvas.drawCircle(
+    c,
+    r,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(0.55, 0.62),
+        radius: 0.62,
+        colors: [
+          Color.lerp(color, Colors.white, 0.30)!.withValues(alpha: 0.55),
+          color.withValues(alpha: 0.0),
+        ],
+      ).createShader(rect),
+  );
+
+  // Edge: dark seat where it meets the slot, bright arc where light grazes it.
+  canvas.drawCircle(
+    c,
+    r * 0.965,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = r * 0.09
+      ..shader = SweepGradient(
+        center: Alignment.center,
+        startAngle: 0,
+        endAngle: math.pi * 2,
+        colors: [
+          Colors.white.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.55),
+          Colors.white.withValues(alpha: 0.06),
+          Colors.black.withValues(alpha: 0.30),
+          Colors.white.withValues(alpha: 0.10),
+        ],
+        stops: const [0.0, 0.16, 0.42, 0.72, 1.0],
+        transform: const GradientRotation(-math.pi * 0.85),
+      ).createShader(rect),
+  );
+
+  // Moulded concentric ring — the detail that makes it a counter, not a dot.
+  canvas.drawCircle(
+    c.translate(-r * 0.02, -r * 0.02),
+    r * 0.62,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = r * 0.055
+      ..color = Colors.black.withValues(alpha: 0.16),
+  );
+  canvas.drawCircle(
+    c.translate(-r * 0.035, -r * 0.045),
+    r * 0.62,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = r * 0.045
+      ..color = Colors.white.withValues(alpha: 0.26),
+  );
+
+  // Specular.
+  canvas.save();
+  canvas.clipPath(Path()..addOval(rect));
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: c.translate(-r * 0.34, -r * 0.40),
+      width: r * 0.78,
+      height: r * 0.56,
+    ),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.46)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.14),
+  );
+  canvas.restore();
+}
+
+/// Geometry shared by the well and the faceplate — they must agree exactly or
+/// the holes stop lining up with the recesses behind them.
+({Rect inner, double cellW, double cellH, double holeR}) _holeGeometry(
+  Size size,
+  double pad,
+) {
+  final inner = Rect.fromLTWH(
+    pad,
+    pad,
+    size.width - pad * 2,
+    size.height - pad * 2,
+  );
+  final cellW = inner.width / ConnectFourState.cols;
+  final cellH = inner.height / ConnectFourState.rows;
+  return (
+    inner: inner,
+    cellW: cellW,
+    cellH: cellH,
+    // Hole slightly smaller than disc so pieces sit "inside" the toy.
+    holeR: math.min(cellW, cellH) * 0.40,
+  );
+}
+
+/// The cavity behind the faceplate. Only the discs of it visible through the
+/// cutouts matter, so the detail is spent there: each empty slot gets a real
+/// inner bevel (dark on the light side, lifted opposite) so it reads as a hole
+/// punched through plastic rather than a printed grey circle.
+class _WellPainter extends CustomPainter {
+  final Color holeColor;
+  final double pad;
+  final double radius;
+
+  _WellPainter({
+    required this.holeColor,
+    required this.pad,
+    required this.radius,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawPicture(_wellFor(size, holeColor, pad, radius));
+  }
+
+  @override
+  bool shouldRepaint(_WellPainter old) =>
+      old.holeColor != holeColor ||
+      old.pad != pad ||
+      old.radius != radius;
+}
+
+void _paintWell(
+  Canvas canvas,
+  Size size,
+  Color holeColor,
+  double pad,
+  double radius,
+) {
+  final rr = RRect.fromRectAndRadius(
+    Offset.zero & size,
+    Radius.circular(radius),
+  );
+  canvas.save();
+  canvas.clipRRect(rr);
+  canvas.drawRect(
+    Offset.zero & size,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color.lerp(holeColor, Colors.black, 0.10)!,
+          Color.lerp(holeColor, Colors.black, 0.22)!,
+        ],
+      ).createShader(Offset.zero & size),
+  );
+
+  final g = _holeGeometry(size, pad);
+  final floor = Color.lerp(holeColor, Colors.white, 0.06)!;
+  final deep = Color.lerp(holeColor, Colors.black, 0.24)!;
+
+  for (var col = 0; col < ConnectFourState.cols; col++) {
+    for (var visualRow = 0; visualRow < ConnectFourState.rows; visualRow++) {
+      final c = Offset(
+        g.inner.left + (col + 0.5) * g.cellW,
+        g.inner.top + (visualRow + 0.5) * g.cellH,
+      );
+      final rect = Rect.fromCircle(center: c, radius: g.holeR);
+      // Slot floor, brighter at the lower right where the light lands after
+      // it clears the rim.
+      canvas.drawCircle(
+        c,
+        g.holeR,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [deep, floor],
+          ).createShader(rect),
+      );
+      // Rim shadow cast down onto the floor from the upper-left lip.
+      canvas.drawCircle(
+        c.translate(-g.holeR * 0.10, -g.holeR * 0.13),
+        g.holeR * 0.94,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = g.holeR * 0.26
+          ..color = Colors.black.withValues(alpha: 0.20)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, g.holeR * 0.16),
+      );
+    }
+  }
+  canvas.restore();
 }
 
 /// Plastic face with circular holes punched out so discs show through.
@@ -676,92 +869,250 @@ class _FaceplatePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(radius),
-    );
-    final facePath = Path()..addRRect(outer);
-
-    final inner = Rect.fromLTWH(
-      pad,
-      pad,
-      size.width - pad * 2,
-      size.height - pad * 2,
-    );
-    final cellW = inner.width / ConnectFourState.cols;
-    final cellH = inner.height / ConnectFourState.rows;
-    // Hole slightly smaller than disc so pieces sit "inside" the toy.
-    final holeR = math.min(cellW, cellH) * 0.40;
-
-    final holes = Path();
-    for (var col = 0; col < ConnectFourState.cols; col++) {
-      for (var visualRow = 0; visualRow < ConnectFourState.rows; visualRow++) {
-        final cx = inner.left + (col + 0.5) * cellW;
-        final cy = inner.top + (visualRow + 0.5) * cellH;
-        holes.addOval(Rect.fromCircle(center: Offset(cx, cy), radius: holeR));
-      }
-    }
-
-    final punched = Path.combine(PathOperation.difference, facePath, holes);
-
-    // Plastic body gradient.
-    final bodyPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Color.lerp(boardColor, Colors.white, 0.16)!,
-          boardColor,
-          Color.lerp(boardColor, Colors.black, 0.2)!,
-        ],
-        stops: const [0.0, 0.45, 1.0],
-      ).createShader(Offset.zero & size);
-    canvas.drawPath(punched, bodyPaint);
-
-    // Soft bevel highlight along top edge of face.
-    canvas.drawPath(
-      punched,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2
-        ..color = Colors.white.withValues(alpha: 0.18),
-    );
-
-    // Hole rims — recessed plastic lip around every cutout.
-    for (var col = 0; col < ConnectFourState.cols; col++) {
-      for (var visualRow = 0; visualRow < ConnectFourState.rows; visualRow++) {
-        final cx = inner.left + (col + 0.5) * cellW;
-        final cy = inner.top + (visualRow + 0.5) * cellH;
-        final c = Offset(cx, cy);
-        // Inner shadow ring.
-        canvas.drawCircle(
-          c,
-          holeR,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = holeR * 0.14
-            ..color = Colors.black.withValues(alpha: 0.28),
-        );
-        // Tiny top lip highlight.
-        canvas.drawArc(
-          Rect.fromCircle(center: c, radius: holeR * 0.96),
-          -math.pi * 0.85,
-          math.pi * 0.55,
-          false,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = holeR * 0.07
-            ..color = Colors.white.withValues(alpha: 0.22)
-            ..strokeCap = StrokeCap.round,
-        );
-      }
-    }
+    canvas.drawPicture(_faceFor(size, boardColor, pad, radius));
   }
 
   @override
   bool shouldRepaint(_FaceplatePainter old) =>
-      old.boardColor != boardColor || old.pad != pad;
+      old.boardColor != boardColor ||
+      old.pad != pad ||
+      old.radius != radius;
 }
+
+void _paintFaceplate(
+  Canvas canvas,
+  Size size,
+  Color boardColor,
+  double pad,
+  double radius,
+) {
+  final outer = RRect.fromRectAndRadius(
+    Offset.zero & size,
+    Radius.circular(radius),
+  );
+  final facePath = Path()..addRRect(outer);
+  final g = _holeGeometry(size, pad);
+
+  final holes = Path();
+  for (var col = 0; col < ConnectFourState.cols; col++) {
+    for (var visualRow = 0; visualRow < ConnectFourState.rows; visualRow++) {
+      final cx = g.inner.left + (col + 0.5) * g.cellW;
+      final cy = g.inner.top + (visualRow + 0.5) * g.cellH;
+      holes.addOval(
+        Rect.fromCircle(center: Offset(cx, cy), radius: g.holeR),
+      );
+    }
+  }
+
+  final punched = Path.combine(PathOperation.difference, facePath, holes);
+
+  // Plastic body gradient.
+  canvas.drawPath(
+    punched,
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color.lerp(boardColor, Colors.white, 0.13)!,
+          boardColor,
+          Color.lerp(boardColor, Colors.black, 0.24)!,
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(Offset.zero & size),
+  );
+
+  canvas.save();
+  canvas.clipPath(punched);
+
+  // Injection-moulded texture: a very fine flake so the plastic isn't a pure
+  // vector fill, plus a broad sheen band raking across from the light.
+  final flake = Paint();
+  final n = (size.width / 7).round().clamp(20, 80);
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j < n; j++) {
+      final h = _hash2(i, j);
+      if (h < 0.90) continue;
+      flake.color = (h > 0.955 ? Colors.white : Colors.black)
+          .withValues(alpha: 0.020 + 0.030 * (h - 0.90) / 0.10);
+      canvas.drawCircle(
+        Offset(
+          (i + _hash2(i, j + 41)) / n * size.width,
+          (j + _hash2(i + 17, j)) / n * size.height,
+        ),
+        size.width * 0.0016,
+        flake,
+      );
+    }
+  }
+  canvas.drawRect(
+    Offset.zero & size,
+    Paint()
+      ..shader = LinearGradient(
+        begin: const Alignment(-1, -1.2),
+        end: const Alignment(0.4, 1),
+        colors: [
+          Colors.white.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.12),
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(Offset.zero & size),
+  );
+
+  // Frame thickness: the toy is a slab, so the bottom and right edges show a
+  // darker side wall and the top-left edge catches a bright bevel.
+  canvas.drawRRect(
+    outer.deflate(size.width * 0.004),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.009
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.50),
+          Colors.white.withValues(alpha: 0.06),
+          Colors.black.withValues(alpha: 0.34),
+        ],
+        stops: const [0.0, 0.42, 1.0],
+      ).createShader(Offset.zero & size),
+  );
+  canvas.drawRect(
+    Rect.fromLTRB(0, size.height - pad * 0.55, size.width, size.height),
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.black.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.26),
+        ],
+      ).createShader(
+        Rect.fromLTRB(0, size.height - pad * 0.55, size.width, size.height),
+      ),
+  );
+  canvas.restore();
+
+  // Drop slots along the top rail — the mouths you actually post a disc into.
+  // Cheap detail, but it explains the whole toy: you can see where discs go in.
+  for (var col = 0; col < ConnectFourState.cols; col++) {
+    final cx = g.inner.left + (col + 0.5) * g.cellW;
+    final slot = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(cx, pad * 0.5),
+        width: g.holeR * 1.55,
+        height: pad * 0.62,
+      ),
+      Radius.circular(pad * 0.31),
+    );
+    canvas.drawRRect(
+      slot,
+      Paint()..color = Colors.black.withValues(alpha: 0.30),
+    );
+    canvas.drawRRect(
+      slot.shift(Offset(0, pad * 0.10)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = pad * 0.12
+        ..color = Colors.white.withValues(alpha: 0.16),
+    );
+  }
+
+  // Hole rims — a punched cutout, so the bevel runs opposite to a raised edge:
+  // shadowed lip on the light side, lit lip on the far side.
+  for (var col = 0; col < ConnectFourState.cols; col++) {
+    for (var visualRow = 0; visualRow < ConnectFourState.rows; visualRow++) {
+      final c = Offset(
+        g.inner.left + (col + 0.5) * g.cellW,
+        g.inner.top + (visualRow + 0.5) * g.cellH,
+      );
+      final rect = Rect.fromCircle(center: c, radius: g.holeR * 1.06);
+      canvas.drawCircle(
+        c,
+        g.holeR * 1.06,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = g.holeR * 0.15
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.black.withValues(alpha: 0.34),
+              Colors.black.withValues(alpha: 0.05),
+              Colors.white.withValues(alpha: 0.34),
+            ],
+            stops: const [0.0, 0.5, 1.0],
+          ).createShader(rect),
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Static-layer cache
+// ---------------------------------------------------------------------------
+
+/// Deterministic 0..1 value hash — procedural texture with no assets, and
+/// stable across rebuilds so a cached picture never shimmers.
+double _hash2(int x, int y) {
+  var h = x * 374761393 + y * 668265263;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) & 0xFFFF) / 65535.0;
+}
+
+class _Layer {
+  final double w;
+  final double h;
+  final int color;
+  final double pad;
+  final bool face;
+  final ui.Picture picture;
+  const _Layer(this.w, this.h, this.color, this.pad, this.face, this.picture);
+
+  bool matches(Size s, Color c, double p, bool isFace) =>
+      w == s.width &&
+      h == s.height &&
+      color == c.toARGB32() &&
+      pad == p &&
+      face == isFace;
+}
+
+/// Board and preview can be on screen at once at different sizes, so keep a few
+/// slots rather than a single one that would thrash every frame.
+final List<_Layer> _layers = [];
+
+ui.Picture _layerFor(
+  Size size,
+  Color color,
+  double pad,
+  double radius,
+  bool face,
+) {
+  for (final l in _layers) {
+    if (l.matches(size, color, pad, face)) return l.picture;
+  }
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  if (face) {
+    _paintFaceplate(canvas, size, color, pad, radius);
+  } else {
+    _paintWell(canvas, size, color, pad, radius);
+  }
+  final made = _Layer(size.width, size.height, color.toARGB32(), pad, face,
+      recorder.endRecording());
+  _layers.insert(0, made);
+  while (_layers.length > 4) {
+    _layers.removeLast().picture.dispose();
+  }
+  return made.picture;
+}
+
+ui.Picture _faceFor(Size size, Color c, double pad, double radius) =>
+    _layerFor(size, c, pad, radius, true);
+
+ui.Picture _wellFor(Size size, Color c, double pad, double radius) =>
+    _layerFor(size, c, pad, radius, false);
 
 class _ColumnSensor extends StatefulWidget {
   final int col;
@@ -861,22 +1212,7 @@ class _SingleDiscPainter extends CustomPainter {
     if (progress <= 0) return;
     final c = Offset(size.width / 2, size.height / 2);
     final r = size.shortestSide * 0.46 * progress.clamp(0.15, 1.0);
-    final rect = Rect.fromCircle(center: c, radius: r);
-    canvas.drawCircle(
-      c,
-      r,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.35, -0.4),
-          radius: 0.95,
-          colors: [
-            Color.lerp(color, Colors.white, 0.42)!,
-            color,
-            Color.lerp(color, Colors.black, 0.22)!,
-          ],
-          stops: const [0.0, 0.55, 1.0],
-        ).createShader(rect),
-    );
+    paintCheckerDisc(canvas, c, r, color);
   }
 
   @override

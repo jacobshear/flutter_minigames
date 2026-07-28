@@ -20,7 +20,11 @@ class MancalaPlayScreen extends StatefulWidget {
 
 class _MancalaPlayScreenState extends State<MancalaPlayScreen> {
   late final PlaySession _session;
-  final MancalaGame _game = const MancalaGame(seedsPerPit: 4);
+
+  /// Capture or Avalanche — two different rule sets, picked per match.
+  MancalaMode _mode = MancalaMode.capture;
+
+  MancalaGame get _game => MancalaGame(seedsPerPit: 4, mode: _mode);
   MatchController<MancalaState, MancalaMove>? _controller;
   int _round = 0;
 
@@ -87,6 +91,21 @@ class _MancalaPlayScreenState extends State<MancalaPlayScreen> {
                 subtitle: _session.hotSeat ? 'Pass and play' : 'Online',
               ),
               const SizedBox(height: 8),
+              _ModePicker(
+                selected: _mode,
+                onSelect: (m) {
+                  if (m == _mode) return;
+                  HapticFeedback.selectionClick();
+                  DemoSfx.instance.newGame();
+                  // Different rules — a different match.
+                  setState(() {
+                    _mode = m;
+                    _round++;
+                  });
+                  _startNewGame();
+                },
+              ),
+              const SizedBox(height: 8),
               Expanded(
                 child: Center(
                   child: controller == null
@@ -115,6 +134,68 @@ class _MancalaPlayScreenState extends State<MancalaPlayScreen> {
               const SizedBox(height: 16),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Segmented Capture / Avalanche control. Quiet iOS chrome: the selection reads
+/// as a filled pill, the rest as plain text on the track.
+class _ModePicker extends StatelessWidget {
+  final MancalaMode selected;
+  final ValueChanged<MancalaMode> onSelect;
+
+  const _ModePicker({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final m in MancalaMode.values)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onSelect(m),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  curve: Curves.easeOut,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: m == selected ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(17),
+                    boxShadow: m == selected
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    m.label,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight:
+                          m == selected ? FontWeight.w700 : FontWeight.w600,
+                      color: m == selected
+                          ? DemoColors.ink
+                          : DemoColors.ink.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

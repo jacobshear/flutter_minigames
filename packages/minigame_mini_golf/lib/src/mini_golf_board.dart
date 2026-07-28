@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:minigames_3d/minigames_3d.dart';
 import 'package:minigames_core/minigames_core.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'mini_golf_camera.dart';
 import 'mini_golf_course.dart';
@@ -70,8 +71,13 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   MiniGolfState? _state;
   GameOutcome? _outcome;
 
-  String _pill = '';
-  Timer? _pillTimer;
+  // The transient centre message. A single GameNotice owns the animation and
+  // the retract timer, so repeating the same text — two "Out of bounds" in a
+  // row is ordinary play — can never collide with its own outgoing copy.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.info;
+  Color? _noticeAccent;
+  bool _noticeStrong = false;
   bool _celebrated = false;
   String? _handoffFor;
 
@@ -132,7 +138,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
 
   void _bind() {
     _celebrated = false;
-    _pill = '';
+    _clearNotice();
     _handoffFor = null;
     _confetti = const [];
     _putt = null;
@@ -148,11 +154,9 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
     if (s != null) {
-      if (_outcome != null) {
-        _celebrated = true;
-      } else {
-        _showPill(_holePill(s));
-      }
+      // Hole, par and stroke number are standing facts: they live in the
+      // header hole chip and the on-course stroke pill, not in a message.
+      if (_outcome != null) _celebrated = true;
     }
     _sub = widget.controller.stateStream.listen(_onState);
     _pumpCamera();
@@ -161,7 +165,6 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   @override
   void dispose() {
     _sub?.cancel();
-    _pillTimer?.cancel();
     _cameraTicker.dispose();
     _confettiCtrl.dispose();
     _puttCtrl.dispose();
@@ -169,26 +172,39 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   }
 
   // ---------------------------------------------------------------------------
-  // Pills
+  // Chrome
   // ---------------------------------------------------------------------------
 
-  String _holePill(MiniGolfState s) {
-    final hole = s.currentHole.clamp(0, s.holeCount - 1);
-    return 'Hole ${hole + 1} · Par ${s.parOf(hole)}';
-  }
-
+  /// The standing stroke label: which shot the player is standing over.
   String _strokePill(MiniGolfState s) =>
       'Stroke ${s.holeStrokesOf(s.currentPlayerId) + 1}';
 
-  void _showPill(String text) {
-    _pillTimer?.cancel();
-    _pill = text;
-    if (text.isNotEmpty) {
-      _pillTimer = Timer(const Duration(milliseconds: 1600), () {
-        if (!mounted) return;
-        setState(() => _pill = '');
-      });
-    }
+  /// Raises the centre notice. Assigns synchronously — callers own the
+  /// surrounding setState; [GameNotice.autoDismiss] retracts it.
+  void _showNotice(
+    String text, {
+    GameNoticeTone tone = GameNoticeTone.info,
+    Color? accent,
+    bool strong = false,
+  }) {
+    _notice = text;
+    _noticeTone = tone;
+    _noticeAccent = accent;
+    _noticeStrong = strong;
+  }
+
+  void _clearNotice() {
+    _notice = null;
+    _noticeStrong = false;
+  }
+
+  /// Seat colour, resolved against the cached scheme.
+  Color _accentFor(String playerId) {
+    final s = _state;
+    final isP1 = s == null || playerId == s.playerIds.first;
+    return isP1
+        ? widget.style.resolvePlayer1(_scheme)
+        : widget.style.resolvePlayer2(_scheme);
   }
 
   String _actingFor(MiniGolfState s) =>
@@ -429,7 +445,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     _puttCtrl.duration = Duration(
       milliseconds: math.max(120, (_durationOf(result) * 1000).round()),
     );
-    _showPill('');
+    _clearNotice();
     _phase = MiniGolfCameraPhase.flight;
     _pumpCamera();
     setState(() {});
@@ -461,10 +477,26 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       case PuttEventKind.rail:
       case PuttEventKind.obstacle:
       case PuttEventKind.lipOut:
+        // A graze is not a bang. The simulator measures how fast the ball went
+        // into the surface, so a nudge stays silent, a firm bank clacks, and
+        // the haptic is graded — the package's sound hooks take no arguments,
+        // so weight is expressed by gating and by feel rather than by volume.
+        if (e.strength < 0.06) return;
         if (e.sample - _lastSoundSample < 5) return;
         _lastSoundSample = e.sample;
         style.sounds.onWallHit?.call();
-        if (style.haptics) HapticFeedback.selectionClick();
+        if (!style.haptics) break;
+        if (e.strength > 0.5) {
+          HapticFeedback.mediumImpact();
+        } else if (e.strength > 0.2) {
+          HapticFeedback.lightImpact();
+        } else {
+          HapticFeedback.selectionClick();
+        }
+      case PuttEventKind.rattle:
+        // The ball clattering round the inside of the cup: felt, not heard —
+        // the bank clip would read as another rail hit.
+        if (style.haptics && e.strength > 0.12) HapticFeedback.lightImpact();
       case PuttEventKind.sink:
         style.sounds.onSink?.call();
         if (style.haptics) HapticFeedback.mediumImpact();
@@ -507,11 +539,24 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     _phase = MiniGolfCameraPhase.settle;
     _pumpCamera();
     final strokes = s.holeStrokesOf(owner) + 1;
-    final pill = putt.sunk
-        ? (strokes == 1 ? 'Hole in one!' : 'In the hole!')
-        : (putt.outOfBounds ? 'Out of bounds' : 'Stroke $strokes');
     widget.controller.submitMove(move);
-    if (mounted) setState(() => _showPill(pill));
+    if (!mounted) return;
+    setState(() {
+      // Only things that *happened* get a notice. An ordinary roll that ends
+      // short is not news — the stroke pill on the course already ticked over.
+      if (putt.sunk) {
+        _showNotice(
+          strokes == 1 ? 'HOLE IN ONE' : 'IN THE HOLE',
+          tone: strokes == 1 ? GameNoticeTone.win : GameNoticeTone.score,
+          accent: strokes == 1 ? null : _accentFor(owner),
+          strong: strokes == 1,
+        );
+      } else if (putt.outOfBounds) {
+        _showNotice('OUT OF BOUNDS', tone: GameNoticeTone.warn);
+      } else {
+        _clearNotice();
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -536,7 +581,9 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     if (outcome != null && !_celebrated) {
       _celebrate(outcome);
     } else if (outcome == null && _handoffFor == null && newHole) {
-      _showPill(_holePill(next));
+      // A new hole is a change of place, not a score — the header hole chip
+      // carries it, so nothing is announced over the turf.
+      _clearNotice();
     }
 
     // A new hole opens with the reveal sweep from the cup back to the tee —
@@ -561,11 +608,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       final s = _state;
       _handoffFor = null;
       if (s != null && _outcome == null) {
-        _showPill(
-          s.holeStrokesOf(s.currentPlayerId) == 0
-              ? _holePill(s)
-              : _strokePill(s),
-        );
+        _clearNotice();
         // The reveal is for the player who is about to putt, so it waits behind
         // the pass-and-play cover rather than playing to an empty room.
         if (widget.style.previewPan &&
@@ -583,7 +626,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   void _celebrate(GameOutcome outcome) {
     _celebrated = true;
     _handoffFor = null;
-    _pill = '';
+    _clearNotice();
     final style = widget.style;
     if (outcome.isDraw) {
       style.sounds.onDraw?.call();
@@ -635,12 +678,15 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       ball = MiniGolfBallView(
         position: s.position,
         spin: s.spin,
+        roll: s.roll,
         accent: accent,
         holed: false,
       );
     } else if (state.holedOutOf(acting) || _outcome != null) {
+      // Holed out: it is resting on the bottom of the cup, not balanced on the
+      // lip. The painter draws it through the mouth, so it stays half-hidden.
       ball = MiniGolfBallView(
-        position: MiniGolfWorld.ballAt(course.cup),
+        position: Vec3(course.cup.dx, MiniGolfWorld.cupRestY, course.cup.dy),
         accent: accent,
         holed: true,
       );
@@ -657,6 +703,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       course: course,
       ball: ball,
       rig: _ensureRig(course, Offset(ball.position.x, ball.position.z)),
+      impacts: _liveImpacts(),
       aim: aim == null
           ? null
           : MiniGolfAimView(
@@ -665,6 +712,42 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
               pullTo: aim.pullTo,
             ),
     );
+  }
+
+  /// How long a bank mark stays on the rail, in playback samples.
+  static const int _scuffSamples = 22;
+
+  /// Bank marks still fading at the current playback frame.
+  ///
+  /// Derived from the recorded events rather than kept as mutable state: the
+  /// simulation already said where and how hard every contact was, so a scuff
+  /// is a pure function of the frame index — which keeps a mid-putt frame
+  /// snapshot-able and stops the marks from drifting out of step with the roll.
+  List<MiniGolfImpactView> _liveImpacts() {
+    final putt = _putt;
+    if (putt == null) return const [];
+    final index =
+        (_puttCtrl.value * (putt.path.length - 1)).round().clamp(0, 1 << 30);
+    final out = <MiniGolfImpactView>[];
+    for (final e in putt.events) {
+      if (e.kind != PuttEventKind.rail && e.kind != PuttEventKind.obstacle) {
+        continue;
+      }
+      final age = index - e.sample;
+      if (age < 0 || age > _scuffSamples) continue;
+      // The ball is on the far side of the contact point from the surface, so
+      // the outward direction of the mark points back at where it went.
+      final ballAt = putt.path[index.clamp(0, putt.path.length - 1)].position;
+      var n = Offset(ballAt.x - e.at.dx, ballAt.z - e.at.dy);
+      n = n.distance < 1e-6 ? const Offset(0, 1) : n / n.distance;
+      out.add(MiniGolfImpactView(
+        at: e.at,
+        normal: n,
+        strength: e.strength,
+        age: age / _scuffSamples,
+      ));
+    }
+    return out;
   }
 
   @override
@@ -757,14 +840,31 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
                           ),
                         ),
                       ),
+                      // Standing stroke label: which shot this player is
+                      // over, in their colour. A fact, so a pill — it does not
+                      // flash past and it is always there to check.
+                      if (_outcome == null && _handoffFor == null)
+                        Positioned(
+                          left: 10,
+                          top: 10,
+                          child: IgnorePointer(
+                            child: GamePill(
+                              text: _strokePill(state),
+                              accent: _accentFor(state.currentPlayerId),
+                              dot: true,
+                            ),
+                          ),
+                        ),
                       Positioned.fill(
                         child: IgnorePointer(
                           child: Center(
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 200),
-                              child: _pill.isEmpty
-                                  ? const SizedBox.shrink()
-                                  : _Pill(key: ValueKey(_pill), text: _pill),
+                            child: GameNotice(
+                              message: _notice,
+                              tone: _noticeTone,
+                              accent: _noticeAccent,
+                              strong: _noticeStrong,
+                              autoDismiss:
+                                  const Duration(milliseconds: 1600),
                             ),
                           ),
                         ),
@@ -1110,32 +1210,6 @@ class _ScorecardStrip extends StatelessWidget {
         const SizedBox(height: 2),
         playerRow(p2, style.resolvePlayer2(scheme)),
       ],
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final String text;
-
-  const _Pill({super.key, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 0.8,
-        ),
-      ),
     );
   }
 }

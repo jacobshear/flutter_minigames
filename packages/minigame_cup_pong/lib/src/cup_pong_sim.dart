@@ -82,9 +82,30 @@ class CupPongTuning {
   /// the table and rattle into something, which flattened the whole power axis
   /// and made the make rate nearly independent of the flick. Killing the
   /// rebound is what restored power as the skill axis.
+  ///
+  /// [tableRestitution] sits at the top of the range that is *provably* safe:
+  /// the fastest landing a solved throw can produce is about 4 m/s vertical, so
+  /// even a perfect rebound apexes at `(0.30·4)²/2g ≈ 7 cm` above the felt —
+  /// short of the 12 cm mouth plane, which is the only way a bounce could steal
+  /// a make. Below this the ball reads as a beanbag; above it, the guard rates
+  /// start to move.
   final double tableRestitution;
   final double rimRestitution;
   final double wallRestitution;
+
+  /// Downward speed under which a table contact stops being a bounce and starts
+  /// being a roll. Without this the ball micro-bounces every step forever, and
+  /// [Projectile.bounce] scrubs [friction] on each one — which is precisely why
+  /// a miss used to arrive, stop dead, and sit there.
+  final double bounceThreshold;
+
+  /// Rolling resistance, fraction of horizontal speed bled per second. Low: a
+  /// ping-pong ball on varnished wood carries, and a miss that trundles to the
+  /// rail and drops off the edge is worth more than one that parks.
+  final double rollFriction;
+
+  /// Horizontal speed under which a rolling ball is finally at rest.
+  final double rollRestSpeed;
 
   final ThrowConfig config;
 
@@ -98,9 +119,12 @@ class CupPongTuning {
     this.spinRate = 16,
     this.fullPowerDrag = 190,
     this.deadZone = 16,
-    this.tableRestitution = 0.24,
+    this.tableRestitution = 0.30,
     this.rimRestitution = 0.18,
     this.wallRestitution = 0.22,
+    this.bounceThreshold = 0.5,
+    this.rollFriction = 1.5,
+    this.rollRestSpeed = 0.11,
     this.config = const ThrowConfig(
       gravity: 9.81,
       drag: 0.05,
@@ -134,6 +158,9 @@ class CupPongTuning {
         tableRestitution: tableRestitution,
         rimRestitution: rimRestitution,
         wallRestitution: wallRestitution,
+        bounceThreshold: bounceThreshold,
+        rollFriction: rollFriction,
+        rollRestSpeed: rollRestSpeed,
         config: config,
       );
 }
@@ -335,6 +362,9 @@ class CupPongThrowSim {
   int _steps = 0;
   bool _finished = false;
   int? _hitCupId;
+  bool _atRest = false;
+  bool _rolling = false;
+  double _lastImpact = 0;
 
   CupPongThrowSim({
     required this.cups,
@@ -353,6 +383,20 @@ class CupPongThrowSim {
   Vec3 get position => ball.position;
   double get spin => ball.spin;
   int get steps => _steps;
+
+  /// True once the ball has stopped **on the table**, as opposed to having gone
+  /// over an edge or run out of patience. The board only leaves a ball lying in
+  /// the scene when this is set — parking one wherever the sim happened to give
+  /// up used to strand it in mid-air out past the rail.
+  bool get atRest => _atRest;
+
+  /// True while the ball is rolling on the felt rather than flying.
+  bool get rolling => _rolling;
+
+  /// Impact speed of the most recent contact, world units/s. Lets the board
+  /// scale a cue to how hard the hit actually was instead of firing one flat
+  /// sample for a skimming touch and a full-power slam alike.
+  double get lastImpactSpeed => _lastImpact;
 
   /// Advance one fixed step, returning what happened (null = uneventful).
   CupPongEvent? step() {
@@ -394,6 +438,7 @@ class CupPongThrowSim {
         CupPongWorld.ballRadius * 0.6,
       );
       if (n != null) {
+        _lastImpact = ball.velocity.length;
         ball.bounce(n, restitution: tuning.rimRestitution, friction: 0.3);
         return CupPongEvent.rimBounce;
       }
@@ -412,6 +457,7 @@ class CupPongThrowSim {
         CupPongWorld.cupMouthY,
       );
       if (n != null) {
+        _lastImpact = ball.velocity.length;
         ball.bounce(n, restitution: tuning.wallRestitution, friction: 0.24);
         // Push clear so the next step doesn't re-trigger the same wall.
         final clear = (CupPongWorld.cupMouthRadius +
@@ -430,7 +476,14 @@ class CupPongThrowSim {
       }
     }
 
-    // 4. Table surface.
+    // 4. Table surface — bounce, then roll, then rest.
+    //
+    // The two branches are the whole reason a miss now reads as a miss. The old
+    // code bounced on *every* grounded step, and [Projectile.bounce] scrubs its
+    // friction each time, so once the ball settled it lost 20% of its horizontal
+    // speed 240 times a second and stopped dead within a few frames of landing.
+    // Splitting "still falling" from "now rolling" gives the arrival its weight
+    // back and lets the ball carry to the rail — or over it.
     final onTable = ball.position.z >= CupPongWorld.nearZ &&
         ball.position.z <= CupPongWorld.farZ &&
         ball.position.x.abs() <= CupPongWorld.halfWidth;
@@ -440,17 +493,48 @@ class CupPongThrowSim {
         CupPongWorld.ballRadius,
         ball.position.z,
       );
-      final wasFalling = ball.velocity.y < 0;
-      ball.bounce(
-        const Vec3(0, 1, 0),
-        restitution: tuning.tableRestitution,
-        friction: 0.2,
-      );
-      if (ball.restingOn(0, radius: CupPongWorld.ballRadius)) {
-        _finished = true;
-        return CupPongEvent.missed;
+      final vy = ball.velocity.y;
+      var bounced = false;
+      if (vy < -tuning.bounceThreshold) {
+        _lastImpact = ball.velocity.length;
+        ball.bounce(
+          const Vec3(0, 1, 0),
+          restitution: tuning.tableRestitution,
+          friction: 0.2,
+        );
+        bounced = true;
+      } else if (vy < 0) {
+        // Too slow to bounce: from here it is rolling, not falling.
+        ball.velocity = Vec3(ball.velocity.x, 0, ball.velocity.z);
       }
-      if (wasFalling) return CupPongEvent.tableBounce;
+
+      if (!bounced) {
+        _rolling = true;
+        final dt = tuning.config.fixedDt;
+        final damp = (1 - tuning.rollFriction * dt).clamp(0.0, 1.0);
+        ball.velocity = Vec3(
+          ball.velocity.x * damp,
+          ball.velocity.y,
+          ball.velocity.z * damp,
+        );
+        // Spin from travel: a rolling ball turns at v/r, so the seam keeps pace
+        // with the felt instead of coasting on whatever backspin it launched
+        // with.
+        ball.spinRate =
+            ball.velocity.horizontalLength / CupPongWorld.ballRadius;
+        if (ball.velocity.horizontalLength < tuning.rollRestSpeed) {
+          ball.velocity = Vec3.zero;
+          ball.spinRate = 0;
+          _finished = true;
+          _atRest = true;
+          return CupPongEvent.missed;
+        }
+      } else {
+        _rolling = false;
+      }
+      if (bounced) return CupPongEvent.tableBounce;
+    } else {
+      _rolling = false;
     }
 
     // 5. Off the table, or out of patience.

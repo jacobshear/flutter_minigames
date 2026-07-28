@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 import 'package:minigames_words/minigames_words.dart';
 
 import 'word_bites_game.dart';
@@ -83,19 +84,19 @@ class _WordBitesBoardState extends State<WordBitesBoard>
   Offset _settleFromPx = Offset.zero;
   bool _settleIsBounce = false;
 
-  late final AnimationController _settle = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 170),
-  )..addStatusListener(_onSettleStatus);
-
-  late final AnimationController _flash = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 950),
-  );
+  // Assigned in initState, never from a field initialiser: a `late final x =
+  // AnimationController(...)` that first runs during dispose() looks up a
+  // deactivated element's ancestor and throws.
+  late final AnimationController _settle;
+  late final AnimationController _flash;
 
   List<WordBitesCell> _flashCells = const [];
-  String _flashLabel = '';
   Offset _flashCenter = Offset.zero; // px, board space
+
+  /// The word (or words) the last settle spelled. A scored word is an event,
+  /// so it gets a notice that retracts on its own rather than a label that
+  /// hangs about.
+  String? _notice;
 
   double _cell = 0;
 
@@ -105,6 +106,14 @@ class _WordBitesBoardState extends State<WordBitesBoard>
   @override
   void initState() {
     super.initState();
+    _settle = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 170),
+    )..addStatusListener(_onSettleStatus);
+    _flash = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 950),
+    );
     _anchors = widget.initialAnchors != null
         ? Map.of(widget.initialAnchors!)
         : _scatter();
@@ -215,6 +224,10 @@ class _WordBitesBoardState extends State<WordBitesBoard>
       _dragId = hit;
       _dragOrigin = _anchors[hit];
       _dragPx = _pieceRect(piece, _anchors[hit]!).topLeft;
+      // Lifting a piece clears the last word's banner, and lets an identical
+      // one be raised again: a notice will not re-present a message it has
+      // already dismissed while the caller is still holding it.
+      _notice = null;
     });
     widget.style.sounds.onPickup?.call();
     if (widget.style.haptics) HapticFeedback.selectionClick();
@@ -345,6 +358,7 @@ class _WordBitesBoardState extends State<WordBitesBoard>
 
     var points = 0;
     final flashCells = <WordBitesCell>{};
+    final took = <String>[];
     for (final (word, cells) in candidates) {
       if (_scored.containsKey(word)) continue;
       if (!widget.dictionary.contains(word)) continue;
@@ -363,13 +377,16 @@ class _WordBitesBoardState extends State<WordBitesBoard>
       final pts = WordBitesGame.scoreForLength(word.length);
       _scored[word] = play;
       points += pts;
+      took.add(word);
       flashCells.addAll(cells);
       widget.onWordScored?.call(play, pts);
     }
 
     if (points > 0) {
       _flashCells = flashCells.toList();
-      _flashLabel = '+$points';
+      // Name the word, not just the number: "+8" alone leaves you guessing
+      // which of the runs you just made actually counted.
+      _notice = '${took.map((w) => w.toUpperCase()).join(' · ')}  +$points';
       var cx = 0.0, cy = 0.0;
       for (final (r, c) in _flashCells) {
         cx += (c + 0.5) * _cell;
@@ -448,73 +465,122 @@ class _WordBitesBoardState extends State<WordBitesBoard>
               },
             ),
           ),
+          _foundRail(style),
         ],
       ),
     );
   }
 
-  Widget _headerRow(WordBitesStyle style) {
-    Widget pill(Widget child, {Color? color}) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: color ?? Colors.black.withValues(alpha: 0.35),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: child,
-        );
+  /// The words taken this round, newest first.
+  ///
+  /// The flash and the notice both pass; this is the record. It also stops a
+  /// 9×8 board floating in the middle of the screen with a strip of bare felt
+  /// under it.
+  Widget _foundRail(WordBitesStyle style) {
+    final words = _scored.keys.toList();
+    return SizedBox(
+      height: 42,
+      child: words.isEmpty
+          ? Center(
+              child: Text(
+                'Slide the bites together to spell words',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            )
+          : ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              itemCount: words.length,
+              itemBuilder: (context, i) {
+                final w = words[words.length - 1 - i];
+                return Padding(
+                  padding: const EdgeInsets.only(right: 5),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      // Newest brightest, so the eye finds the last one taken.
+                      color: style.flash.withValues(alpha: i == 0 ? 0.62 : 0.24),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          w.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${WordBitesGame.scoreForLength(w.length)}',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.74),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
 
+  /// Whose round it is, what they have, and how long is left.
+  ///
+  /// All three are states rather than events, so the seat is a [GamePill] —
+  /// but the score and the clock are the two numbers the round is actually
+  /// about, and they were set in the same 14pt as the label. They are now
+  /// read at a glance from across the table.
+  Widget _headerRow(WordBitesStyle style) {
     final secondsLeft = widget.secondsLeft;
     final low = secondsLeft != null && secondsLeft <= 10;
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        pill(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: style.accent,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 7),
-              Text(
-                widget.playerLabel,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(width: 9),
-              Text(
-                '${widget.score}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14,
-                ),
-              ),
-            ],
+        GamePill(
+          text: widget.playerLabel,
+          accent: style.accent,
+          dot: true,
+        ),
+        const SizedBox(width: 10),
+        Text(
+          '${widget.score}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 23,
+            height: 1,
+            fontFeatures: [FontFeature.tabularFigures()],
           ),
         ),
         const Spacer(),
         if (secondsLeft != null)
-          pill(
-            Text(
-              '${secondsLeft ~/ 60}:${(secondsLeft % 60).toString().padLeft(2, '0')}',
-              style: TextStyle(
-                color: low ? const Color(0xFFFF6B5E) : Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 14,
-                letterSpacing: 0.6,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+          Text(
+            '${secondsLeft ~/ 60}:${(secondsLeft % 60).toString().padLeft(2, '0')}',
+            style: TextStyle(
+              // Under ten seconds the clock is the only thing that matters,
+              // so it is the only thing that changes colour.
+              color: low ? const Color(0xFFFF6B5E) : Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 23,
+              height: 1,
+              letterSpacing: 0.4,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
-            color: Colors.black.withValues(alpha: 0.5),
           ),
       ],
     );
@@ -559,51 +625,32 @@ class _WordBitesBoardState extends State<WordBitesBoard>
               ),
             ),
           ),
-        if (flashing) _scorePopup(flashT, style),
+        _scoreNotice(style),
       ],
     );
   }
 
-  Widget _scorePopup(double t, WordBitesStyle style) {
-    final rise = Curves.easeOutCubic.transform(t.clamp(0.0, 1.0));
-    final opacity = t < 0.15
-        ? t / 0.15
-        : (t > 0.72 ? (1 - (t - 0.72) / 0.28).clamp(0.0, 1.0) : 1.0);
-    final pop = 1.0 + 0.25 * math.sin(math.pi * (t.clamp(0.0, 0.4) / 0.4));
+  /// The scored word, named where it was spelled.
+  ///
+  /// Kept over the run itself rather than parked in the chrome — the green
+  /// flash says *where*, this says *what*. One animating node, so two words
+  /// scoring in quick succession queue instead of colliding.
+  Widget _scoreNotice(WordBitesStyle style) {
+    final boardW = _cell * widget.cols;
+    final left = (_flashCenter.dx - 110)
+        .clamp(0.0, math.max(0.0, boardW - 220))
+        .toDouble();
     return Positioned(
-      left: _flashCenter.dx - 60,
-      top: _flashCenter.dy - _cell * 0.9 - rise * _cell * 1.1,
-      width: 120,
+      left: left,
+      top: math.max(2.0, _flashCenter.dy - _cell * 1.5),
+      width: 220,
       child: IgnorePointer(
-        child: Opacity(
-          opacity: opacity,
-          child: Transform.scale(
-            scale: pop,
-            child: Center(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: style.flash,
-                  borderRadius: BorderRadius.circular(999),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.25),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Text(
-                  _flashLabel,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ),
+        child: Center(
+          child: GameNotice(
+            message: _notice,
+            tone: GameNoticeTone.score,
+            accent: style.flash,
+            autoDismiss: const Duration(milliseconds: 1600),
           ),
         ),
       ),

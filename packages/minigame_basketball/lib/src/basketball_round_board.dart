@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:minigames_3d/minigames_3d.dart';
+import 'package:minigames_ui/minigames_ui.dart';
 
 import 'basketball_court.dart';
 import 'basketball_game.dart';
@@ -91,8 +92,16 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
   /// Seconds the outro runs after the buzzer so balls in the air can land.
   double _outro = 0;
 
-  String _pill = '';
-  double _pillTtl = 0;
+  /// The transient message over the court, and how long it has left. Nulling
+  /// it out is the *only* way it leaves: [GameNotice.autoDismiss] cannot be
+  /// used here because this board rebuilds every tick, and the notice
+  /// re-presents itself on any rebuild that happens after it has self-retracted
+  /// while the message is still non-null. Ticking a TTL costs nothing — the
+  /// ticker is already running — and needs no [Timer] to cancel.
+  String? _notice;
+  GameNoticeTone _noticeTone = GameNoticeTone.info;
+  bool _noticeStrong = false;
+  double _noticeTtl = 0;
 
   /// Sim-time of the last bounce/rim cue, for rate limiting.
   double _lastImpactCue = -1;
@@ -128,7 +137,7 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     _sim = _newSim();
     _ticker = createTicker(_onTick)..start();
     widget.style.sounds.onWhistle?.call();
-    _showPill('Round 1', 1.4);
+    _showNotice('ROUND 1', 1.4, strong: true);
   }
 
   @override
@@ -153,7 +162,10 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     _lastTick = elapsed;
     if (dt <= 0) return;
 
-    if (_pillTtl > 0) _pillTtl = math.max(0, _pillTtl - dt);
+    if (_noticeTtl > 0) {
+      _noticeTtl = math.max(0, _noticeTtl - dt);
+      if (_noticeTtl == 0) _notice = null;
+    }
 
     if (_interlude > 0) {
       _interlude -= dt;
@@ -181,19 +193,44 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     switch (hit.kind) {
       case BasketballHitKind.made:
         widget.style.sounds.onSwish?.call();
-        // Haptics fire on your own score only.
-        if (widget.style.haptics) HapticFeedback.lightImpact();
+        // Haptics fire on your own score only — and a clean drop feels
+        // different in the hand from one that rattled its way in, which is the
+        // one bit of the swish/rattle distinction that survives having a single
+        // net sample to play.
+        if (widget.style.haptics) {
+          if (hit.ball.swish) {
+            HapticFeedback.lightImpact();
+          } else {
+            HapticFeedback.mediumImpact();
+          }
+        }
         // Rest at 0, spike to 1 on a make, decay back.
         _flash.reverse(from: 1);
+        // Balls land in quick succession, so this message repeats constantly —
+        // two swishes in a row is ordinary play, not an edge case. That is the
+        // sequence an AnimatedSwitcher could not survive.
+        _showNotice(
+          hit.ball.swish ? 'SWISH!' : 'BUCKET!',
+          0.8,
+          tone: GameNoticeTone.score,
+        );
       case BasketballHitKind.rim:
       case BasketballHitKind.backboard:
+        if (hit.speed < minAudibleImpact) return;
         if (_cueReady) widget.style.sounds.onRim?.call(hit.speed);
       case BasketballHitKind.bounce:
+        if (hit.speed < minAudibleImpact) return;
         if (_cueReady) widget.style.sounds.onBounce?.call(hit.speed);
       case BasketballHitKind.launch:
         break;
     }
   }
+
+  /// Contacts slower than this are grazes. Gating them here rather than only
+  /// rate-limiting matters: a ball settling on the floor generates a run of
+  /// near-zero-speed touches, and each one used to burn the rate-limit slot
+  /// that the *next real* impact needed.
+  static const double minAudibleImpact = 0.6;
 
   /// Rate limit: a floor full of loose balls would otherwise machine-gun the
   /// same sample.
@@ -231,7 +268,7 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     }
     _roundIndex++;
     _interlude = interludeSeconds;
-    _showPill('Round ${_roundIndex + 1}', interludeSeconds);
+    _showNotice('ROUND ${_roundIndex + 1}', interludeSeconds, strong: true);
   }
 
   void _startNextRound() {
@@ -248,9 +285,16 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     widget.style.sounds.onBuzzer?.call();
   }
 
-  void _showPill(String text, double seconds) {
-    _pill = text;
-    _pillTtl = seconds;
+  void _showNotice(
+    String text,
+    double seconds, {
+    GameNoticeTone tone = GameNoticeTone.info,
+    bool strong = false,
+  }) {
+    _notice = text;
+    _noticeTone = tone;
+    _noticeStrong = strong;
+    _noticeTtl = seconds;
   }
 
   // ----------------------------------------------------------------- input
@@ -362,10 +406,15 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
                           right: 0,
                           child: IgnorePointer(
                             child: Center(
-                              child: _RoundChip(
-                                round: _roundIndex + 1,
-                                total: BasketballGame.roundCount,
-                                mode: widget.mode,
+                              child: GamePill(
+                                text: widget.mode ==
+                                        BasketballHoopMode.moving
+                                    ? 'Round ${_roundIndex + 1}/'
+                                        '${BasketballGame.roundCount} · Moving'
+                                    : 'Round ${_roundIndex + 1}/'
+                                        '${BasketballGame.roundCount}',
+                                accent: accent,
+                                dot: true,
                               ),
                             ),
                           ),
@@ -373,11 +422,18 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
                         Positioned.fill(
                           child: IgnorePointer(
                             child: Center(
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 180),
-                                child: _pillTtl <= 0 || _pill.isEmpty
-                                    ? const SizedBox.shrink()
-                                    : _Pill(key: ValueKey(_pill), text: _pill),
+                              // One animating node. "SWISH!" fires on back-to-
+                              // back makes, so the message genuinely repeats
+                              // inside a single exit — an AnimatedSwitcher
+                              // keyed on the text put two live children in its
+                              // Stack and threw "Duplicate keys found".
+                              child: GameNotice(
+                                message: _notice,
+                                tone: _noticeTone,
+                                strong: _noticeStrong,
+                                accent: _noticeTone == GameNoticeTone.score
+                                    ? null
+                                    : accent,
                               ),
                             ),
                           ),
@@ -447,62 +503,6 @@ class _CourtCustomPainter extends CustomPainter {
   bool shouldRepaint(_CourtCustomPainter old) => true;
 }
 
-class _RoundChip extends StatelessWidget {
-  final int round;
-  final int total;
-  final BasketballHoopMode mode;
-
-  const _RoundChip({
-    required this.round,
-    required this.total,
-    required this.mode,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.42),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        mode == BasketballHoopMode.moving
-            ? 'Round $round/$total · Moving'
-            : 'Round $round/$total',
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 11,
-          letterSpacing: 0.6,
-        ),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final String text;
-
-  const _Pill({super.key, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.62),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 1.0,
-        ),
-      ),
-    );
-  }
-}
+// The round counter is *present*, not an event: it is true for the whole
+// round and never animates. That makes it a [GamePill]; the things that
+// happen — a make, a round ending — are [GameNotice]s.

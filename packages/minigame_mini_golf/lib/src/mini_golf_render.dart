@@ -56,13 +56,28 @@ void paintMiniGolfScene(
   final green = _projectPolygon(camera, [
     for (final p in course.outline) MiniGolfWorld.at(p),
   ]);
+  // A ball whose centre has gone below the green is *inside the cup*, so it is
+  // drawn through the mouth (clipped by it, with the lip painted back over the
+  // top) rather than as a prop floating above the hole.
+  final sunk = ball.holed || ball.inCup;
   if (green != null) {
     _paintGreen(canvas, size, camera, course, green, felt, rough);
     // Ground decals live under everything and are clipped to the felt.
     canvas.save();
     canvas.clipPath(green);
-    _paintCupMouth(canvas, camera, course, rough);
-    if (!ball.holed) _paintBallShadow(canvas, camera, ball);
+    _paintCupMouth(
+      canvas,
+      camera,
+      course,
+      rough,
+      style,
+      scheme,
+      ball: sunk ? ball : null,
+    );
+    if (!sunk) _paintBallShadow(canvas, camera, ball);
+    for (final hit in view.impacts) {
+      _paintScuff(canvas, camera, hit, felt);
+    }
     final aim = view.aim;
     if (aim != null) _paintAim(canvas, camera, ball, aim, style, scheme);
     canvas.restore();
@@ -70,13 +85,13 @@ void paintMiniGolfScene(
 
   // --- depth-sorted props ---------------------------------------------------
   final scene = Scene3(camera);
-  _addRails(scene, camera, course, style, scheme, rough);
+  _addRails(scene, camera, course, style, scheme, rough, view.impacts);
   _addObstacles(scene, camera, course, style, scheme, rough);
   _addFlag(scene, camera, course, style, scheme, rough);
-  if (!ball.holed) {
+  if (!sunk) {
     scene.add(
       ball.position,
-      (c, at) => _paintBall(c, ball, at, style, scheme, rough),
+      (c, at) => _paintBall(c, ball, at, camera, style, scheme, rough),
     );
   }
   scene.paint(canvas);
@@ -188,16 +203,30 @@ void _paintSkyAndRough(
   // Constant-z bands on the ground plane. A horizontal world line projects to a
   // horizontal screen line, and even world spacing bunches toward the horizon —
   // foreshortening you can count.
-  final band = Paint()..color = Colors.black.withValues(alpha: 0.05);
+  //
+  // They alternate light and dark rather than only darkening: a mower leaves
+  // stripes, and one direction of nap catches the light while the other does
+  // not. At a single 5% black the far rough was a flat wash you could not read
+  // depth off at all, which is most of why the top of the frame looked like
+  // dead space rather than ground going away from you.
+  //
+  // The contrast fades out with distance. Near the horizon the bands compress
+  // to a couple of pixels each, and at full strength that stops being stripes
+  // and starts being moiré.
+  final bandLitBase = Color.lerp(rough, Colors.white, 0.10)!;
   for (var i = 1; i <= 24; i++) {
     final z = camera.eye.z + 1.0 + 0.30 * i * i;
     final a = camera.project(Vec3(0, 0, z));
     final b = camera.project(Vec3(0, 0, z + 0.30 * i));
     if (!a.visible || !b.visible) continue;
     if (a.screen.dy <= horizon) break;
+    final falloff = (1 - i / 18).clamp(0.15, 1.0);
     canvas.drawRect(
       Rect.fromLTRB(0, math.max(horizon, b.screen.dy), size.width, a.screen.dy),
-      band,
+      Paint()
+        ..color = i.isEven
+            ? bandLitBase.withValues(alpha: 0.16 * falloff)
+            : Colors.black.withValues(alpha: 0.075 * falloff),
     );
   }
 
@@ -208,11 +237,14 @@ void _paintSkyAndRough(
   // hole's seed, so they are stable frame to frame.
   final dark = Color.lerp(rough, Colors.black, 0.22)!;
   final pale = Color.lerp(rough, style.resolveGreen(scheme), 0.30)!;
-  for (var i = 0; i < 30; i++) {
+  for (var i = 0; i < 54; i++) {
     final u = _hash(course.seed, i * 3 + 1);
     final v = _hash(course.seed, i * 3 + 2);
     final w = _hash(course.seed, i * 3 + 3);
-    final z = camera.eye.z + 2.5 + 34 * v * v;
+    // Biased toward the far field: v*v alone stacked most of the patches near
+    // the camera, leaving the deep rough — the part that fills the top of the
+    // frame — bare.
+    final z = camera.eye.z + 2.5 + 46 * math.pow(v, 1.4).toDouble();
     final x = camera.eye.x + (u - 0.5) * (10 + 2.2 * z.abs());
     final patch = camera.horizontalCirclePath(
       Vec3(x, 0, z),
@@ -223,10 +255,119 @@ void _paintSkyAndRough(
     canvas.drawPath(
       patch,
       Paint()
-        ..color = (w < 0.5 ? dark : pale).withValues(alpha: 0.30)
+        ..color = (w < 0.5 ? dark : pale).withValues(alpha: 0.42)
         ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 6),
     );
   }
+
+  // Sun on the turf. One warm off-centre wash over the ground plane, so the
+  // rough is lit from somewhere rather than being an even field of colour —
+  // and the corners fall away, which stops the frame reading as a flat card.
+  if (horizon < size.height) {
+    canvas.drawRect(
+      Rect.fromLTRB(0, horizon, size.width, size.height),
+      Paint()
+        ..shader = ui.Gradient.radial(
+          Offset(size.width * 0.26, horizon + size.height * 0.10),
+          size.width * 1.25,
+          [
+            Color.lerp(rough, const Color(0xFFFFF3C4), 0.30)!
+                .withValues(alpha: 0.30),
+            Colors.transparent,
+            Colors.black.withValues(alpha: 0.22),
+          ],
+          const [0.0, 0.55, 1.0],
+        ),
+    );
+  }
+
+  // A fringe of half-cut grass hugging the green. The rough used to be a plain
+  // vertical gradient, which reads as a painted backdrop the hole is pasted
+  // onto; a band of intermediate green following the *actual outline* is what
+  // seats it in the ground, and it costs one polygon.
+  final fringe = _projectPolygon(camera, [
+    for (final p in _outwardOffset(course.outline, 0.95)) MiniGolfWorld.at(p),
+  ]);
+  if (fringe != null) {
+    canvas.drawPath(
+      fringe,
+      Paint()..color = Color.lerp(rough, style.resolveGreen(scheme), 0.44)!,
+    );
+    canvas.drawPath(
+      fringe,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..color = Colors.black.withValues(alpha: 0.16)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 4),
+    );
+  }
+
+  // Tufts of longer grass standing up out of that fringe. Blurred colour
+  // patches stay flat however many you draw — a few blades with real height are
+  // what say the rough is *deeper* than the green, which is the whole reason to
+  // stay out of it. Anchored to the outline, so they land where the rough is
+  // actually on screen instead of somewhere off the bottom of the frame.
+  final blade = Color.lerp(rough, Colors.black, 0.34)!;
+  final n = course.outline.length;
+  for (var i = 0; i < 90; i++) {
+    final t = i / 90 * n;
+    final a = course.outline[t.floor() % n];
+    final b = course.outline[(t.floor() + 1) % n];
+    final along = a + (b - a) * (t - t.floorToDouble());
+    final edge = b - a;
+    if (edge.distance < 1e-6) continue;
+    final outward = Offset(edge.dy, -edge.dx) / edge.distance;
+    final jitter = _hash(course.seed, 900 + i * 5);
+    final spread = _hash(course.seed, 901 + i * 5);
+    final tall = _hash(course.seed, 902 + i * 5);
+    final lean = _hash(course.seed, 903 + i * 5) - 0.5;
+    final at = along +
+        outward * (0.30 + 1.35 * spread) +
+        (edge / edge.distance) * (jitter - 0.5) * 0.8;
+    final h = 0.11 + 0.22 * tall;
+    final root = camera.project(MiniGolfWorld.at(at));
+    final tip = camera.project(
+      Vec3(at.dx + lean * h * 0.7, h, at.dy + lean * h * 0.3),
+    );
+    if (!root.visible || !tip.visible) continue;
+    if (root.screen.dy <= horizon) continue;
+    canvas.drawLine(
+      root.screen,
+      tip.screen,
+      Paint()
+        ..strokeWidth = math.max(0.7, 0.022 * root.scale)
+        ..strokeCap = StrokeCap.round
+        ..color = (tall < 0.45 ? pale : blade).withValues(alpha: 0.6),
+    );
+  }
+}
+
+/// The outline pushed [by] world units outward, using averaged edge normals.
+///
+/// Good enough for a soft fringe: a mitre that overshoots slightly on a sharp
+/// concave corner is invisible under a blurred band, and it keeps the fringe
+/// following the hole's real shape rather than a scaled bounding box (which on
+/// a dogleg would sit half on the green and half in the next county).
+List<Offset> _outwardOffset(List<Offset> outline, double by) {
+  final n = outline.length;
+  final out = <Offset>[];
+  for (var i = 0; i < n; i++) {
+    final prev = outline[(i - 1 + n) % n];
+    final here = outline[i];
+    final next = outline[(i + 1) % n];
+    Offset normal(Offset a, Offset b) {
+      final d = b - a;
+      final len = d.distance;
+      return len < 1e-9 ? Offset.zero : Offset(d.dy, -d.dx) / len;
+    }
+
+    var sum = normal(prev, here) + normal(here, next);
+    final len = sum.distance;
+    sum = len < 1e-9 ? Offset.zero : sum / len;
+    out.add(here + sum * by);
+  }
+  return out;
 }
 
 /// Stable 0..1 hash, so scenery doesn't crawl between frames.
@@ -282,10 +423,19 @@ void _paintGreen(
 
   // Mow stripes: alternating bands between constant-x world lines, which
   // converge on the vanishing point. The strongest single cue in the scene.
+  //
+  // Cut grass, not stripes of flat colour: a mower lays the blades toward you
+  // on one pass and away on the next, so a light band is *warmer and paler* and
+  // a dark band is cooler and deeper — and the boundary between them catches a
+  // thin roller line. Painting them as two tints instead of one white overlay
+  // is what stops the green reading as a striped carpet.
   final span = b.maxX - b.minX;
   final stripes = (span / 0.85).round().clamp(4, 16);
-  final light = Paint()..color = Colors.white.withValues(alpha: 0.055);
-  for (var i = 0; i < stripes; i += 2) {
+  final toward = Color.lerp(felt, const Color(0xFFE8F5C8), 0.16)!
+      .withValues(alpha: 0.42);
+  final away = Color.lerp(felt, const Color(0xFF0E3A1E), 0.22)!
+      .withValues(alpha: 0.34);
+  for (var i = 0; i < stripes; i++) {
     final x0 = b.minX + span * i / stripes;
     final x1 = b.minX + span * (i + 1) / stripes;
     final quad = _projectPolygon(camera, [
@@ -294,12 +444,26 @@ void _paintGreen(
       Vec3(x1, 0, b.maxZ + 0.4),
       Vec3(x0, 0, b.maxZ + 0.4),
     ]);
-    if (quad != null) canvas.drawPath(quad, light);
+    if (quad == null) continue;
+    canvas.drawPath(quad, Paint()..color = i.isEven ? toward : away);
+    // The roller line where the two passes meet.
+    final a = camera.project(Vec3(x0, 0, b.minZ - 0.4));
+    final c = camera.project(Vec3(x0, 0, b.maxZ + 0.4));
+    if (a.visible && c.visible) {
+      canvas.drawLine(
+        a.screen,
+        c.screen,
+        Paint()
+          ..strokeWidth = 1.0
+          ..color = Colors.white
+              .withValues(alpha: i.isEven ? 0.045 : 0.015),
+      );
+    }
   }
 
   // Cross-grain at constant z: even world spacing that visibly bunches away.
   final grain = Paint()
-    ..color = Colors.black.withValues(alpha: 0.07)
+    ..color = Colors.black.withValues(alpha: 0.055)
     ..strokeWidth = 1.0;
   final steps = ((b.maxZ - b.minZ) / 1.1).round().clamp(3, 24);
   for (var i = 1; i < steps; i++) {
@@ -309,6 +473,17 @@ void _paintGreen(
     if (!l.visible || !r.visible) continue;
     canvas.drawLine(l.screen, r.screen, grain);
   }
+
+  // The rails throw a soft shadow onto the green, which is what stops the
+  // fairway looking like a decal laid between two floating kerbs.
+  canvas.drawPath(
+    green,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 14
+      ..color = Colors.black.withValues(alpha: 0.22)
+      ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 7),
+  );
   canvas.restore();
 }
 
@@ -316,17 +491,30 @@ void _paintGreen(
 // Cup + flag
 // ---------------------------------------------------------------------------
 
+/// The cup: a real hole with a liner, a floor and walls — and, when [ball] is
+/// given, the ball itself drawn *inside* it.
+///
+/// The occlusion is the whole point. A ball drawn as a prop over the hole reads
+/// as sitting on a black sticker; a ball clipped to the mouth, with the near lip
+/// painted back over the top of it, reads as having gone *in*. Everything the
+/// drop does — shrinking with depth, being swallowed by the rim — happens here.
 void _paintCupMouth(
   Canvas canvas,
   Camera3 camera,
   MiniGolfCourse course,
   Color rough,
-) {
+  MiniGolfStyle style,
+  ColorScheme scheme, {
+  MiniGolfBallView? ball,
+}) {
+  const r = MiniGolfCourse.cupRadius;
   final centre = MiniGolfWorld.at(course.cup);
   final depth = camera.toCameraSpace(centre).z;
+
+  // A ring of shorter, paler grass around the hole, the way a cup is cut.
   final collar = camera.horizontalCirclePath(
     Vec3(centre.x, 0.004, centre.z),
-    MiniGolfCourse.cupRadius * 1.34,
+    r * 1.42,
     segments: 24,
   );
   if (collar != null) {
@@ -334,35 +522,112 @@ void _paintCupMouth(
       collar,
       Paint()
         ..color = _hazed(const Color(0xFFDDE7CF), depth, rough)
-            .withValues(alpha: 0.55),
+            .withValues(alpha: 0.42),
     );
   }
-  // The hole itself: the mouth conic, plus a disc set down inside it so the
-  // near lip reads as an overhang rather than a sticker.
-  final inner = camera.horizontalCirclePath(
-    Vec3(centre.x, -0.22, centre.z),
-    MiniGolfCourse.cupRadius * 0.94,
-    segments: 24,
-  );
-  final mouth = camera.horizontalCirclePath(
-    centre,
-    MiniGolfCourse.cupRadius,
-    segments: 24,
-  );
+
+  final mouth = camera.horizontalCirclePath(centre, r, segments: 28);
   if (mouth == null) return;
-  canvas.drawPath(mouth, Paint()..color = const Color(0xFF10180F));
-  if (inner != null) {
-    canvas.save();
-    canvas.clipPath(mouth);
-    canvas.drawPath(inner, Paint()..color = const Color(0xFF2A2118));
-    canvas.restore();
+  final floor = camera.horizontalCirclePath(
+    Vec3(centre.x, -MiniGolfWorld.cupDepth, centre.z),
+    r * 0.96,
+    segments: 28,
+  );
+
+  canvas.save();
+  canvas.clipPath(mouth);
+
+  // Wall: dark at the mouth on the near side, catching a little light on the
+  // far side where the sky reaches into the hole.
+  canvas.drawPath(
+    mouth,
+    Paint()
+      ..shader = ui.Gradient.linear(
+        camera.project(Vec3(centre.x, 0, centre.z + r)).screen,
+        camera.project(Vec3(centre.x, 0, centre.z - r)).screen,
+        const [Color(0xFF3B3227), Color(0xFF120E09), Color(0xFF070704)],
+        const [0.0, 0.55, 1.0],
+      ),
+  );
+  // The white plastic liner, visible as a sliver on the far wall.
+  final liner = camera.horizontalCirclePath(
+    Vec3(centre.x, -0.035, centre.z),
+    r * 0.99,
+    segments: 28,
+  );
+  if (liner != null) {
+    canvas.drawPath(
+      liner,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..color = const Color(0xFFD8D2C4).withValues(alpha: 0.30),
+    );
   }
+  if (floor != null) {
+    canvas.drawPath(floor, Paint()..color = const Color(0xFF16130E));
+  }
+
+  // The ball, down the hole, under the lip.
+  if (ball != null) {
+    final at = camera.project(ball.position);
+    if (at.visible) {
+      _paintBall(canvas, ball, at, camera, style, scheme, rough,
+          veil: _cupVeil(ball.position.y), shadow: false);
+    }
+  }
+  canvas.restore();
+
+  // The lip goes back on top: a hard shadowed edge with the cut turf above it.
   canvas.drawPath(
     mouth,
     Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
+      ..strokeWidth = 2.6
       ..color = Colors.black.withValues(alpha: 0.55),
+  );
+  canvas.drawPath(
+    mouth,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = Colors.white.withValues(alpha: 0.12),
+  );
+}
+
+/// How much the cup swallows a ball at height [y]: none at the lip, almost
+/// total on the floor.
+double _cupVeil(double y) {
+  final t = (-y / MiniGolfWorld.cupDepth).clamp(0.0, 1.0);
+  return 0.80 * t;
+}
+
+/// A scuff of compressed paint/turf where the ball banked, fading with age.
+void _paintScuff(
+  Canvas canvas,
+  Camera3 camera,
+  MiniGolfImpactView hit,
+  Color felt,
+) {
+  final fade = (1 - hit.age).clamp(0.0, 1.0);
+  if (fade <= 0.01 || hit.strength <= 0.05) return;
+  final n = hit.normal;
+  final perp = Offset(-n.dy, n.dx);
+  final half = MiniGolfCourse.ballRadius * (0.9 + 2.2 * hit.strength);
+  final reach = MiniGolfCourse.ballRadius * (0.7 + 1.4 * hit.strength);
+  final poly = _projectPolygon(camera, [
+    MiniGolfWorld.at(hit.at + perp * half, 0.006),
+    MiniGolfWorld.at(hit.at + n * reach + perp * half * 0.5, 0.006),
+    MiniGolfWorld.at(hit.at + n * reach - perp * half * 0.5, 0.006),
+    MiniGolfWorld.at(hit.at - perp * half, 0.006),
+  ]);
+  if (poly == null) return;
+  canvas.drawPath(
+    poly,
+    Paint()
+      ..color = Color.lerp(felt, Colors.white, 0.45)!
+          .withValues(alpha: 0.30 * fade * (0.4 + 0.6 * hit.strength))
+      ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 2),
   );
 }
 
@@ -383,27 +648,91 @@ void _addFlag(
     // The pole thins with depth exactly as its length shortens — a fixed stroke
     // width is the usual giveaway that a "3-D" scene is drawn in 2-D.
     final w = math.max(1.0, 0.030 * t.scale);
+
+    // Shadow on the green, thrown away from the light (up-range and left).
+    final shadowTip = camera.project(
+      Vec3(base.x + MiniGolfWorld.flagHeight * 0.42, 0.004,
+          base.z + MiniGolfWorld.flagHeight * 0.30),
+    );
+    if (shadowTip.visible) {
+      canvas.drawLine(
+        b.screen,
+        shadowTip.screen,
+        Paint()
+          ..strokeWidth = math.max(1.0, w * 0.9)
+          ..color = Colors.black.withValues(alpha: 0.22)
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 1.6),
+      );
+    }
+
+    // The stick: a fibreglass pole with the black sighting bands a real pin
+    // carries, and a lit edge down one side so it reads as a cylinder.
+    final pole = _hazed(const Color(0xFFE9EDF0), at.depth, rough);
     canvas.drawLine(
       b.screen,
       t.screen,
       Paint()
-        ..color = _hazed(const Color(0xFFE9EDF0), at.depth, rough)
+        ..color = pole
         ..strokeWidth = w
         ..strokeCap = StrokeCap.round,
     );
+    canvas.drawLine(
+      b.screen.translate(-w * 0.26, 0),
+      t.screen.translate(-w * 0.26, 0),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.5)
+        ..strokeWidth = w * 0.34,
+    );
+    for (final f in const [0.30, 0.52]) {
+      final a = Offset.lerp(b.screen, t.screen, f)!;
+      final c = Offset.lerp(b.screen, t.screen, f + 0.05)!;
+      canvas.drawLine(
+        a,
+        c,
+        Paint()
+          ..color = _hazed(const Color(0xFF23282C), at.depth, rough)
+          ..strokeWidth = w,
+      );
+    }
+    // A ferrule where the pin meets the turf.
+    canvas.drawLine(
+      b.screen,
+      Offset.lerp(b.screen, t.screen, 0.06)!,
+      Paint()
+        ..color = _hazed(const Color(0xFF9AA3A8), at.depth, rough)
+        ..strokeWidth = w * 1.5,
+    );
+
+    // The pennant, with a fold: two panels at slightly different tints so the
+    // cloth has a shape rather than being a flat triangle.
     final flagW = 0.52 * t.scale;
     final flagH = 0.30 * t.scale;
-    final pennant = Path()
-      ..moveTo(t.screen.dx, t.screen.dy)
-      ..lineTo(t.screen.dx - flagW, t.screen.dy + flagH * 0.42)
-      ..lineTo(t.screen.dx, t.screen.dy + flagH)
-      ..close();
+    final flag = _hazed(style.resolveFlag(scheme), at.depth, rough);
+    final tip = Offset(t.screen.dx - flagW, t.screen.dy + flagH * 0.42);
+    final fold = Offset(t.screen.dx - flagW * 0.52, t.screen.dy + flagH * 0.30);
     canvas.drawPath(
-      pennant,
-      Paint()..color = _hazed(style.resolveFlag(scheme), at.depth, rough),
+      Path()
+        ..moveTo(t.screen.dx, t.screen.dy)
+        ..lineTo(fold.dx, fold.dy)
+        ..lineTo(t.screen.dx, t.screen.dy + flagH)
+        ..close(),
+      Paint()..color = flag,
     );
     canvas.drawPath(
-      pennant,
+      Path()
+        ..moveTo(fold.dx, fold.dy)
+        ..lineTo(tip.dx, tip.dy)
+        ..lineTo(t.screen.dx, t.screen.dy + flagH)
+        ..close(),
+      Paint()..color = Color.lerp(flag, Colors.black, 0.22)!,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(t.screen.dx, t.screen.dy)
+        ..lineTo(tip.dx, tip.dy)
+        ..lineTo(t.screen.dx, t.screen.dy + flagH)
+        ..close(),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.8
@@ -429,6 +758,7 @@ void _addRails(
   MiniGolfStyle style,
   ColorScheme scheme,
   Color rough,
+  List<MiniGolfImpactView> impacts,
 ) {
   const h = MiniGolfCourse.railHeight;
   const t = MiniGolfCourse.railThickness;
@@ -502,6 +832,49 @@ void _addRails(
           final path = _projectPolygon(camera, f.poly);
           if (path == null) continue;
           canvas.drawPath(path, Paint()..color = _hazed(f.colour, at.depth, rough));
+        }
+        // Timber grain along the top cap — a plain flat band reads as plastic.
+        final grainA = camera.project(Vec3(
+            p0.dx + outward.dx * t * 0.35, h, p0.dy + outward.dy * t * 0.35));
+        final grainB = camera.project(Vec3(
+            p1.dx + outward.dx * t * 0.35, h, p1.dy + outward.dy * t * 0.35));
+        if (grainA.visible && grainB.visible) {
+          canvas.drawLine(
+            grainA.screen,
+            grainB.screen,
+            Paint()
+              ..strokeWidth = math.max(0.6, 0.012 * at.scale)
+              ..color = Colors.black.withValues(alpha: 0.10),
+          );
+        }
+        // Compression where a ball banked off this stretch of rail: a bright
+        // smear on the inner face, right where it hit, sized by how hard.
+        for (final hit in impacts) {
+          final fade = (1 - hit.age).clamp(0.0, 1.0);
+          if (fade <= 0.01 || hit.strength <= 0.05) continue;
+          final along = (hit.at - p0);
+          final unit = d / len;
+          final proj = along.dx * unit.dx + along.dy * unit.dy;
+          final seg = len / pieces;
+          if (proj < -0.15 || proj > seg + 0.15) continue;
+          if ((hit.at - (p0 + unit * proj)).distance > 0.25) continue;
+          final half = 0.16 + 0.34 * hit.strength;
+          final lo = p0 + unit * (proj - half);
+          final hi = p0 + unit * (proj + half);
+          final smear = _projectPolygon(camera, [
+            Vec3(lo.dx, 0, lo.dy),
+            Vec3(hi.dx, 0, hi.dy),
+            Vec3(hi.dx, h * 0.72, hi.dy),
+            Vec3(lo.dx, h * 0.72, lo.dy),
+          ]);
+          if (smear == null) continue;
+          canvas.drawPath(
+            smear,
+            Paint()
+              ..color = Colors.white
+                  .withValues(alpha: 0.26 * fade * (0.35 + 0.65 * hit.strength))
+              ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 2.5),
+          );
         }
       });
     }
@@ -735,18 +1108,35 @@ void _paintBallShadow(Canvas canvas, Camera3 camera, MiniGolfBallView ball) {
   );
 }
 
+/// Where a point on the ball's surface, in world direction [v], lands relative
+/// to the ball's centre on screen — and whether it is on the visible hemisphere.
+///
+/// The camera only pitches, so this is exact: rotate the direction into camera
+/// space, and the visible half is whatever ends up pointing back at the eye.
+({Offset offset, bool front}) _onBall(Camera3 camera, Vec3 v) {
+  final c = math.cos(camera.pitch);
+  final s = math.sin(camera.pitch);
+  final y = v.y * c + v.z * s;
+  final z = -v.y * s + v.z * c;
+  return (offset: Offset(v.x, -y), front: z < 0);
+}
+
 void _paintBall(
   Canvas canvas,
   MiniGolfBallView ball,
   Projected at,
+  Camera3 camera,
   MiniGolfStyle style,
   ColorScheme scheme,
-  Color rough,
-) {
+  Color rough, {
+  double veil = 0,
+  bool shadow = true,
+}) {
   final r = ball.radius * at.scale;
   if (r < 0.5) return;
   final c = at.screen;
   final white = _hazed(const Color(0xFFF7F9F6), at.depth, rough, strength: 0.3);
+  final accent = ball.accent ?? style.resolvePlayer1(scheme);
 
   canvas.drawCircle(
     c,
@@ -763,34 +1153,130 @@ void _paintBall(
         const [0.0, 0.52, 1.0],
       ),
   );
-  // Dimples that roll with the ball, so the roll is legible even when the ball
-  // is only a few pixels across.
-  if (r > 3) {
-    final dimple = Paint()..color = Colors.black.withValues(alpha: 0.10);
-    for (var i = 0; i < 5; i++) {
-      final a = ball.spin * 0.6 + i * (2 * math.pi / 5);
-      canvas.drawCircle(
-        c.translate(math.cos(a) * r * 0.42, math.sin(a) * r * 0.30),
-        r * 0.15,
-        dimple,
-      );
+
+  canvas.save();
+  canvas.clipPath(Path()..addOval(Rect.fromCircle(center: c, radius: r)));
+
+  // The alignment stripe: a great circle about the ball's local Y axis, drawn
+  // through the live orientation. Seen edge-on it is a bar across the face,
+  // seen pole-on it curls to a ring near the rim — which is exactly the read
+  // that tells you a ball is rolling rather than sliding, and it survives being
+  // only a few pixels wide.
+  if (r > 2.5) {
+    final axis = ball.roll.ay;
+    // Two unit vectors spanning the plane perpendicular to the stripe's axis.
+    final helper = axis.x.abs() < 0.9 ? const Vec3(1, 0, 0) : const Vec3(0, 1, 0);
+    final u = _norm(_cross(axis, helper));
+    final v = _norm(_cross(axis, u));
+    Path? run;
+    for (var i = 0; i <= 40; i++) {
+      final a = 2 * math.pi * i / 40;
+      final p = u * math.cos(a) + v * math.sin(a);
+      final s = _onBall(camera, p);
+      if (!s.front) {
+        run = null;
+        continue;
+      }
+      final at2 = c + s.offset * r;
+      if (run == null) {
+        run = Path()..moveTo(at2.dx, at2.dy);
+      } else {
+        run.lineTo(at2.dx, at2.dy);
+        canvas.drawPath(
+          run,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = r * 0.30
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round
+            ..color = accent.withValues(alpha: 0.9),
+        );
+      }
     }
   }
+
+  // Dimples carried on the surface, so they travel over the top and vanish
+  // round the rim instead of pinwheeling about the screen axis.
+  if (r > 4) {
+    final dimple = Paint()..color = Colors.black.withValues(alpha: 0.13);
+    for (final d in _dimpleDirections) {
+      final w = ball.roll.ax * d.x + ball.roll.ay * d.y + ball.roll.az * d.z;
+      final s = _onBall(camera, w);
+      if (!s.front) continue;
+      canvas.drawCircle(c + s.offset * r, r * 0.13, dimple);
+    }
+  }
+
+  // Sphere shading over body and markings alike.
+  canvas.drawCircle(
+    c,
+    r,
+    Paint()
+      ..shader = ui.Gradient.radial(
+        c.translate(-r * 0.34, -r * 0.38),
+        r * 1.5,
+        [
+          Colors.white.withValues(alpha: 0.30),
+          Colors.white.withValues(alpha: 0.0),
+          Colors.black.withValues(alpha: 0.34),
+        ],
+        const [0.0, 0.45, 1.0],
+      ),
+  );
+  if (veil > 0) {
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()..color = Colors.black.withValues(alpha: veil.clamp(0.0, 1.0)),
+    );
+  }
+  canvas.restore();
+
   canvas.drawCircle(
     c.translate(-r * 0.30, -r * 0.34),
     r * 0.24,
-    Paint()..color = Colors.white.withValues(alpha: 0.85),
+    Paint()..color = Colors.white.withValues(alpha: 0.85 * (1 - veil)),
   );
-  // A thin accent ring keeps whose ball it is readable at distance.
+  // A thin dark rim keeps the silhouette against pale rails.
   canvas.drawCircle(
     c,
     r,
     Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(0.8, r * 0.14)
-      ..color = (ball.accent ?? style.resolvePlayer1(scheme))
-          .withValues(alpha: 0.85),
+      ..strokeWidth = math.max(0.7, r * 0.09)
+      ..color = Colors.black.withValues(alpha: 0.26 * (1 - veil * 0.6)),
   );
+  // `shadow` is the caller's business (a ball down the cup casts none) — the
+  // contact shadow itself is drawn as a ground decal before the props.
+  if (!shadow) return;
+}
+
+const _dimpleDirections = <Vec3>[
+  Vec3(0.57735, 0.57735, 0.57735),
+  Vec3(-0.57735, 0.57735, 0.57735),
+  Vec3(0.57735, -0.57735, 0.57735),
+  Vec3(0.57735, 0.57735, -0.57735),
+  Vec3(-0.57735, -0.57735, 0.57735),
+  Vec3(-0.57735, 0.57735, -0.57735),
+  Vec3(0.57735, -0.57735, -0.57735),
+  Vec3(-0.57735, -0.57735, -0.57735),
+  Vec3(1, 0, 0),
+  Vec3(-1, 0, 0),
+  Vec3(0, 1, 0),
+  Vec3(0, -1, 0),
+  Vec3(0, 0, 1),
+  Vec3(0, 0, -1),
+];
+
+Vec3 _cross(Vec3 a, Vec3 b) => Vec3(
+      a.y * b.z - a.z * b.y,
+      a.z * b.x - a.x * b.z,
+      a.x * b.y - a.y * b.x,
+    );
+
+Vec3 _norm(Vec3 v) {
+  final l = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  return l < 1e-9 ? const Vec3(0, 0, 1) : Vec3(v.x / l, v.y / l, v.z / l);
 }
 
 // ---------------------------------------------------------------------------

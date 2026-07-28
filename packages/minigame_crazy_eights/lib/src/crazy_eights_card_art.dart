@@ -1,325 +1,105 @@
+import 'dart:collection';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import 'crazy_eights_game.dart';
 
-/// Pure-vector playing-card rendering (no image assets, no Text glyphs) so
-/// cards rasterize crisply at any size — including in golden/PNG renders.
+/// Pure-vector card rendering (no image assets, no Text glyphs) so cards
+/// rasterize crisply at any size — including in golden/PNG renders.
 ///
-/// Rank indices use a small stroked vector font; suits are filled paths.
-/// Number cards get classic pip arrangements, face cards a GP-simple framed
-/// letter portrait.
+/// The deck is a real 52-card deck because the rules need suit + rank, but the
+/// cards are drawn in the Uno idiom rather than the poker one:
+///
+///  * each suit owns a bold colour (spades blue, hearts red, diamonds amber,
+///    clubs green) so a hand is scannable by colour, not by pip silhouette;
+///  * a thick white die-cut border around a saturated colour field;
+///  * the signature white ellipse tilted across the middle, carrying the rank
+///    as a big outlined vector glyph (numeral for 2–10, letter for A/J/Q/K);
+///  * small rank + suit pip in two opposite corners, 180° apart.
+///
+/// The wild 8 gets a dark field and a four-colour quartered ellipse; once a
+/// suit is declared the ellipse and an inner ring switch to that colour.
+///
+/// Faces are recorded into a [ui.Picture] keyed by size + identity, so the
+/// glyph and pip paths are only walked when a card first appears at a size.
 abstract final class CrazyEightsCardArt {
-  static const Color red = Color(0xFFD8342C);
-  static const Color ink = Color(0xFF26262B);
-  static const Color cardWhite = Color(0xFFFDFDFB);
-  static const Color backBlue = Color(0xFF3672DC);
+  // -- Uno palette: one committed colour per suit ---------------------------
 
-  static Color suitColor(int suit) =>
-      (suit == CrazyEightsCards.hearts || suit == CrazyEightsCards.diamonds)
-          ? red
-          : ink;
+  /// ♠ spades.
+  static const Color spadeBlue = Color(0xFF1466CE);
+
+  /// ♥ hearts.
+  static const Color heartRed = Color(0xFFDE1F2B);
+
+  /// ♦ diamonds.
+  static const Color diamondAmber = Color(0xFFED9A00);
+
+  /// ♣ clubs.
+  static const Color clubGreen = Color(0xFF149B4A);
+
+  /// Kept for callers that want "the red" (confetti, accents).
+  static const Color red = heartRed;
+
+  /// Kept for callers that want "the blue" (confetti, accents).
+  static const Color backBlue = spadeBlue;
+
+  static const Color ink = Color(0xFF1A1B21);
+  static const Color cardWhite = Color(0xFFFCFCFA);
+
+  /// Field colour of a wild 8 and of the card back.
+  static const Color wildDark = Color(0xFF23252E);
+
+  /// The back's oval. Deliberately a fifth colour no suit owns, so a
+  /// face-down card can never be mistaken for a declared wild 8.
+  static const Color backViolet = Color(0xFF6E45E2);
+
+  /// The four suit colours in suit order (spades, hearts, diamonds, clubs).
+  static const List<Color> suitColors = [
+    spadeBlue,
+    heartRed,
+    diamondAmber,
+    clubGreen,
+  ];
+
+  static Color suitColor(int suit) => suitColors[suit & 3];
 
   /// Corner radius used for a card of [size].
-  static double cornerRadius(Size size) => size.width * 0.13;
+  static double cornerRadius(Size size) => size.width * 0.125;
 
   // -------------------------------------------------------------------------
-  // Card faces
+  // Public entry points
   // -------------------------------------------------------------------------
 
   /// Paints the face of [card] (0..51) filling [rect].
-  static void paintFace(Canvas canvas, Rect rect, int card) {
-    final rrect = RRect.fromRectAndRadius(
-      rect,
-      Radius.circular(cornerRadius(rect.size)),
-    );
-    _paintCardBase(canvas, rect, rrect);
-
-    final rank = CrazyEightsCards.rankOf(card);
-    final suit = CrazyEightsCards.suitOf(card);
-    final color = suitColor(suit);
-    final w = rect.width;
-
-    // Corner indices (top-left + rotated bottom-right).
-    void corner() {
-      final glyphH = w * 0.20;
-      final label = CrazyEightsCards.rankLabels[rank];
-      final glyphW = _paintGlyphRun(
-        canvas,
-        label,
-        origin: rect.topLeft + Offset(w * 0.075, w * 0.075),
-        height: glyphH,
-        color: color,
-      );
-      paintSuit(
-        canvas,
-        Rect.fromCenter(
-          center: rect.topLeft +
-              Offset(w * 0.075 + glyphW / 2, w * 0.075 + glyphH + w * 0.10),
-          width: w * 0.125,
-          height: w * 0.125,
-        ),
-        suit,
-      );
-    }
-
-    corner();
-    canvas.save();
-    canvas.translate(rect.center.dx, rect.center.dy);
-    canvas.rotate(math.pi);
-    canvas.translate(-rect.center.dx, -rect.center.dy);
-    corner();
-    canvas.restore();
-
-    // Center art.
-    if (rank == 0) {
-      // Ace — one big pip.
-      paintSuit(
-        canvas,
-        Rect.fromCenter(center: rect.center, width: w * 0.44, height: w * 0.44),
-        suit,
-      );
-    } else if (rank <= 9) {
-      _paintPips(canvas, rect, rank, suit);
-    } else {
-      _paintFaceCard(canvas, rect, rank, suit);
-    }
+  ///
+  /// [declaredSuit] only affects 8s: a wild 8 with a live declared suit paints
+  /// that suit's colour instead of the four-colour wild treatment.
+  static void paintFace(
+    Canvas canvas,
+    Rect rect,
+    int card, {
+    int? declaredSuit,
+  }) {
+    final declared =
+        CrazyEightsCards.isEight(card) ? declaredSuit : null;
+    _draw(canvas, rect, _key(rect.size, card, declared),
+        (c, s) => _recordFace(c, s, card, declared));
   }
 
   /// Paints the shared card back filling [rect].
   static void paintBack(Canvas canvas, Rect rect) {
-    final rrect = RRect.fromRectAndRadius(
-      rect,
-      Radius.circular(cornerRadius(rect.size)),
-    );
-    _paintCardBase(canvas, rect, rrect);
-
-    final inner = rect.deflate(rect.width * 0.075);
-    final innerR = RRect.fromRectAndRadius(
-      inner,
-      Radius.circular(cornerRadius(rect.size) * 0.62),
-    );
-    canvas.drawRRect(
-      innerR,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF4A85EE), backBlue, Color(0xFF2A5BC0)],
-        ).createShader(inner),
-    );
-
-    // Diagonal lattice.
-    canvas.save();
-    canvas.clipRRect(innerR);
-    final lattice = Paint()
-      ..color = Colors.white.withValues(alpha: 0.16)
-      ..strokeWidth = math.max(1, rect.width * 0.022);
-    final step = rect.width * 0.13;
-    for (var x = -inner.height; x < inner.width; x += step) {
-      canvas.drawLine(
-        Offset(inner.left + x, inner.top),
-        Offset(inner.left + x + inner.height, inner.bottom),
-        lattice,
-      );
-      canvas.drawLine(
-        Offset(inner.left + x + inner.height, inner.top),
-        Offset(inner.left + x, inner.bottom),
-        lattice,
-      );
-    }
-    canvas.restore();
-
-    canvas.drawRRect(
-      innerR.deflate(rect.width * 0.02),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1, rect.width * 0.018)
-        ..color = Colors.white.withValues(alpha: 0.55),
-    );
+    _draw(canvas, rect, _key(rect.size, 52, null), _recordBack);
   }
 
-  static void _paintCardBase(Canvas canvas, Rect rect, RRect rrect) {
-    canvas.drawRRect(
-      rrect,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            cardWhite,
-            Color.lerp(cardWhite, Colors.black, 0.045)!,
-          ],
-        ).createShader(rect),
-    );
-    canvas.drawRRect(
-      rrect.deflate(0.5),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = ink.withValues(alpha: 0.16),
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // Pips
-  // -------------------------------------------------------------------------
-
-  /// Classic pip positions per rank index 1..9 (2..10), in unit coords of the
-  /// pip area.
-  static const Map<int, List<Offset>> _pipLayouts = {
-    1: [Offset(0.5, 0.16), Offset(0.5, 0.84)],
-    2: [Offset(0.5, 0.14), Offset(0.5, 0.5), Offset(0.5, 0.86)],
-    3: [
-      Offset(0.26, 0.16), Offset(0.74, 0.16),
-      Offset(0.26, 0.84), Offset(0.74, 0.84),
-    ],
-    4: [
-      Offset(0.26, 0.16), Offset(0.74, 0.16), Offset(0.5, 0.5),
-      Offset(0.26, 0.84), Offset(0.74, 0.84),
-    ],
-    5: [
-      Offset(0.26, 0.16), Offset(0.74, 0.16),
-      Offset(0.26, 0.5), Offset(0.74, 0.5),
-      Offset(0.26, 0.84), Offset(0.74, 0.84),
-    ],
-    6: [
-      Offset(0.26, 0.16), Offset(0.74, 0.16), Offset(0.5, 0.33),
-      Offset(0.26, 0.5), Offset(0.74, 0.5),
-      Offset(0.26, 0.84), Offset(0.74, 0.84),
-    ],
-    7: [
-      Offset(0.26, 0.16), Offset(0.74, 0.16), Offset(0.5, 0.33),
-      Offset(0.26, 0.5), Offset(0.74, 0.5), Offset(0.5, 0.67),
-      Offset(0.26, 0.84), Offset(0.74, 0.84),
-    ],
-    8: [
-      Offset(0.26, 0.14), Offset(0.74, 0.14),
-      Offset(0.26, 0.38), Offset(0.74, 0.38), Offset(0.5, 0.5),
-      Offset(0.26, 0.62), Offset(0.74, 0.62),
-      Offset(0.26, 0.86), Offset(0.74, 0.86),
-    ],
-    9: [
-      Offset(0.26, 0.14), Offset(0.74, 0.14), Offset(0.5, 0.26),
-      Offset(0.26, 0.38), Offset(0.74, 0.38),
-      Offset(0.26, 0.62), Offset(0.74, 0.62), Offset(0.5, 0.74),
-      Offset(0.26, 0.86), Offset(0.74, 0.86),
-    ],
-  };
-
-  static void _paintPips(Canvas canvas, Rect rect, int rank, int suit) {
-    // Inset past the corner indices so pip rows never merge with them.
-    final area = Rect.fromLTRB(
-      rect.left + rect.width * 0.27,
-      rect.top + rect.height * 0.235,
-      rect.right - rect.width * 0.27,
-      rect.bottom - rect.height * 0.235,
-    );
-    final pip = rect.width * (rank >= 8 ? 0.165 : 0.19);
-    for (final u in _pipLayouts[rank]!) {
-      final c = Offset(
-        area.left + u.dx * area.width,
-        area.top + u.dy * area.height,
-      );
-      final flipped = u.dy > 0.5;
-      if (flipped) {
-        canvas.save();
-        canvas.translate(c.dx, c.dy);
-        canvas.rotate(math.pi);
-        canvas.translate(-c.dx, -c.dy);
-      }
-      paintSuit(
-        canvas,
-        Rect.fromCenter(center: c, width: pip, height: pip),
-        suit,
-      );
-      if (flipped) canvas.restore();
-    }
-  }
-
-  static void _paintFaceCard(Canvas canvas, Rect rect, int rank, int suit) {
-    final color = suitColor(suit);
-    final w = rect.width;
-    final frame = Rect.fromLTRB(
-      rect.left + w * 0.20,
-      rect.top + rect.height * 0.18,
-      rect.right - w * 0.20,
-      rect.bottom - rect.height * 0.18,
-    );
-    final frameR = RRect.fromRectAndRadius(frame, Radius.circular(w * 0.06));
-
-    // Quiet patterned panel behind the letter.
-    canvas.save();
-    canvas.clipRRect(frameR);
-    canvas.drawRect(frame, Paint()..color = color.withValues(alpha: 0.06));
-    final hatch = Paint()
-      ..color = color.withValues(alpha: 0.10)
-      ..strokeWidth = math.max(1, w * 0.016);
-    final step = w * 0.10;
-    for (var x = -frame.height; x < frame.width; x += step) {
-      canvas.drawLine(
-        Offset(frame.left + x, frame.top),
-        Offset(frame.left + x + frame.height, frame.bottom),
-        hatch,
-      );
-    }
-    canvas.restore();
-    canvas.drawRRect(
-      frameR,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1, w * 0.022)
-        ..color = color.withValues(alpha: 0.75),
-    );
-
-    // Big letter portrait.
-    final glyphH = rect.height * 0.26;
-    final label = CrazyEightsCards.rankLabels[rank];
-    final glyphW = _glyphRunWidth(label, glyphH);
-    _paintGlyphRun(
-      canvas,
-      label,
-      origin: rect.center - Offset(glyphW / 2, glyphH / 2),
-      height: glyphH,
-      color: color,
-      weight: 0.20,
-    );
-
-    // Small pips top and bottom of the frame (bottom one rotated).
-    final pip = w * 0.13;
-    paintSuit(
-      canvas,
-      Rect.fromCenter(
-        center: Offset(rect.center.dx, frame.top + rect.height * 0.075),
-        width: pip,
-        height: pip,
-      ),
-      suit,
-    );
-    final bottom = Offset(rect.center.dx, frame.bottom - rect.height * 0.075);
-    canvas.save();
-    canvas.translate(bottom.dx, bottom.dy);
-    canvas.rotate(math.pi);
-    canvas.translate(-bottom.dx, -bottom.dy);
-    paintSuit(
-      canvas,
-      Rect.fromCenter(center: bottom, width: pip, height: pip),
-      suit,
-    );
-    canvas.restore();
-  }
-
-  // -------------------------------------------------------------------------
-  // Suits
-  // -------------------------------------------------------------------------
-
-  /// Paints suit [suit] filling [rect] (in its own suit color unless
+  /// Paints suit [suit] filling [rect] (in its own suit colour unless
   /// [color] is given).
   static void paintSuit(Canvas canvas, Rect rect, int suit, {Color? color}) {
-    final path = suitPath(suit, rect);
-    canvas.drawPath(path, Paint()..color = color ?? suitColor(suit));
+    canvas.drawPath(
+      suitPath(suit, rect),
+      Paint()..color = color ?? suitColor(suit),
+    );
   }
 
   /// The filled outline of [suit] scaled into [rect].
@@ -334,6 +114,429 @@ abstract final class CrazyEightsCardArt {
       ..scaleByDouble(rect.width, rect.height, 1, 1);
     return unit.transform(m.storage);
   }
+
+  /// Paints [suit]'s pip inside [rect] in white over a thin dark keyline, the
+  /// way pips sit on a colour field. Used by the cards and by the table's
+  /// declared-suit badge so the two always match.
+  static void paintSuitOnColor(
+    Canvas canvas,
+    Rect rect,
+    int suit, {
+    Color fill = Colors.white,
+    Color keyline = ink,
+    double keylineAlpha = 0.35,
+  }) {
+    final path = suitPath(suit, rect);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(0.8, rect.width * 0.13)
+        ..strokeJoin = StrokeJoin.round
+        ..color = keyline.withValues(alpha: keylineAlpha),
+    );
+    canvas.drawPath(path, Paint()..color = fill);
+  }
+
+  // -------------------------------------------------------------------------
+  // Picture cache — a face is static per (size, card, declared suit)
+  // -------------------------------------------------------------------------
+
+  static const int _cacheLimit = 96;
+  static final LinkedHashMap<int, ui.Picture> _cache =
+      LinkedHashMap<int, ui.Picture>();
+
+  static int _key(Size size, int face, int? declared) {
+    final w = (size.width * 2).round();
+    final h = (size.height * 2).round();
+    return (((w * 8192 + h) * 64) + face) * 8 + (declared == null ? 0 : declared + 1);
+  }
+
+  static void _draw(
+    Canvas canvas,
+    Rect rect,
+    int key,
+    void Function(Canvas, Size) record,
+  ) {
+    var picture = _cache.remove(key);
+    if (picture == null) {
+      final recorder = ui.PictureRecorder();
+      final size = rect.size;
+      record(Canvas(recorder, Offset.zero & size), size);
+      picture = recorder.endRecording();
+      while (_cache.length >= _cacheLimit) {
+        _cache.remove(_cache.keys.first)!.dispose();
+      }
+    }
+    _cache[key] = picture; // re-insert = most recently used
+    canvas.save();
+    canvas.translate(rect.left, rect.top);
+    canvas.drawPicture(picture);
+    canvas.restore();
+  }
+
+  /// Drops every cached face. Only useful in tests.
+  @visibleForTesting
+  static void clearCache() {
+    for (final p in _cache.values) {
+      p.dispose();
+    }
+    _cache.clear();
+  }
+
+  // -------------------------------------------------------------------------
+  // Face
+  // -------------------------------------------------------------------------
+
+  static void _recordFace(Canvas canvas, Size size, int card, int? declared) {
+    final rect = Offset.zero & size;
+    final w = size.width;
+    final rank = CrazyEightsCards.rankOf(card);
+    final suit = CrazyEightsCards.suitOf(card);
+    final wild = CrazyEightsCards.isEight(card);
+    final field = wild ? wildDark : suitColor(suit);
+
+    final inner = _paintStock(canvas, rect, field);
+
+    // A wild 8 with a live declared suit wears a thick ring of that colour
+    // just inside the white border — visible even when the card is overlapped.
+    if (wild && declared != null) {
+      final ringR = RRect.fromRectAndRadius(
+        inner.deflate(w * 0.035),
+        Radius.circular(w * 0.05),
+      );
+      canvas.drawRRect(
+        ringR,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = w * 0.055
+          ..color = suitColor(declared),
+      );
+    }
+
+    _paintEllipse(canvas, rect, card, declared);
+    _paintCorners(canvas, rect, rank, suit, wild);
+  }
+
+  /// White die-cut border + saturated colour field. Returns the field rect.
+  static Rect _paintStock(Canvas canvas, Rect rect, Color field) {
+    final w = rect.width;
+    final r = cornerRadius(rect.size);
+    final rrect = RRect.fromRectAndRadius(rect, Radius.circular(r));
+
+    // The cut edge of the stock, peeking out opposite the key light.
+    canvas.drawRRect(
+      rrect.shift(Offset(w * 0.008, w * 0.010)),
+      Paint()..color = const Color(0xFFCFCBBE),
+    );
+
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            cardWhite,
+            Color.lerp(cardWhite, const Color(0xFF6E6A5E), 0.13)!,
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ).createShader(rect),
+    );
+    canvas.drawRRect(
+      rrect.deflate(0.5),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = ink.withValues(alpha: 0.16),
+    );
+
+    final inner = rect.deflate(w * 0.078);
+    final innerR = RRect.fromRectAndRadius(inner, Radius.circular(w * 0.068));
+    canvas.drawRRect(
+      innerR,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(field, Colors.white, 0.16)!,
+            field,
+            Color.lerp(field, Colors.black, 0.20)!,
+          ],
+          stops: const [0.0, 0.46, 1.0],
+        ).createShader(inner),
+    );
+    return inner;
+  }
+
+  /// Tilt of the signature ellipse (negative = right side lifted), which also
+  /// keeps the widest part of the oval away from the two corner marks.
+  static const double _ellipseTilt = -0.42;
+
+  static void _paintEllipse(Canvas canvas, Rect rect, int card, int? declared) {
+    final w = rect.width;
+    final center = rect.center;
+    final rank = CrazyEightsCards.rankOf(card);
+    final wild = CrazyEightsCards.isEight(card);
+    final oval = Rect.fromCenter(
+      center: Offset.zero,
+      width: w * 0.82,
+      height: w * 0.64,
+    );
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(_ellipseTilt);
+
+    // Soft drop under the oval so it sits on the field rather than in it.
+    canvas.drawOval(
+      oval.shift(Offset(w * 0.012, w * 0.018)),
+      Paint()..color = Colors.black.withValues(alpha: 0.16),
+    );
+
+    final Color glyphFill;
+    final Color glyphOutline;
+    if (!wild) {
+      canvas.drawOval(oval, Paint()..color = Colors.white);
+      glyphFill = suitColor(CrazyEightsCards.suitOf(card));
+      glyphOutline = ink;
+    } else if (declared != null) {
+      canvas.drawOval(oval, Paint()..color = suitColor(declared));
+      canvas.drawOval(
+        oval.deflate(w * 0.016),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = w * 0.022
+          ..color = Colors.white.withValues(alpha: 0.9),
+      );
+      // The declared suit's pip flanks the 8 along the oval's long axis.
+      for (final dx in [-w * 0.295, w * 0.295]) {
+        paintSuitOnColor(
+          canvas,
+          Rect.fromCenter(
+            center: Offset(dx, 0),
+            width: w * 0.115,
+            height: w * 0.115,
+          ),
+          declared,
+        );
+      }
+      glyphFill = Colors.white;
+      glyphOutline = ink;
+    } else {
+      _paintWildQuarters(canvas, oval, w);
+      glyphFill = Colors.white;
+      glyphOutline = ink;
+    }
+    canvas.restore();
+
+    // The rank rides upright on top of the tilted oval — a tilted numeral
+    // costs more legibility than the flourish is worth at hand size.
+    final label = CrazyEightsCards.rankLabels[rank];
+    final factor = _glyphRunWidth(label, 1);
+    // Sized so the glyph's box stays inside the tilted oval — a rank that
+    // spills onto the colour field loses its white backing and its contrast.
+    final height = math.min(w * 0.44, w * 0.53 / factor);
+    final runW = factor * height;
+    _paintGlyphRun(
+      canvas,
+      label,
+      origin: center - Offset(runW / 2, height / 2),
+      height: height,
+      color: glyphFill,
+      outline: glyphOutline,
+      weight: wild ? 0.24 : 0.23,
+      outlineWeight: wild ? 0.40 : 0.36,
+    );
+  }
+
+  /// The four-colour quartered oval that marks an undeclared wild 8.
+  static void _paintWildQuarters(Canvas canvas, Rect oval, double w) {
+    canvas.save();
+    canvas.clipPath(Path()..addOval(oval));
+    final reach = oval.width;
+    for (var i = 0; i < 4; i++) {
+      final start = -math.pi * 0.75 + i * math.pi / 2;
+      canvas.drawPath(
+        Path()
+          ..moveTo(0, 0)
+          ..arcTo(
+            Rect.fromCircle(center: Offset.zero, radius: reach),
+            start,
+            math.pi / 2,
+            false,
+          )
+          ..close(),
+        Paint()..color = suitColors[i],
+      );
+    }
+    canvas.restore();
+    // Thin white splits, then a white rim, so the quarters read as one badge.
+    final split = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.018
+      ..color = Colors.white.withValues(alpha: 0.85);
+    canvas.save();
+    canvas.clipPath(Path()..addOval(oval));
+    for (var i = 0; i < 2; i++) {
+      final a = -math.pi * 0.25 + i * math.pi / 2;
+      final d = Offset(math.cos(a), math.sin(a)) * oval.width;
+      canvas.drawLine(-d, d, split);
+    }
+    canvas.restore();
+    canvas.drawOval(
+      oval.deflate(w * 0.011),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.022
+        ..color = Colors.white,
+    );
+  }
+
+  /// Small rank + suit pip in the top-left and (rotated 180°) bottom-right.
+  static void _paintCorners(
+    Canvas canvas,
+    Rect rect,
+    int rank,
+    int suit,
+    bool wild,
+  ) {
+    final w = rect.width;
+    final glyphH = w * 0.17;
+    final label = CrazyEightsCards.rankLabels[rank];
+    final origin = rect.topLeft + Offset(w * 0.115, w * 0.115);
+
+    void corner() {
+      final runW = _paintGlyphRun(
+        canvas,
+        label,
+        origin: origin,
+        height: glyphH,
+        color: Colors.white,
+        outline: ink,
+        weight: 0.22,
+        outlineWeight: 0.40,
+        outlineAlpha: 0.45,
+      );
+      paintSuitOnColor(
+        canvas,
+        Rect.fromCenter(
+          center: origin + Offset(runW / 2, glyphH + w * 0.075),
+          width: w * 0.115,
+          height: w * 0.115,
+        ),
+        suit,
+        keylineAlpha: wild ? 0.0 : 0.30,
+      );
+    }
+
+    corner();
+    canvas.save();
+    canvas.translate(rect.center.dx, rect.center.dy);
+    canvas.rotate(math.pi);
+    canvas.translate(-rect.center.dx, -rect.center.dy);
+    corner();
+    canvas.restore();
+  }
+
+  // -------------------------------------------------------------------------
+  // Back
+  // -------------------------------------------------------------------------
+
+  static void _recordBack(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final w = size.width;
+    final inner = _paintStock(canvas, rect, wildDark);
+
+    // A diagonal lattice over the field — no face has one, so a back is never
+    // mistaken for a card even at a glance.
+    canvas.save();
+    canvas.clipRRect(
+      RRect.fromRectAndRadius(inner, Radius.circular(w * 0.068)),
+    );
+    final lattice = Paint()
+      ..color = Colors.white.withValues(alpha: 0.09)
+      ..strokeWidth = math.max(0.8, w * 0.018);
+    final step = w * 0.15;
+    for (var x = -inner.height; x < inner.width; x += step) {
+      canvas.drawLine(
+        Offset(inner.left + x, inner.top),
+        Offset(inner.left + x + inner.height, inner.bottom),
+        lattice,
+      );
+      canvas.drawLine(
+        Offset(inner.left + x + inner.height, inner.top),
+        Offset(inner.left + x, inner.bottom),
+        lattice,
+      );
+    }
+    canvas.restore();
+
+    // Corner pips in the four suit colours — the same mapping the faces use.
+    const corners = [
+      Offset(0.20, 0.13),
+      Offset(0.80, 0.13),
+      Offset(0.20, 0.87),
+      Offset(0.80, 0.87),
+    ];
+    for (var i = 0; i < 4; i++) {
+      final u = corners[i];
+      paintSuit(
+        canvas,
+        Rect.fromCenter(
+          center: Offset(
+            inner.left + u.dx * inner.width,
+            inner.top + u.dy * inner.height,
+          ),
+          width: w * 0.13,
+          height: w * 0.13,
+        ),
+        i,
+        color: suitColors[i].withValues(alpha: 0.92),
+      );
+    }
+
+    final oval = Rect.fromCenter(
+      center: Offset.zero,
+      width: w * 0.82,
+      height: w * 0.64,
+    );
+    canvas.save();
+    canvas.translate(rect.center.dx, rect.center.dy);
+    canvas.rotate(_ellipseTilt);
+    canvas.drawOval(
+      oval.shift(Offset(w * 0.012, w * 0.018)),
+      Paint()..color = Colors.black.withValues(alpha: 0.28),
+    );
+    canvas.drawOval(oval, Paint()..color = backViolet);
+    canvas.drawOval(
+      oval.deflate(w * 0.016),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.022
+        ..color = Colors.white.withValues(alpha: 0.92),
+    );
+    canvas.restore();
+
+    final height = w * 0.44;
+    final runW = _glyphRunWidth('8', height);
+    _paintGlyphRun(
+      canvas,
+      '8',
+      origin: rect.center - Offset(runW / 2, height / 2),
+      height: height,
+      color: Colors.white,
+      outline: ink,
+      weight: 0.26,
+      outlineWeight: 0.42,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Suits
+  // -------------------------------------------------------------------------
 
   static Path _heartUnit() => Path()
     ..moveTo(0.5, 0.98)
@@ -393,21 +596,33 @@ abstract final class CrazyEightsCardArt {
   }
 
   /// Paints [label] ('A', '2'…'10', 'J', 'Q', 'K') starting at [origin]
-  /// (top-left), [height] tall. Returns the run width.
+  /// (top-left), [height] tall. When [outline] is given the run is stroked
+  /// twice — a wider outline pass, then the fill — which is what gives the
+  /// rank its Uno weight. Returns the run width.
   static double _paintGlyphRun(
     Canvas canvas,
     String label, {
     required Offset origin,
     required double height,
     required Color color,
+    Color? outline,
     double weight = 0.17,
+    double outlineWeight = 0.30,
+    double outlineAlpha = 1.0,
   }) {
-    final paint = Paint()
+    Paint pen(Color c, double stroke) => Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = height * weight
+      ..strokeWidth = height * stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..color = color;
+      ..color = c;
+
+    final passes = <Paint>[
+      if (outline != null)
+        pen(outline.withValues(alpha: outlineAlpha), outlineWeight),
+      pen(color, weight),
+    ];
+
     var x = origin.dx;
     for (var i = 0; i < label.length; i++) {
       if (i > 0) x += 0.10 * height;
@@ -415,8 +630,13 @@ abstract final class CrazyEightsCardArt {
       final adv = _glyphAdvance(ch);
       final m = Matrix4.translationValues(x, origin.dy, 0)
         ..scaleByDouble(adv * height, height, 1, 1);
-      for (final stroke in _glyphStrokes(ch)) {
-        canvas.drawPath(stroke.transform(m.storage), paint);
+      final strokes = [
+        for (final s in _glyphStrokes(ch)) s.transform(m.storage),
+      ];
+      for (final paint in passes) {
+        for (final stroke in strokes) {
+          canvas.drawPath(stroke, paint);
+        }
       }
       x += adv * height;
     }
@@ -578,13 +798,16 @@ abstract final class CrazyEightsCardArt {
   }
 }
 
-/// A single playing card as a widget: face-up art for [card], or the shared
-/// back when [faceUp] is false. Aspect ratio is fixed at 1 : 1.4.
+/// A single card as a widget: face-up art for [card], or the shared back when
+/// [faceUp] is false. Aspect ratio is fixed at 1 : 1.4.
 class PlayingCardView extends StatelessWidget {
   /// Card 0..51; may be null when [faceUp] is false.
   final int? card;
   final bool faceUp;
   final double width;
+
+  /// Live declared suit — only meaningful when [card] is an 8.
+  final int? declaredSuit;
 
   /// Gold ring + slight glow marking a playable card.
   final bool highlighted;
@@ -597,6 +820,7 @@ class PlayingCardView extends StatelessWidget {
     required this.card,
     required this.width,
     this.faceUp = true,
+    this.declaredSuit,
     this.highlighted = false,
     this.shadow = true,
   }) : assert(card != null || !faceUp, 'face-up cards need a card value');
@@ -610,6 +834,7 @@ class PlayingCardView extends StatelessWidget {
         painter: _CardPainter(
           card: card,
           faceUp: faceUp,
+          declaredSuit: declaredSuit,
           highlighted: highlighted,
           shadow: shadow,
         ),
@@ -621,12 +846,14 @@ class PlayingCardView extends StatelessWidget {
 class _CardPainter extends CustomPainter {
   final int? card;
   final bool faceUp;
+  final int? declaredSuit;
   final bool highlighted;
   final bool shadow;
 
   _CardPainter({
     required this.card,
     required this.faceUp,
+    required this.declaredSuit,
     required this.highlighted,
     required this.shadow,
   });
@@ -639,15 +866,28 @@ class _CardPainter extends CustomPainter {
       Radius.circular(CrazyEightsCardArt.cornerRadius(size)),
     );
     if (shadow) {
+      // Two-part contact shadow under a key from the upper left: a wide
+      // ambient blur, then a tight core so the card sits on the cloth.
       canvas.drawRRect(
-        rrect.shift(Offset(0, size.width * 0.05)),
+        rrect.shift(Offset(size.width * 0.055, size.width * 0.075)),
         Paint()
-          ..color = Colors.black.withValues(alpha: 0.28)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.06),
+          ..color = Colors.black.withValues(alpha: 0.24)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.09),
+      );
+      canvas.drawRRect(
+        rrect.shift(Offset(size.width * 0.016, size.width * 0.022)),
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.26)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.022),
       );
     }
     if (faceUp) {
-      CrazyEightsCardArt.paintFace(canvas, rect, card!);
+      CrazyEightsCardArt.paintFace(
+        canvas,
+        rect,
+        card!,
+        declaredSuit: declaredSuit,
+      );
     } else {
       CrazyEightsCardArt.paintBack(canvas, rect);
     }
@@ -666,6 +906,7 @@ class _CardPainter extends CustomPainter {
   bool shouldRepaint(_CardPainter old) =>
       old.card != card ||
       old.faceUp != faceUp ||
+      old.declaredSuit != declaredSuit ||
       old.highlighted != highlighted ||
       old.shadow != shadow;
 }

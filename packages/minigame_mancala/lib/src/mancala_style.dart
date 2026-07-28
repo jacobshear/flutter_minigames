@@ -39,11 +39,11 @@ class MancalaStyle {
     this.seedsPerPit = 4,
   });
 
-  // Pale sun-bleached birch slab + shallow same-wood scoops (GP read).
+  // Warm hardwood slab + scoops routed from the same stock (GP read).
   Color resolveBoard(ColorScheme s) =>
-      boardColor ?? const Color(0xFFE5D6B4);
+      boardColor ?? const Color(0xFFCFAE74);
   Color resolvePit(ColorScheme s) =>
-      pitColor ?? const Color(0xFFD6C39B);
+      pitColor ?? const Color(0xFFBE9A5E);
   Color resolveSeed(ColorScheme s) =>
       seedColor ?? const Color(0xFFFFE082);
   Color resolveSouth(ColorScheme s) =>
