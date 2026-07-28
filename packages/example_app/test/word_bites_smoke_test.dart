@@ -1,8 +1,8 @@
 import 'package:example_app/screens/word_bites_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_word_bites/minigame_word_bites.dart';
-import 'package:minigames_words/minigames_words.dart';
+import 'package:flutter_minigames/games/word_bites.dart';
+import 'package:flutter_minigames/words.dart';
 
 void main() {
   testWidgets('word bites: ready cover, round board, early end to handoff',

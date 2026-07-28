@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:minigame_dots_and_boxes/minigame_dots_and_boxes.dart';
-import 'package:minigames_core/minigames_core.dart';
+import 'package:flutter_minigames/games/dots_and_boxes.dart';
+import 'package:flutter_minigames/core.dart';
 
 import '../audio/demo_sfx.dart';
 import '../multiplayer/play_session.dart';

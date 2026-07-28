@@ -1,7 +1,7 @@
 import 'package:example_app/screens/filler_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_filler/minigame_filler.dart';
+import 'package:flutter_minigames/games/filler.dart';
 
 void main() {
   testWidgets('filler play screen boots, accepts a move, restarts',

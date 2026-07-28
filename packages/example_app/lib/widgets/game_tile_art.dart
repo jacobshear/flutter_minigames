@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
-import 'package:minigame_chess/minigame_chess.dart' show ChessPieceArt;
+import 'package:flutter_minigames/games/chess.dart' show ChessPieceArt;
 
 import '../theme/demo_theme.dart';
 

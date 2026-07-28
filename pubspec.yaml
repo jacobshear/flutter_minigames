@@ -1,4 +1,4 @@
-name: flutter_minigames
+name: flutter_minigames_workspace
 publish_to: none
 description: >-
   Monorepo for flutter_minigames — a transport-agnostic library of async
@@ -10,36 +10,7 @@ environment:
 # Dart pub workspaces (Dart 3.6+): one lockfile, one .dart_tool, fast analysis.
 # Melos sits on top of this for lifecycle/publishing when we get there.
 workspace:
-  - packages/minigames_core
+  - packages/flutter_minigames
+  - packages/flutter_minigames_firebase
   - packages/minigames_test
-  - packages/minigame_tictactoe
-  - packages/minigame_connect_four
-  - packages/minigame_dots_and_boxes
-  - packages/minigame_reversi
-  - packages/minigame_checkers
-  - packages/minigame_mancala
-  - packages/minigame_gomoku
-  - packages/minigame_chess
-  - packages/minigame_sea_battle
-  - packages/minigame_filler
-  - packages/minigame_crazy_eights
-  - packages/minigames_words
-  - packages/minigame_anagrams
-  - packages/minigame_word_hunt
-  - packages/minigame_word_bites
-  - packages/minigames_ui
-  - packages/minigames_flame
-  - packages/minigames_3d
-  - packages/minigame_shuffleboard
-  - packages/minigame_eight_ball
-  - packages/minigame_knockout
-  - packages/minigame_mini_golf
-  - packages/minigame_cup_pong
-  - packages/minigame_basketball
-  - packages/minigame_darts
-  - packages/minigame_archery
-  - packages/minigames_cards
-  - packages/minigame_gin_rummy
-  - packages/minigame_go_fish
-  - packages/minigames_firebase
   - packages/example_app

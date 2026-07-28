@@ -2,8 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:minigame_anagrams/minigame_anagrams.dart';
-import 'package:minigames_core/minigames_core.dart';
+import 'package:flutter_minigames/games/anagrams.dart';
+import 'package:flutter_minigames/core.dart';
 
 import '../audio/demo_sfx.dart';
 import '../multiplayer/play_session.dart';

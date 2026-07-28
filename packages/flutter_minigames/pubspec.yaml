@@ -1,0 +1,39 @@
+name: flutter_minigames
+description: >-
+  Async turn-based mini-games for Flutter — board, card and physics games with
+  a pure serializable turn contract and a swappable network transport.
+version: 0.1.0
+repository: https://github.com/jacobshear/flutter_minigames
+issue_tracker: https://github.com/jacobshear/flutter_minigames/issues
+topics:
+  - games
+  - turn-based
+  - multiplayer
+  - cards
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.10.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Top-down physics harness (shuffleboard, 8-ball, knockout). Pure Dart —
+  # no native plugins, so bundling costs tree-shakeable code, not build setup.
+  flame: ^1.18.0
+  flame_forge2d: ^0.18.0
+  forge2d: ^0.13.0
+  # Move generation and legality for chess.
+  chess: ^0.8.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  assets:
+    # ENABLE word list, used by the word games.
+    - assets/enable1.txt

@@ -1,7 +1,7 @@
 import 'package:example_app/screens/gin_rummy_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_gin_rummy/minigame_gin_rummy.dart';
+import 'package:flutter_minigames/games/gin_rummy.dart';
 
 void main() {
   testWidgets('gin rummy screen deals a hand and plays the opening turn',

@@ -1,7 +1,7 @@
 import 'package:example_app/screens/word_hunt_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_word_hunt/minigame_word_hunt.dart';
+import 'package:flutter_minigames/games/word_hunt.dart';
 
 void main() {
   testWidgets('word hunt screen loads the dictionary and starts a round',

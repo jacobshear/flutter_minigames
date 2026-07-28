@@ -10,14 +10,14 @@ import 'package:example_app/screens/reversi_play_screen.dart';
 import 'package:example_app/screens/tictactoe_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_checkers/minigame_checkers.dart';
-import 'package:minigame_chess/minigame_chess.dart';
-import 'package:minigame_connect_four/minigame_connect_four.dart';
-import 'package:minigame_dots_and_boxes/minigame_dots_and_boxes.dart';
-import 'package:minigame_gomoku/minigame_gomoku.dart';
-import 'package:minigame_mancala/minigame_mancala.dart';
-import 'package:minigame_reversi/minigame_reversi.dart';
-import 'package:minigame_tictactoe/minigame_tictactoe.dart';
+import 'package:flutter_minigames/games/checkers.dart';
+import 'package:flutter_minigames/games/chess.dart';
+import 'package:flutter_minigames/games/connect_four.dart';
+import 'package:flutter_minigames/games/dots_and_boxes.dart';
+import 'package:flutter_minigames/games/gomoku.dart';
+import 'package:flutter_minigames/games/mancala.dart';
+import 'package:flutter_minigames/games/reversi.dart';
+import 'package:flutter_minigames/games/tictactoe.dart';
 
 void main() {
   testWidgets('launcher grid lists all games', (tester) async {

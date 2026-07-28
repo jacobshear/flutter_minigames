@@ -1,7 +1,7 @@
 import 'package:example_app/screens/crazy_eights_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_crazy_eights/minigame_crazy_eights.dart';
+import 'package:flutter_minigames/games/crazy_eights.dart';
 
 void main() {
   testWidgets('crazy 8s play screen deals a hand and shows the table',

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:minigame_cup_pong/minigame_cup_pong.dart';
-import 'package:minigames_core/minigames_core.dart';
+import 'package:flutter_minigames/games/cup_pong.dart';
+import 'package:flutter_minigames/core.dart';
 
 import '../audio/demo_sfx.dart';
 import '../multiplayer/play_session.dart';

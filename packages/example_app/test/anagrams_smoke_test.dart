@@ -1,7 +1,7 @@
 import 'package:example_app/screens/anagrams_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_anagrams/minigame_anagrams.dart';
+import 'package:flutter_minigames/games/anagrams.dart';
 
 void main() {
   testWidgets('anagrams hot-seat flow reaches player 2 handoff',

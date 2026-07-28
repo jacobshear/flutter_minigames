@@ -4,7 +4,7 @@
 /// suite as a normal test case:
 ///
 /// ```dart
-/// import 'package:minigames_core/minigames_core.dart';
+/// import 'package:flutter_minigames/core.dart';
 /// import 'package:minigames_test/minigames_test.dart';
 ///
 /// void main() {
@@ -18,7 +18,7 @@
 /// test framework, so there's no `package:test` vs `flutter_test` clash.
 library;
 
-import 'package:minigames_core/minigames_core.dart';
+import 'package:flutter_minigames/core.dart';
 import 'package:test/test.dart';
 
 import 'conformance.dart';

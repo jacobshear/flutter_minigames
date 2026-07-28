@@ -1,7 +1,7 @@
 import 'package:example_app/screens/sea_battle_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_sea_battle/minigame_sea_battle.dart';
+import 'package:flutter_minigames/games/sea_battle.dart';
 
 void main() {
   testWidgets('sea battle: placement → handoff → battle', (tester) async {

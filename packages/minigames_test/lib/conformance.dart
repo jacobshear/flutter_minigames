@@ -12,7 +12,7 @@
 /// ```
 library;
 
-import 'package:minigames_core/minigames_core.dart';
+import 'package:flutter_minigames/core.dart';
 
 /// Thrown when a transport violates the [GameTransport] contract. The message
 /// names the exact expectation that failed.

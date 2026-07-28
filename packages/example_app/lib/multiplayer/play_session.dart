@@ -1,4 +1,4 @@
-import 'package:minigames_core/minigames_core.dart';
+import 'package:flutter_minigames/core.dart';
 
 /// How a match is hosted for the UI.
 ///

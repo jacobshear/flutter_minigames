@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_knockout/minigame_knockout.dart';
+import 'package:flutter_minigames/games/knockout.dart';
 
 import 'package:example_app/screens/knockout_play_screen.dart';
 

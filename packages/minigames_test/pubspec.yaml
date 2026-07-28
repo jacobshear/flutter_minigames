@@ -4,6 +4,7 @@ description: >-
   GameTransport implementation to prove it behaves correctly with
   MatchController — the same assertions LocalTransport passes.
 version: 0.1.0
+publish_to: none
 repository: https://github.com/jacobshear/flutter_minigames
 
 environment:
@@ -14,7 +15,7 @@ resolution: workspace
 # This is a test-support package (like flutter_test): `test` is a real
 # dependency here, but consumers only ever depend on it under dev_dependencies.
 dependencies:
-  minigames_core: ^0.1.0
+  flutter_minigames: ^0.1.0
   test: ^1.25.0
 
 dev_dependencies:

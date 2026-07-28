@@ -2,7 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigames_firebase/minigames_firebase.dart';
+import 'package:flutter_minigames_firebase/flutter_minigames_firebase.dart';
 import 'package:minigames_test/conformance.dart';
 
 /// Verifies [FirebaseGameTransport] against a real Realtime Database (the

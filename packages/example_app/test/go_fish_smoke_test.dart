@@ -1,7 +1,7 @@
 import 'package:example_app/screens/go_fish_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_go_fish/minigame_go_fish.dart';
+import 'package:flutter_minigames/games/go_fish.dart';
 
 void main() {
   testWidgets('go fish screen deals a hand and plays an ask', (tester) async {

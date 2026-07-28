@@ -1,7 +1,7 @@
 import 'package:example_app/screens/mini_golf_play_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:minigame_mini_golf/minigame_mini_golf.dart';
+import 'package:flutter_minigames/games/mini_golf.dart';
 
 void main() {
   testWidgets('mini golf play screen builds, putts, and restarts', (
