@@ -11,7 +11,7 @@ Future<void> main() async {
 }
 
 /// Standalone full-screen demo of the minigames launcher (GamePigeon-style
-/// grid). Hosts (the host app chat sheet, other apps) re-use [gameCatalog],
+/// grid). A host app re-uses [gameCatalog],
 /// [PlaySession], and the same play screens — without this MaterialApp shell.
 class ExampleApp extends StatelessWidget {
   const ExampleApp({super.key});

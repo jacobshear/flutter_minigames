@@ -3,8 +3,8 @@ import 'package:flutter_minigames/core.dart';
 /// How a match is hosted for the UI.
 ///
 /// The demo only exercises [PlayMode.localHotSeat] today. [PlayMode.networked]
-/// is the seam host apps (the host app, third parties) plug into later by supplying a
-/// real [GameTransport] via [TransportFactory].
+/// is the seam a host app plugs into by supplying a real [GameTransport] via
+/// [TransportFactory].
 enum PlayMode {
   /// Pass-and-play on one device. Uses [LocalTransport] under the hood.
   localHotSeat,

@@ -4,8 +4,8 @@ import 'match.dart';
 /// library: games talk only to a [GameTransport], never to a concrete backend.
 ///
 /// The library ships [LocalTransport] (in-memory, for hot-seat and tests).
-/// An app supplies its own implementation — e.g. the host app implements a
-/// `FirebaseTransport` against Realtime Database. The core never imports any
+/// An app supplies its own implementation — `flutter_minigames_firebase`, for
+/// instance, backs one with Realtime Database. The core never imports any
 /// networking package, which is what keeps every game reusable.
 abstract class GameTransport {
   /// Persist a brand-new match and make it visible to [watchMatch].

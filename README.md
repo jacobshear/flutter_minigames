@@ -1,13 +1,49 @@
 # flutter_minigames
 
-A transport-agnostic library of **async turn-based mini-games** for Flutter — GamePigeon-style games (board, card, and physics) that you can drop into any app.
+A library of **async turn-based mini-games** for Flutter — 24 board, card, word
+and physics games, plus the two machines they're built on.
 
-The whole framework is two reusable machines:
+```yaml
+dependencies:
+  flutter_minigames: ^0.1.0
+```
 
-1. **A turn engine** — a pure, serializable `TurnGame` contract (`applyMove(state, move) -> newState`). Implement it once per game.
-2. **A transport seam** — a 4-method `GameTransport` interface. The same game runs hot-seat in the example app and networked inside your app with zero code changes. The core never imports any backend.
+## Why this exists
 
-Build a game once; it plays pass-and-play, over Firebase, over anything.
+I was building a social app and wanted GamePigeon-style games playable inside a
+chat. Every option I found was either a single game hard-wired to one backend,
+or a full game engine that wanted to own the whole app. What I actually needed
+was a way to write a game **once** and have it work pass-and-play on one phone,
+over my own backend, or over someone else's — without touching the game code.
+
+So the interesting part isn't the 24 games. It's that each one is a **pure
+reducer behind a swappable transport**:
+
+1. **A turn engine** — `TurnGame` is a pure, serializable contract,
+   `applyMove(state, move) -> newState`. No timers, no `Random`, no I/O.
+   Randomness derives from the match seed, so a match replays exactly from
+   `(seed, moves)` and a desync is structurally impossible.
+2. **A transport seam** — `GameTransport` is four methods. `LocalTransport`
+   ships for hot-seat; there's a Firebase Realtime Database adapter; yours
+   plugs in the same way. The engine never imports a backend.
+
+Write a game once; it plays on one device, over Firebase, over anything.
+
+## The state of it
+
+It's a side project, and it's rough in places — the games work and are well
+tested, but plenty of boards and animations could be better, and the per-game
+styling APIs are still moving. It's on `0.1.x` for a reason.
+
+It's also **my first open source project**, published because the turn-engine
+and transport seam seem genuinely reusable and I'd rather find out than sit on
+them.
+
+**Anyone is welcome to hop aboard.** Adding a game is the contribution this is
+built to accept — a pure reducer plus a widget, with a ~900-test suite as the
+safety net and everything hard (turns, sync, resume, serialization) already
+handled. Bug reports and "this board looks flat" are just as welcome; that's
+where it's weakest. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Repo layout (Dart pub workspace)
 
@@ -86,7 +122,7 @@ cd packages/example_app && flutter run # main menu → pick a game (local hot-se
 ```
 
 The demo is a **full-screen GamePigeon-style launcher** (static illustrated
-grid, quiet iOS-light chrome). Production hosts (e.g. the host app chat sheet) embed
+grid, quiet iOS-light chrome). Host apps (a chat sheet, your own launcher) embed
 the same catalog + play screens; multiplayer injects via
 `example_app/lib/multiplayer/play_session.dart`
 (`PlaySession.networked(yourTransport)`).
@@ -138,15 +174,21 @@ uses a well-formed placeholder so no real project is needed for emulator runs.)
 4. Add a row to `example_app/lib/catalog/game_catalog.dart` and a play screen
    that uses `PlaySession.localHotSeat()`.
 
-That's the entire loop — everything hard (turns, sync, resume) lives in core.
+That's the entire loop — everything hard (turns, sync, resume) lives in the
+engine. The full walkthrough, including how physics games differ, is in
+[CONTRIBUTING.md](CONTRIBUTING.md#adding-a-game).
 
 ## Licensing
 
-Code is **Apache-2.0** (`LICENSE`). Bundled game assets, when added, will be
-licensed separately (see `assets/CREDITS.md`) — asset and code licenses are
-kept distinct.
+Code is **Apache-2.0** (`LICENSE`).
 
-## Status
+Bundled assets are licensed separately from the code, and both are original or
+public domain: the sound effects are procedurally generated tones (see
+`packages/example_app/assets/sfx/CREDITS.md`) and the word games use the
+public-domain ENABLE word list. No third-party samples ship here.
 
-Early. Skeleton + tic-tac-toe reference game. See the roadmap for the build
-order (easiest games first; 8-ball last).
+## Contributing
+
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Good places to start are labelled
+[`good first issue`](https://github.com/jacobshear/flutter_minigames/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).

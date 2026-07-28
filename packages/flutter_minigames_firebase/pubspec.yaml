@@ -20,7 +20,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_minigames: ^0.1.0
-  # Aligned with the versions the host app already ships so it drops in cleanly.
+  # Kept on widely-deployed majors so this drops into an existing Firebase app.
   firebase_core: ^3.13.0
   firebase_database: ^11.3.4
 

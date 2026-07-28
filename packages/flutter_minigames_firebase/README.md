@@ -43,8 +43,9 @@ final controller = await MatchController.create<MyState, MyMove>(
 
 RTDB *is* the store, so persistence is inherent. To notify the next player,
 trigger a function on write to `<rootPath>/<matchId>` and push to
-`currentPlayerId`. (In the host app this is a `realtime-api` Lambda; the field is native,
-not inside the JSON blob, precisely so the function can read it.)
+`currentPlayerId`. (A Cloud Function or a Lambda behind a webhook both work.
+The field is native rather than inside the JSON blob precisely so the function
+can read it without decoding game state.)
 
 ## Verifying it
 

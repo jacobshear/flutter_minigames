@@ -1,0 +1,49 @@
+name: Propose a game
+description: Suggest a game to add — or claim one that's already been suggested.
+labels: [new game]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Open one of these **before** you build, so nobody duplicates work and we
+        can sanity-check the rules together. Claiming an existing proposal is
+        just as welcome as making a new one — say so in a comment.
+
+        Adding a game is walked through in
+        [CONTRIBUTING.md](https://github.com/jacobshear/flutter_minigames/blob/main/CONTRIBUTING.md#adding-a-game).
+  - type: input
+    id: name
+    attributes:
+      label: Which game?
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: Which ruleset?
+      description: Most traditional games have several. Link the one you'd implement — rule disagreements are much cheaper to settle now than in review.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of game is it?
+      options:
+        - Board — pure reducer, no simulation
+        - Card — pure reducer, needs the cards layer
+        - Word — pure reducer, needs the dictionary
+        - Physics — needs simulate-locally-serialize-the-outcome
+    validations:
+      required: true
+  - type: textarea
+    id: hidden
+    attributes:
+      label: Is there hidden information?
+      description: Hands, fog of war, simultaneous choices. These need a hot-seat handoff cover and shape the state, so it's worth flagging early.
+  - type: checkboxes
+    id: claim
+    attributes:
+      label: Are you planning to build it?
+      options:
+        - label: Yes, I'd like to take this one
+        - label: No, just suggesting it

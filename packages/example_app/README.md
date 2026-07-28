@@ -11,14 +11,17 @@ Standalone **full-screen GamePigeon-style launcher** for `flutter_minigames`.
 
 ## What it is not
 
-- Not the host app. Production goal is an **inline chat sheet**; this app is a faithful
-  full-screen interpretation of that picker so you can develop games alone.
+- Not a host app. The intended production shape is an **inline sheet** inside
+  another app; this is a full-screen interpretation of that picker so you can
+  build and feel a game on its own.
 - Multiplayer is not wired in the menu. Hosts inject transport via
   `PlaySession.networked(...)` in `lib/multiplayer/play_session.dart`.
 
-## Embedding later (the host app / third parties)
+## Embedding it in your own app
 
-1. Depend on `minigames_core` + the game packages you need.
+1. Depend on `flutter_minigames`, importing `games/<name>.dart` for each game
+   you want (the top-level barrel reaches all of them and defeats
+   tree-shaking).
 2. Reuse `gameCatalog` entries (or your own list of the same builders).
 3. Present `HomeMenuScreen` (or only its grid) inside a sheet / nested navigator.
 4. Pass `PlaySession.networked(yourTransport)` into play screens.

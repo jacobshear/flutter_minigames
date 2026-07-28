@@ -1,0 +1,28 @@
+name: Something feels off
+description: Not a crash — a board that reads flat, physics that don't land, an animation that snaps.
+labels: [polish]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These are real issues and this is where the project is weakest. "The
+        table looks generic" is a perfectly good report; you don't have to know
+        the fix.
+  - type: input
+    id: where
+    attributes:
+      label: Which game or screen?
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What feels wrong?
+      description: Say it however it comes out. Vague-but-honest beats precise-but-wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: shot
+    attributes:
+      label: Screenshot or recording
+      description: For anything visual this is the single most useful thing you can add.

@@ -8,9 +8,8 @@ import '../widgets/game_tile_art.dart';
 /// Full-screen GamePigeon-style launcher: static grid of illustrated tiles.
 ///
 /// This is a faithful *standalone* interpretation of the GP game picker so you
-/// can feel the product alone. The same [gameCatalog] is what a host (the host app
-/// chat sheet, other apps) should embed later — white surface, dense tiles,
-/// no ambient chrome.
+/// can feel the product alone. The same [gameCatalog] is what a host app
+/// embeds — white surface, dense tiles, no ambient chrome.
 class HomeMenuScreen extends StatelessWidget {
   const HomeMenuScreen({super.key});
 

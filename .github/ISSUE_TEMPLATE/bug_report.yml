@@ -1,0 +1,44 @@
+name: Bug report
+description: Something behaves wrong, looks wrong, or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. If it's visual, a screenshot is worth more
+        than any description — drop one straight into a field below.
+  - type: input
+    id: game
+    attributes:
+      label: Which game?
+      description: Or the shared layer — core, ui, cards, engine3d, flame, words.
+      placeholder: Mancala
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How do I get there?
+      description: Even a rough sequence helps. If it only happens sometimes, say so — intermittent is useful information, not a reason to hold off.
+      placeholder: |
+        1. Open Mancala
+        2. Play a pit that lands in your store
+        3. Do it again immediately
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Flutter version and platform
+      description: Output of `flutter --version`, plus what you ran it on.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshot, recording, or stack trace
