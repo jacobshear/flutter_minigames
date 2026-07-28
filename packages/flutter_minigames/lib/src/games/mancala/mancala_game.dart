@@ -40,6 +40,7 @@ enum MancalaMode {
         MancalaMode.avalanche => 'Avalanche',
       };
 }
+
 class MancalaState {
   static const int pitCount = 14;
   static const int southStore = 6;
@@ -85,8 +86,7 @@ class MancalaState {
 
   /// First pit index owned by [id] (inclusive) and last playable pit (exclusive
   /// of store). South: 0..5, North: 7..12.
-  (int start, int end) pitRange(String id) =>
-      isSouth(id) ? (0, 6) : (7, 13);
+  (int start, int end) pitRange(String id) => isSouth(id) ? (0, 6) : (7, 13);
 
   bool ownsPit(String id, int pit) {
     final (a, b) = pitRange(id);
@@ -288,8 +288,7 @@ class MancalaGame extends TurnGame<MancalaState, MancalaMove> {
     final extra = !wasCapture && cup == ownStore;
 
     final swept = _maybeSweep(pits);
-    final nextPlayer =
-        (extra && !swept) ? player : state.opponentOf(player);
+    final nextPlayer = (extra && !swept) ? player : state.opponentOf(player);
 
     return MancalaState(
       pits: pits,
@@ -371,12 +370,12 @@ class MancalaGame extends TurnGame<MancalaState, MancalaMove> {
   MancalaState decodeState(Map<String, dynamic> json, int version) =>
       MancalaState(
         pits: (json['pits'] as List).map((e) => e as int).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentPlayerId: json['currentPlayerId'] as String,
         lastPit: json['lastPit'] as int?,
-        lastPath:
-            (json['lastPath'] as List? ?? const []).map((e) => e as int).toList(),
+        lastPath: (json['lastPath'] as List? ?? const [])
+            .map((e) => e as int)
+            .toList(),
         lastExtraTurn: json['lastExtraTurn'] as bool? ?? false,
         lastWasCapture: json['lastWasCapture'] as bool? ?? false,
         lastCaptured: json['lastCaptured'] as int? ?? 0,

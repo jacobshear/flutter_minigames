@@ -44,8 +44,7 @@ class _PieceFade {
   const _PieceFade(this.piece, this.cell);
 }
 
-class _ChessBoardState extends State<ChessBoard>
-    with TickerProviderStateMixin {
+class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
   static const _game = ChessGame();
 
   late final AnimationController _entrance = AnimationController(
@@ -354,14 +353,14 @@ class _ChessBoardState extends State<ChessBoard>
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTapDown: (d) {
-                        final col = ((d.localPosition.dx - field.left) /
-                                cellSize)
-                            .floor()
-                            .clamp(0, 7);
-                        final row = ((d.localPosition.dy - field.top) /
-                                cellSize)
-                            .floor()
-                            .clamp(0, 7);
+                        final col =
+                            ((d.localPosition.dx - field.left) / cellSize)
+                                .floor()
+                                .clamp(0, 7);
+                        final row =
+                            ((d.localPosition.dy - field.top) / cellSize)
+                                .floor()
+                                .clamp(0, 7);
                         _onTapCell(row * 8 + col);
                       },
                       child: Stack(
@@ -396,8 +395,8 @@ class _ChessBoardState extends State<ChessBoard>
                                 whitePiece: whitePiece,
                                 blackPiece: blackPiece,
                                 onPick: _pickPromotion,
-                                onCancel: () => setState(
-                                    () => _promoChoices = const []),
+                                onCancel: () =>
+                                    setState(() => _promoChoices = const []),
                               ),
                             ),
                           if (style.confetti && _confetti.isNotEmpty)
@@ -439,75 +438,77 @@ class _ChessBoardState extends State<ChessBoard>
             child: CustomPaint(
               painter: _FeltPainter(table),
               child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _PlayerChip(
-                  label: style.blackLabel,
-                  piece: 'k',
-                  pieceColor: blackPiece,
-                  active: _outcome == null && !state.whiteToMove,
-                  winner: _outcome?.isWin == true &&
-                      _outcome!.winnerId == state.blackId,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  board,
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Center(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          child: pillMsg == null
-                              ? const SizedBox.shrink(key: ValueKey('pill-empty'))
-                              : Container(
-                                  key: ValueKey(pillMsg),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 9,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black
-                                        .withValues(alpha: 0.58),
-                                    borderRadius:
-                                        BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    pillMsg,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                      letterSpacing: 1.1,
-                                    ),
-                                  ),
-                                ),
-                        ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: _PlayerChip(
+                        label: style.blackLabel,
+                        piece: 'k',
+                        pieceColor: blackPiece,
+                        active: _outcome == null && !state.whiteToMove,
+                        winner: _outcome?.isWin == true &&
+                            _outcome!.winnerId == state.blackId,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerRight,
-                child: _PlayerChip(
-                  label: style.whiteLabel,
-                  piece: 'K',
-                  pieceColor: whitePiece,
-                  active: _outcome == null && state.whiteToMove,
-                  winner: _outcome?.isWin == true &&
-                      _outcome!.winnerId == state.whiteId,
+                    const SizedBox(height: 10),
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        board,
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Center(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 220),
+                                child: pillMsg == null
+                                    ? const SizedBox.shrink(
+                                        key: ValueKey('pill-empty'))
+                                    : Container(
+                                        key: ValueKey(pillMsg),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 9,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.58),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          pillMsg,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 14,
+                                            letterSpacing: 1.1,
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _PlayerChip(
+                        label: style.whiteLabel,
+                        piece: 'K',
+                        pieceColor: whitePiece,
+                        active: _outcome == null && state.whiteToMove,
+                        winner: _outcome?.isWin == true &&
+                            _outcome!.winnerId == state.whiteId,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
               ),
             ),
           ),
@@ -580,8 +581,7 @@ void _paintGrain(
 }) {
   final across = vertical ? r.width : r.height;
   final along = vertical ? r.height : r.width;
-  final count =
-      density > 0 ? density : (across / 2.4).round().clamp(6, 200);
+  final count = density > 0 ? density : (across / 2.4).round().clamp(6, 200);
   final fibre = Paint()
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round;
@@ -662,7 +662,8 @@ void _paintSlab(Canvas canvas, Size size, Color light, Color dark) {
   final radius = Radius.circular(side * 0.028);
   final top = RRect.fromRectAndRadius(slabRect, radius);
   final sideFace = RRect.fromRectAndRadius(
-    Rect.fromLTWH(0, side * _kEdge * 0.4, side, size.height - side * _kEdge * 0.4),
+    Rect.fromLTWH(
+        0, side * _kEdge * 0.4, side, size.height - side * _kEdge * 0.4),
     radius,
   );
 
@@ -832,7 +833,8 @@ void _paintSlab(Canvas canvas, Size size, Color light, Color dark) {
       _engrave(
         canvas,
         String.fromCharCode(97 + i),
-        Offset(field.left + (i + 0.5) * cell, (field.bottom + slabRect.bottom) / 2),
+        Offset(field.left + (i + 0.5) * cell,
+            (field.bottom + slabRect.bottom) / 2),
         glyph,
         ink,
       );
@@ -1080,8 +1082,8 @@ class _ChessPainter extends CustomPainter {
         );
       }
       for (final s in slides) {
-        final at = Offset.lerp(
-            squareCenter(s.from), squareCenter(s.to), slideT)!;
+        final at =
+            Offset.lerp(squareCenter(s.from), squareCenter(s.to), slideT)!;
         ChessPieceArt.paint(
           canvas,
           center: at,
@@ -1097,8 +1099,7 @@ class _ChessPainter extends CustomPainter {
     for (final m in targets) {
       final center = squareCenter(m.to);
       final isCapture = cells[m.to] != null;
-      final paint = Paint()
-        ..color = Colors.black.withValues(alpha: 0.30);
+      final paint = Paint()..color = Colors.black.withValues(alpha: 0.30);
       if (isCapture) {
         canvas.drawCircle(
           center,

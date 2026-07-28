@@ -132,8 +132,7 @@ void main() {
         aim: const Offset(1, 0),
         balls: const [],
       );
-      expect(sideways.contact.dx,
-          closeTo(EightBallGame.tableW / 2 - r, 1e-9));
+      expect(sideways.contact.dx, closeTo(EightBallGame.tableW / 2 - r, 1e-9));
     });
 
     test('a ball behind the cue is not a hit', () {
@@ -332,9 +331,8 @@ void main() {
       // The painter tests above prove the drawing; this proves the wiring —
       // the scene solving the assist off its own live bodies while a finger is
       // down, and nothing at all once it lifts.
-      final state = game
-          .initialState(seed: 0, playerIds: const ['p1', 'p2'])
-          .copyWith(balls: [
+      final state = game.initialState(
+          seed: 0, playerIds: const ['p1', 'p2']).copyWith(balls: [
         const Ball(number: 0, nx: 0.5, ny: 0.78, pocketed: false),
         const Ball(number: 1, nx: 0.5, ny: 0.30, pocketed: false),
         for (var n = 2; n <= 15; n++)
@@ -392,7 +390,8 @@ void main() {
         felt.top + 0.66 * felt.height,
       );
       final probe = centre + const Offset(0.7071, 0.7071) * (ballPx * 1.7);
-      final i = ((probe.dy.round() * size.width.toInt()) + probe.dx.round()) * 4;
+      final i =
+          ((probe.dy.round() * size.width.toInt()) + probe.dx.round()) * 4;
       double luma(ByteData px) =>
           (0.2126 * px.getUint8(i) +
               0.7152 * px.getUint8(i + 1) +

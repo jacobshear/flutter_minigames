@@ -297,8 +297,7 @@ StoneDrop dropFor({
   required double hopSeconds,
   SowPhysics physics = const SowPhysics(),
 }) {
-  String k(Offset o) =>
-      '${o.dx.toStringAsFixed(3)},${o.dy.toStringAsFixed(3)}';
+  String k(Offset o) => '${o.dx.toStringAsFixed(3)},${o.dy.toStringAsFixed(3)}';
   final key = '${k(from)}|${k(to)}|${k(rest)}|${hopSeconds.toStringAsFixed(3)}';
   final hit = _dropCache[key];
   if (hit != null) return hit;

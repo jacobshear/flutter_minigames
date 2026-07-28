@@ -108,7 +108,8 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   late final Ticker _cameraTicker;
   Duration _lastTick = Duration.zero;
 
-  ColorScheme _scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF3FA45A));
+  ColorScheme _scheme =
+      ColorScheme.fromSeed(seedColor: const Color(0xFF3FA45A));
 
   bool get _hotSeat => widget.controller.hotSeat;
   bool get _rolling => _putt != null;
@@ -147,9 +148,8 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     _rig = null;
     _rigSize = Size.zero;
     _wantPreview = widget.style.previewPan;
-    _phase = _wantPreview
-        ? MiniGolfCameraPhase.preview
-        : MiniGolfCameraPhase.aim;
+    _phase =
+        _wantPreview ? MiniGolfCameraPhase.preview : MiniGolfCameraPhase.aim;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
@@ -668,8 +668,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   MiniGolfView _buildView(MiniGolfState state, ColorScheme scheme) {
     final course = state.currentCourse;
     final acting = _actingFor(state);
-    final accent =
-        widget.style.colorFor(scheme, acting, state.playerIds);
+    final accent = widget.style.colorFor(scheme, acting, state.playerIds);
     final putt = _putt;
 
     MiniGolfBallView ball;
@@ -863,8 +862,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
                               tone: _noticeTone,
                               accent: _noticeAccent,
                               strong: _noticeStrong,
-                              autoDismiss:
-                                  const Duration(milliseconds: 1600),
+                              autoDismiss: const Duration(milliseconds: 1600),
                             ),
                           ),
                         ),

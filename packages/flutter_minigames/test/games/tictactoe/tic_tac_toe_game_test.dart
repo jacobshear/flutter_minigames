@@ -20,9 +20,12 @@ void main() {
     test('rejects taken cells, out-of-range cells, and out-of-turn moves', () {
       var s = fresh();
       s = game.applyMove(s, const TicTacToeMove(4)); // x takes center
-      expect(game.validateMove(s, const TicTacToeMove(4), 'o'), isFalse); // taken
-      expect(game.validateMove(s, const TicTacToeMove(9), 'o'), isFalse); // range
-      expect(game.validateMove(s, const TicTacToeMove(0), 'x'), isFalse); // not x's turn
+      expect(
+          game.validateMove(s, const TicTacToeMove(4), 'o'), isFalse); // taken
+      expect(
+          game.validateMove(s, const TicTacToeMove(9), 'o'), isFalse); // range
+      expect(game.validateMove(s, const TicTacToeMove(0), 'x'),
+          isFalse); // not x's turn
       expect(game.validateMove(s, const TicTacToeMove(0), 'o'), isTrue);
     });
 

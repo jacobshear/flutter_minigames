@@ -134,8 +134,8 @@ void main() {
       expect(s.mustDrawFromStock, isTrue);
       expect(tenCard.validateMove(s, const GinRummyMove.drawDiscard(), 'p1'),
           isFalse);
-      expect(
-          tenCard.validateMove(s, const GinRummyMove.drawStock(), 'p1'), isTrue);
+      expect(tenCard.validateMove(s, const GinRummyMove.drawStock(), 'p1'),
+          isTrue);
 
       final drawn = tenCard.applyMove(s, const GinRummyMove.drawStock());
       expect(drawn.phase, GinRummyPhase.discard);
@@ -146,7 +146,8 @@ void main() {
 
     test('draw/discard moves are illegal during the offer', () {
       final s = tenCard.initialState(seed: 5, playerIds: players);
-      expect(tenCard.validateMove(s, const GinRummyMove.drawStock(), 'p1'), isFalse);
+      expect(tenCard.validateMove(s, const GinRummyMove.drawStock(), 'p1'),
+          isFalse);
       expect(
         tenCard.validateMove(s, GinRummyMove.discard(s.hands[0].first), 'p1'),
         isFalse,
@@ -179,13 +180,13 @@ void main() {
       final took = tenCard.applyMove(s, const GinRummyMove.drawDiscard());
       expect(took.blockedDiscard, PlayingCard.parse('QH'));
       expect(
-        tenCard.validateMove(took, GinRummyMove.discard(PlayingCard.parse('QH')),
-            'p1'),
+        tenCard.validateMove(
+            took, GinRummyMove.discard(PlayingCard.parse('QH')), 'p1'),
         isFalse,
       );
       expect(
-        tenCard.validateMove(took, GinRummyMove.discard(PlayingCard.parse('KH')),
-            'p1'),
+        tenCard.validateMove(
+            took, GinRummyMove.discard(PlayingCard.parse('KH')), 'p1'),
         isTrue,
       );
     });
@@ -211,8 +212,8 @@ void main() {
         hand1: 'AC 2C 3C 4C 5C 6C 7C 8C TC JD',
       );
       expect(
-        tenCard.validateMove(s, GinRummyMove.discard(PlayingCard.parse('QD')),
-            'p2'),
+        tenCard.validateMove(
+            s, GinRummyMove.discard(PlayingCard.parse('QD')), 'p2'),
         isFalse,
       );
     });
@@ -223,8 +224,8 @@ void main() {
         hand1: 'AC 2C 3C 4C 5C 6C 7C 8C TC JD',
       );
       expect(
-        tenCard.validateMove(s, GinRummyMove.discard(PlayingCard.parse('4H')),
-            'p1'),
+        tenCard.validateMove(
+            s, GinRummyMove.discard(PlayingCard.parse('4H')), 'p1'),
         isFalse,
       );
     });
@@ -239,7 +240,8 @@ void main() {
         hand1: 'AC 2C 3C 4C 5C 6C 7C 8C TC JD',
       );
       expect(tenCard.canKnockWith(s, 0, PlayingCard.parse('QD')), isTrue);
-      expect(tenCard.deadwoodAfterDiscarding(s, 0, PlayingCard.parse('QD')), 10);
+      expect(
+          tenCard.deadwoodAfterDiscarding(s, 0, PlayingCard.parse('QD')), 10);
 
       // Discarding a melded card instead leaves KS + QD = 20.
       expect(tenCard.canKnockWith(s, 0, PlayingCard.parse('9H')), isFalse);
@@ -327,9 +329,10 @@ void main() {
       expect(knock.knockerDeadwoodValue, 4);
       expect(knock.hasLayOff, isTrue);
 
-      final runIndex =
-          knock.knockerMelds.indexWhere((m) => m.isRun && m.suit == Suit.hearts);
-      const eight = GinRummyMove.layOff(PlayingCard(Rank.eight, Suit.hearts), 0);
+      final runIndex = knock.knockerMelds
+          .indexWhere((m) => m.isRun && m.suit == Suit.hearts);
+      const eight =
+          GinRummyMove.layOff(PlayingCard(Rank.eight, Suit.hearts), 0);
       expect(
         tenCard.validateMove(
           knocked,
@@ -481,8 +484,10 @@ void main() {
         s,
         GinRummyMove.discard(PlayingCard.parse('QD'), knock: true),
       );
-      expect(tenCard.validateMove(over, const GinRummyMove.nextHand(), 'p1') ||
-          tenCard.validateMove(over, const GinRummyMove.nextHand(), 'p2'), isTrue);
+      expect(
+          tenCard.validateMove(over, const GinRummyMove.nextHand(), 'p1') ||
+              tenCard.validateMove(over, const GinRummyMove.nextHand(), 'p2'),
+          isTrue);
       final dealt = tenCard.applyMove(over, const GinRummyMove.nextHand());
       expect(dealt.dealerIndex, 0);
       expect(dealt.currentIndex, 1);
@@ -650,8 +655,10 @@ void main() {
       addTearDown(controller.dispose);
 
       expect(controller.state!.phase, GinRummyPhase.upcardOffer);
-      expect(await controller.submitMove(const GinRummyMove.passUpcard()), isTrue);
-      expect(await controller.submitMove(const GinRummyMove.passUpcard()), isTrue);
+      expect(
+          await controller.submitMove(const GinRummyMove.passUpcard()), isTrue);
+      expect(
+          await controller.submitMove(const GinRummyMove.passUpcard()), isTrue);
       expect(controller.state!.phase, GinRummyPhase.draw);
 
       // A move out of phase is rejected by the controller, not applied.
@@ -659,7 +666,8 @@ void main() {
         await controller.submitMove(const GinRummyMove.drawDiscard()),
         isFalse,
       );
-      expect(await controller.submitMove(const GinRummyMove.drawStock()), isTrue);
+      expect(
+          await controller.submitMove(const GinRummyMove.drawStock()), isTrue);
 
       // Play a few honest turns: discard the highest deadwood card each time.
       for (var turn = 0; turn < 8; turn++) {
@@ -679,7 +687,12 @@ void main() {
 
       final end = controller.state!;
       expect(end.hands[0].length + end.hands[1].length, 20);
-      final all = [...end.hands[0], ...end.hands[1], ...end.stock, ...end.discard];
+      final all = [
+        ...end.hands[0],
+        ...end.hands[1],
+        ...end.stock,
+        ...end.discard
+      ];
       expect(all.toSet().length, 52);
       expect(controller.outcome, isNull);
     });
@@ -742,8 +755,8 @@ void main() {
       expect(game.deadwoodAfterDiscarding(withEight, 0, qd), 8);
       expect(game.canKnockWith(withEight, 0, qd), isFalse);
       expect(
-        game.validateMove(withEight, GinRummyMove.discard(qd, knock: true),
-            'p1'),
+        game.validateMove(
+            withEight, GinRummyMove.discard(qd, knock: true), 'p1'),
         isFalse,
       );
       // …and the same 8 is a legal knock under the ten-card threshold, so the
@@ -875,7 +888,8 @@ void main() {
       expect(atTen.deadwoodValue, 10 + 10 + 4 + 2, reason: '$atTen');
 
       // And the mid-turn sizes either side of both deals.
-      expect(GinRummyMelds.analyse(cards('9D 9C 9H 4S 5S 6S 7S')).isGin, isTrue);
+      expect(
+          GinRummyMelds.analyse(cards('9D 9C 9H 4S 5S 6S 7S')).isGin, isTrue);
       expect(
         GinRummyMelds.analyse(cards('9D 9C 9H 4S 5S 6S 7S KH')).deadwoodValue,
         10,

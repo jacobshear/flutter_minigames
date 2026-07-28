@@ -24,7 +24,8 @@ void main() {
       owner: owner,
       positions: [
         ...carryOver,
-        PuckPosition(id: puckId, owner: owner, nx: nx, ny: ny, removed: removed),
+        PuckPosition(
+            id: puckId, owner: owner, nx: nx, ny: ny, removed: removed),
       ],
     );
   }
@@ -57,7 +58,8 @@ void main() {
       expect(game.currentPlayer(s), 'p2');
       expect(s.remainingOf('p1'), 1);
 
-      s = game.applyMove(s, slide(s, 'p2', 'p2-0', 0.5, 0.25, carryOver: carry(s)));
+      s = game.applyMove(
+          s, slide(s, 'p2', 'p2-0', 0.5, 0.25, carryOver: carry(s)));
       expect(game.currentPlayer(s), 'p1');
       expect(s.remainingOf('p2'), 1);
     });
@@ -70,10 +72,13 @@ void main() {
       expect(ShuffleboardGame.zoneValue(0.28), 1);
       expect(ShuffleboardGame.zoneValue(0.45), 0);
 
-      expect(ShuffleboardGame.statusFor(0.05, removed: false), PuckStatus.inZone);
-      expect(ShuffleboardGame.statusFor(0.45, removed: false), PuckStatus.onBoard);
+      expect(
+          ShuffleboardGame.statusFor(0.05, removed: false), PuckStatus.inZone);
+      expect(
+          ShuffleboardGame.statusFor(0.45, removed: false), PuckStatus.onBoard);
       expect(ShuffleboardGame.statusFor(0.80, removed: false), PuckStatus.foul);
-      expect(ShuffleboardGame.statusFor(0.05, removed: true), PuckStatus.offEnd);
+      expect(
+          ShuffleboardGame.statusFor(0.05, removed: true), PuckStatus.offEnd);
     });
 
     test('a scoring slide credits the shooter', () {
@@ -180,7 +185,8 @@ void main() {
       var s = fresh();
       s = game.applyMove(s, slide(s, 'p1', 'p1-0', 0.5, 0.2));
       // p2 slides, then it becomes p1 again; p1 tries to reuse p1-0.
-      s = game.applyMove(s, slide(s, 'p2', 'p2-0', 0.5, 0.2, carryOver: carry(s)));
+      s = game.applyMove(
+          s, slide(s, 'p2', 'p2-0', 0.5, 0.2, carryOver: carry(s)));
       final reuse = ShuffleboardMove(
         launchedPuckId: 'p1-0',
         owner: 'p1',
@@ -202,10 +208,15 @@ void main() {
     test('match ends when both are out; higher score wins', () {
       var s = fresh();
       s = game.applyMove(s, slide(s, 'p1', 'p1-0', 0.5, 0.05)); // p1: 3
-      s = game.applyMove(s, slide(s, 'p2', 'p2-0', 0.4, 0.15, carryOver: carry(s))); // p2: 2
-      s = game.applyMove(s, slide(s, 'p1', 'p1-1', 0.6, 0.28, carryOver: carry(s))); // p1: +1 => 4
+      s = game.applyMove(
+          s, slide(s, 'p2', 'p2-0', 0.4, 0.15, carryOver: carry(s))); // p2: 2
+      s = game.applyMove(
+          s,
+          slide(s, 'p1', 'p1-1', 0.6, 0.28,
+              carryOver: carry(s))); // p1: +1 => 4
       expect(game.outcome(s), isNull);
-      s = game.applyMove(s, slide(s, 'p2', 'p2-1', 0.3, 0.85, carryOver: carry(s))); // p2 foul
+      s = game.applyMove(
+          s, slide(s, 'p2', 'p2-1', 0.3, 0.85, carryOver: carry(s))); // p2 foul
       expect(s.remainingOf('p1'), 0);
       expect(s.remainingOf('p2'), 0);
       expect(game.outcome(s), const GameOutcome.win('p1'));
@@ -214,9 +225,12 @@ void main() {
     test('equal scores draw', () {
       var s = fresh();
       s = game.applyMove(s, slide(s, 'p1', 'p1-0', 0.5, 0.15)); // 2
-      s = game.applyMove(s, slide(s, 'p2', 'p2-0', 0.4, 0.15, carryOver: carry(s))); // 2
-      s = game.applyMove(s, slide(s, 'p1', 'p1-1', 0.5, 0.85, carryOver: carry(s))); // foul
-      s = game.applyMove(s, slide(s, 'p2', 'p2-1', 0.4, 0.85, carryOver: carry(s))); // foul
+      s = game.applyMove(
+          s, slide(s, 'p2', 'p2-0', 0.4, 0.15, carryOver: carry(s))); // 2
+      s = game.applyMove(
+          s, slide(s, 'p1', 'p1-1', 0.5, 0.85, carryOver: carry(s))); // foul
+      s = game.applyMove(
+          s, slide(s, 'p2', 'p2-1', 0.4, 0.85, carryOver: carry(s))); // foul
       expect(game.outcome(s), const GameOutcome.draw());
     });
 
@@ -226,10 +240,12 @@ void main() {
       // Force p2 out first via alternation, then p1 keeps sliding.
       s = g.applyMove(s, slide(s, 'p1', 'p1-0', 0.5, 0.2));
       s = g.applyMove(s, slide(s, 'p2', 'p2-0', 0.5, 0.2, carryOver: carry(s)));
-      s = g.applyMove(s, slide(s, 'p1', 'p1-1', 0.55, 0.2, carryOver: carry(s)));
+      s = g.applyMove(
+          s, slide(s, 'p1', 'p1-1', 0.55, 0.2, carryOver: carry(s)));
       // p1 now out; p2 has 1 left => turn is p2.
       expect(s.currentPlayerId, 'p2');
-      s = g.applyMove(s, slide(s, 'p2', 'p2-1', 0.45, 0.2, carryOver: carry(s)));
+      s = g.applyMove(
+          s, slide(s, 'p2', 'p2-1', 0.45, 0.2, carryOver: carry(s)));
       expect(g.outcome(s), isNotNull);
     });
   });
@@ -238,7 +254,8 @@ void main() {
     test('state round-trips through JSON', () {
       var s = fresh();
       s = game.applyMove(s, slide(s, 'p1', 'p1-0', 0.5, 0.05));
-      s = game.applyMove(s, slide(s, 'p2', 'p2-0', 0.42, 0.85, carryOver: carry(s)));
+      s = game.applyMove(
+          s, slide(s, 'p2', 'p2-0', 0.42, 0.85, carryOver: carry(s)));
       final decoded =
           game.decodeState(game.encodeState(s), game.stateSchemaVersion);
       expect(decoded.pucks.length, s.pucks.length);

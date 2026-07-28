@@ -35,7 +35,8 @@ void main() {
       // Corner is never legal on move 1.
       expect(game.validateMove(s, const ReversiMove(0), 'dark'), isFalse);
       expect(
-        game.validateMove(s, ReversiMove(game.legalMoves(s, 'dark').first), 'light'),
+        game.validateMove(
+            s, ReversiMove(game.legalMoves(s, 'dark').first), 'light'),
         isFalse,
       );
     });

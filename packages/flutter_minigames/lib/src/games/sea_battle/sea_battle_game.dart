@@ -265,10 +265,8 @@ class SeaBattleGame extends TurnGame<SeaBattleState, SeaBattleMove> {
         ShipPlacement? placed;
         for (var attempt = 0; attempt < 200; attempt++) {
           final horizontal = rnd.nextBool();
-          final row =
-              rnd.nextInt(horizontal ? boardSize : boardSize - len + 1);
-          final col =
-              rnd.nextInt(horizontal ? boardSize - len + 1 : boardSize);
+          final row = rnd.nextInt(horizontal ? boardSize : boardSize - len + 1);
+          final col = rnd.nextInt(horizontal ? boardSize - len + 1 : boardSize);
           final candidate = ShipPlacement(
             row: row,
             col: col,

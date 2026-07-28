@@ -63,7 +63,8 @@ void main() {
       );
       expect(
         r.displacement,
-        closeTo(MiniGolfCourse.maxPuttReach, MiniGolfCourse.maxPuttReach * 0.15),
+        closeTo(
+            MiniGolfCourse.maxPuttReach, MiniGolfCourse.maxPuttReach * 0.15),
         reason: 'reach ${r.displacement} vs ${MiniGolfCourse.maxPuttReach}',
       );
     });
@@ -124,7 +125,8 @@ void main() {
     });
 
     test('a hard putt into the end rail never leaves the green', () {
-      final c = straight(length: 9, halfWidth: 1.5, cup: const Offset(1.2, 7.6));
+      final c =
+          straight(length: 9, halfWidth: 1.5, cup: const Offset(1.2, 7.6));
       for (final angle in [-0.6, -0.3, 0.0, 0.3, 0.6]) {
         final r = MiniGolfPutt.simulate(
           course: c,
@@ -287,8 +289,10 @@ void main() {
         direction: _up,
         power: 1.0,
       );
-      expect(r.rollDistance,
-          closeTo(MiniGolfCourse.maxPuttReach, MiniGolfCourse.maxPuttReach * 0.2));
+      expect(
+          r.rollDistance,
+          closeTo(
+              MiniGolfCourse.maxPuttReach, MiniGolfCourse.maxPuttReach * 0.2));
     });
   });
 }

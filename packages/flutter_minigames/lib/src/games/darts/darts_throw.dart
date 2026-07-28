@@ -151,9 +151,9 @@ abstract final class DartsAim {
     required double aimY,
     required double swipeDx,
   }) {
-    final lateral = (swipeDx / DartsWorld.flick.fullPowerDrag)
-            .clamp(-1.0, 1.0) *
-        DartsWorld.maxLateralScatter;
+    final lateral =
+        (swipeDx / DartsWorld.flick.fullPowerDrag).clamp(-1.0, 1.0) *
+            DartsWorld.maxLateralScatter;
     return DartsWorld.boardPoint(aimX + lateral, aimY);
   }
 
@@ -191,8 +191,7 @@ abstract final class DartsAim {
     required double power,
     required double swipeDx,
   }) {
-    final target =
-        scatteredTarget(aimX: aimX, aimY: aimY, swipeDx: swipeDx);
+    final target = scatteredTarget(aimX: aimX, aimY: aimY, swipeDx: swipeDx);
     final solved = solveSpeed(target);
     if (solved == null) return null;
     final speed = LaunchSolver.speedFromPower(
@@ -311,9 +310,9 @@ class DartsSwing {
 
     // Where the swipe says the dart should land, then the aim that gets it
     // there once the band has had its say.
-    final reachedPower = ((power - DartsWorld.minPower) /
-            (1 - DartsWorld.minPower))
-        .clamp(0.0, 1.0);
+    final reachedPower =
+        ((power - DartsWorld.minPower) / (1 - DartsWorld.minPower))
+            .clamp(0.0, 1.0);
     final landY = DartsWorld.boardRadius *
         (DartsWorld.lowLandRatio +
             (DartsWorld.highLandRatio - DartsWorld.lowLandRatio) *
@@ -390,10 +389,9 @@ class DartsImpact {
 
   /// Arrival speed as 0..1 over the band a throw can actually produce. Used to
   /// scale the impact's whole presentation — sound, haptic, wobble, quiver.
-  double get strength =>
-      ((speed - DartsWire.softArrival) /
-              (DartsWire.hardArrival - DartsWire.softArrival))
-          .clamp(0.0, 1.0);
+  double get strength => ((speed - DartsWire.softArrival) /
+          (DartsWire.hardArrival - DartsWire.softArrival))
+      .clamp(0.0, 1.0);
 }
 
 /// The spider, as an obstacle rather than as paint.

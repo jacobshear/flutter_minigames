@@ -95,8 +95,7 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
     super.dispose();
   }
 
-  int _dropDurationMs(int dropRows) =>
-      (260 + dropRows * 85).clamp(280, 780);
+  int _dropDurationMs(int dropRows) => (260 + dropRows * 85).clamp(280, 780);
 
   void _ensureDropCtrl(String key, {required bool animate, int dropRows = 3}) {
     if (_dropCtrls.containsKey(key)) return;
@@ -384,8 +383,7 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
                                   confetti: _confetti,
                                   origin: Offset(
                                     _confettiOrigin.dx,
-                                    (topRail +
-                                            _confettiOrigin.dy * boardH) /
+                                    (topRail + _confettiOrigin.dy * boardH) /
                                         constraints.maxHeight,
                                   ),
                                   t: _confettiCtrl.value,
@@ -584,9 +582,8 @@ class _DiscsPainter extends CustomPainter {
         final drawY = startY + (restY - startY) * t;
 
         final cx = (col + 0.5) * cellW;
-        final scale = t > 1
-            ? 1.0 + (t - 1) * 0.1
-            : 0.9 + 0.1 * t.clamp(0.0, 1.0);
+        final scale =
+            t > 1 ? 1.0 + (t - 1) * 0.1 : 0.9 + 0.1 * t.clamp(0.0, 1.0);
 
         canvas.save();
         canvas.translate(cx, drawY);
@@ -786,9 +783,7 @@ class _WellPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_WellPainter old) =>
-      old.holeColor != holeColor ||
-      old.pad != pad ||
-      old.radius != radius;
+      old.holeColor != holeColor || old.pad != pad || old.radius != radius;
 }
 
 void _paintWell(
@@ -874,9 +869,7 @@ class _FaceplatePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_FaceplatePainter old) =>
-      old.boardColor != boardColor ||
-      old.pad != pad ||
-      old.radius != radius;
+      old.boardColor != boardColor || old.pad != pad || old.radius != radius;
 }
 
 void _paintFaceplate(
@@ -1535,7 +1528,8 @@ class _ConfettiPainter extends CustomPainter {
       } else {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromCenter(center: Offset.zero, width: dim, height: dim * 0.55),
+            Rect.fromCenter(
+                center: Offset.zero, width: dim, height: dim * 0.55),
             Radius.circular(dim * 0.12),
           ),
           paint,

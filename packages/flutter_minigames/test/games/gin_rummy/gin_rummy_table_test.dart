@@ -205,7 +205,8 @@ void main() {
 
       final table = tester.getRect(find.byType(GinRummyTable));
       final inAir = find.byKey(_flightKey);
-      expect(inAir, findsOneWidget, reason: 'the drawn card should be in the air');
+      expect(inAir, findsOneWidget,
+          reason: 'the drawn card should be in the air');
       final flying = tester.getRect(find.descendant(
         of: inAir,
         matching: find.byType(CardView),
@@ -254,7 +255,8 @@ void main() {
   });
 
   group('the knock reveal', () {
-    testWidgets('animates in and shows both hands and the score', (tester) async {
+    testWidgets('animates in and shows both hands and the score',
+        (tester) async {
       await tester.binding.setSurfaceSize(_phone);
       addTearDown(() => tester.binding.setSurfaceSize(null));
       const rules = GinRummyRules.sevenCard;

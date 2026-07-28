@@ -341,62 +341,62 @@ class _FillerBoardState extends State<FillerBoard>
               ],
             ),
             child: Padding(
-            padding: const EdgeInsets.all(9),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: CustomPaint(painter: _TrayPainter(slab)),
-                ),
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: _FillerGridPainter(frame: frame),
+              padding: const EdgeInsets.all(9),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(painter: _TrayPainter(slab)),
                   ),
-                ),
-                if (style.confetti && _confetti.isNotEmpty)
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _FillerGridPainter(frame: frame),
+                    ),
+                  ),
+                  if (style.confetti && _confetti.isNotEmpty)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: _ConfettiPainter(
+                            confetti: _confetti,
+                            t: _confettiCtrl.value,
+                          ),
+                        ),
+                      ),
+                    ),
                   Positioned.fill(
                     child: IgnorePointer(
-                      child: CustomPaint(
-                        painter: _ConfettiPainter(
-                          confetti: _confetti,
-                          t: _confettiCtrl.value,
+                      child: Center(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          child: pillMsg == null
+                              ? const SizedBox.shrink(
+                                  key: ValueKey('pill-empty'))
+                              : Container(
+                                  key: ValueKey(pillMsg),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 9,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.58),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    pillMsg,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      letterSpacing: 1.1,
+                                    ),
+                                  ),
+                                ),
                         ),
                       ),
                     ),
                   ),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Center(
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        child: pillMsg == null
-                            ? const SizedBox.shrink(key: ValueKey('pill-empty'))
-                            : Container(
-                                key: ValueKey(pillMsg),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 9,
-                                ),
-                                decoration: BoxDecoration(
-                                  color:
-                                      Colors.black.withValues(alpha: 0.58),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  pillMsg,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14,
-                                    letterSpacing: 1.1,
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+                ],
+              ),
             ),
           ),
         );
@@ -419,61 +419,64 @@ class _FillerBoardState extends State<FillerBoard>
             child: CustomPaint(
               painter: _FeltPainter(table),
               child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          child: Transform.scale(
-            scale: 0.94 + 0.06 * enter,
-            child: Opacity(
-              opacity: enter.clamp(0.0, 1.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: _PlayerChip(
-                      label: style.p2Label,
-                      score: state.scoreOfIndex(1),
-                      color: style.cellColors[state.colorOfIndex(1)],
-                      active: showOutcome == null && state.turnIndex == 1,
-                      winner: showOutcome?.isWin == true &&
-                          showOutcome!.winnerId == state.playerIds[1],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  grid,
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: _PlayerChip(
-                      label: style.p1Label,
-                      score: state.scoreOfIndex(0),
-                      color: style.cellColors[state.colorOfIndex(0)],
-                      active: showOutcome == null && state.turnIndex == 0,
-                      winner: showOutcome?.isWin == true &&
-                          showOutcome!.winnerId == state.playerIds[0],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      for (var c = 0; c < FillerState.colorCount; c++) ...[
-                        if (c > 0) const SizedBox(width: 8),
-                        Expanded(
-                          child: _Swatch(
-                            key: ValueKey('filler_swatch_$c'),
-                            color: style.cellColors[c],
-                            enabled: _outcome == null &&
-                                c != ownColor &&
-                                c != oppColor,
-                            onTap: () => _onSwatchTap(c),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                child: Transform.scale(
+                  scale: 0.94 + 0.06 * enter,
+                  child: Opacity(
+                    opacity: enter.clamp(0.0, 1.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: _PlayerChip(
+                            label: style.p2Label,
+                            score: state.scoreOfIndex(1),
+                            color: style.cellColors[state.colorOfIndex(1)],
+                            active: showOutcome == null && state.turnIndex == 1,
+                            winner: showOutcome?.isWin == true &&
+                                showOutcome!.winnerId == state.playerIds[1],
                           ),
                         ),
+                        const SizedBox(height: 10),
+                        grid,
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: _PlayerChip(
+                            label: style.p1Label,
+                            score: state.scoreOfIndex(0),
+                            color: style.cellColors[state.colorOfIndex(0)],
+                            active: showOutcome == null && state.turnIndex == 0,
+                            winner: showOutcome?.isWin == true &&
+                                showOutcome!.winnerId == state.playerIds[0],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            for (var c = 0;
+                                c < FillerState.colorCount;
+                                c++) ...[
+                              if (c > 0) const SizedBox(width: 8),
+                              Expanded(
+                                child: _Swatch(
+                                  key: ValueKey('filler_swatch_$c'),
+                                  color: style.cellColors[c],
+                                  enabled: _outcome == null &&
+                                      c != ownColor &&
+                                      c != oppColor,
+                                  onTap: () => _onSwatchTap(c),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ],
-                    ],
+                    ),
                   ),
-                ],
-              ),
-            ),
-          ),
+                ),
               ),
             ),
           ),
@@ -663,8 +666,7 @@ class _TrayPainter extends CustomPainter {
     final well = Rect.fromLTWH(-3, -3, size.width + 6, size.height + 6);
     canvas.drawRRect(
       RRect.fromRectAndRadius(well, const Radius.circular(10)),
-      Paint()
-        ..color = Color.lerp(slab, Colors.black, 0.30)!,
+      Paint()..color = Color.lerp(slab, Colors.black, 0.30)!,
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(well, const Radius.circular(10)).deflate(1.2),

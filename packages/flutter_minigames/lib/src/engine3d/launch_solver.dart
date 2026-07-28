@@ -110,7 +110,8 @@ class LaunchSolver {
         final before = p.position;
         p.step();
         final travelled = math.sqrt(
-          math.pow(p.position.x - from.x, 2) + math.pow(p.position.z - from.z, 2),
+          math.pow(p.position.x - from.x, 2) +
+              math.pow(p.position.z - from.z, 2),
         );
         if (travelled >= horizontal) {
           // Interpolate the height at exactly the target range.

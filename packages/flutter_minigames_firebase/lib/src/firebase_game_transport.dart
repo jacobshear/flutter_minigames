@@ -36,8 +36,7 @@ class FirebaseGameTransport implements GameTransport {
     this.rootPath = 'minigames/matches',
   }) : database = database ?? FirebaseDatabase.instance;
 
-  DatabaseReference _ref(String matchId) =>
-      database.ref('$rootPath/$matchId');
+  DatabaseReference _ref(String matchId) => database.ref('$rootPath/$matchId');
 
   @override
   Future<void> createMatch(Match match) => _ref(match.id).set(_toNode(match));

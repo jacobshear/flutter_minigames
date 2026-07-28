@@ -1059,7 +1059,8 @@ class EightBallScene extends FlameGame {
         final strength =
             ((speed - railQuietSpeed) / railRefSpeed).clamp(0.0, 1.0);
         if (speed < railQuietSpeed) return;
-        _impacts.add(_Impact(nx: nx, ny: ny, normal: normal, strength: strength));
+        _impacts
+            .add(_Impact(nx: nx, ny: ny, normal: normal, strength: strength));
         onRail?.call(strength);
       }
 
@@ -1742,7 +1743,8 @@ void paintPoolRoom(
   final floor = day ? const Color(0xFF8A6642) : const Color(0xFF241A12);
   // A hint of the app's own palette in the boards keeps the hall from reading
   // as a stock texture bolted under the table.
-  final tint = scheme == null ? floor : Color.lerp(floor, scheme.primary, 0.06)!;
+  final tint =
+      scheme == null ? floor : Color.lerp(floor, scheme.primary, 0.06)!;
   canvas.drawRect(full, Paint()..color = tint);
 
   final grainAlpha = day ? 0.055 : 0.10;
@@ -1751,7 +1753,8 @@ void paintPoolRoom(
   // Hardwood planks running across the room.
   final plankH = math.max(10.0, size.height / 11);
   final rows = (size.height / plankH).ceil() + 1;
-  final lamp = Offset(size.width * lightCenter.dx, size.height * lightCenter.dy);
+  final lamp =
+      Offset(size.width * lightCenter.dx, size.height * lightCenter.dy);
   for (var i = 0; i < rows; i++) {
     final y = i * plankH;
     final tone = _noise(i * 17 + 5);
@@ -2676,9 +2679,7 @@ void _paintPocketRim(Canvas canvas, double w, PoolPocket p) {
       ? [Offset(-o.dx.sign, 0), Offset(0, -o.dy.sign)]
       : const [Offset(0, -1), Offset(0, 1)];
   // Per-rail outward normals — which way that cushion faces out of the felt.
-  final outs = p.corner
-      ? [Offset(0, o.dy.sign), Offset(o.dx.sign, 0)]
-      : [o, o];
+  final outs = p.corner ? [Offset(0, o.dy.sign), Offset(o.dx.sign, 0)] : [o, o];
 
   // How far back from the capture point each cushion is cut. A corner pocket
   // measures a shade under two ball widths between the noses; a side pocket a
@@ -2690,7 +2691,8 @@ void _paintPocketRim(Canvas canvas, double w, PoolPocket p) {
 
   final noses = <Offset>[for (final a in alongs) p.capture + a * open];
   final backs = <Offset>[
-    for (var i = 0; i < 2; i++) noses[i] + outs[i] * cushion - alongs[i] * flare,
+    for (var i = 0; i < 2; i++)
+      noses[i] + outs[i] * cushion - alongs[i] * flare,
   ];
 
   /// Where [from] meets the outer edge of the table travelling along [dir].
@@ -2706,7 +2708,8 @@ void _paintPocketRim(Canvas canvas, double w, PoolPocket p) {
   final e0 = toEdge(backs[0], outs[0]);
   plate.lineTo(e0.dx, e0.dy);
   if (p.corner) {
-    final corner = Offset(o.dx < 0 ? 0 : size.width, o.dy < 0 ? 0 : size.height);
+    final corner =
+        Offset(o.dx < 0 ? 0 : size.width, o.dy < 0 ? 0 : size.height);
     plate.lineTo(corner.dx, corner.dy);
   }
   final e1 = toEdge(backs[1], outs[1]);
@@ -2731,8 +2734,7 @@ void _paintPocketRim(Canvas canvas, double w, PoolPocket p) {
     plate: plate,
     apron: apron,
     cuts: [
-      for (var i = 0; i < 2; i++)
-        (a: noses[i], b: backs[i], inward: alongs[i]),
+      for (var i = 0; i < 2; i++) (a: noses[i], b: backs[i], inward: alongs[i]),
     ],
   );
 }
@@ -2843,7 +2845,8 @@ void _paintRailImpact(
   final w = size.width;
   final cushion = w * poolRailFrac * _cushionFrac;
   // Springs in fast, relaxes slowly.
-  final press = t < 0.22 ? t / 0.22 : math.pow(1 - (t - 0.22) / 0.78, 1.6) * 1.0;
+  final press =
+      t < 0.22 ? t / 0.22 : math.pow(1 - (t - 0.22) / 0.78, 1.6) * 1.0;
   final amount = press.toDouble() * s;
   if (amount <= 0.01) return;
 
@@ -3388,7 +3391,8 @@ class _PlayerChip extends StatelessWidget {
               style: TextStyle(
                 color:
                     Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
-                fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
+                fontWeight:
+                    active || winner ? FontWeight.w800 : FontWeight.w600,
                 fontSize: 13,
               ),
             ),

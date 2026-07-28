@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # One lockfile for the whole workspace, so this resolves every package.
+      - run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Format
+        run: dart format --output=none --set-exit-if-changed packages
+
+      - name: Test
+        run: flutter test
+        working-directory: packages/flutter_minigames
+
+      - name: Test example app
+        run: flutter test
+        working-directory: packages/example_app
+
+      # Catches the things only the publish pipeline sees: missing LICENSE or
+      # CHANGELOG, a bad description length, files that would ship by mistake.
+      - name: Publish dry run
+        run: flutter pub publish --dry-run
+        working-directory: packages/flutter_minigames
+
+      - name: Publish dry run (firebase transport)
+        run: flutter pub publish --dry-run
+        working-directory: packages/flutter_minigames_firebase

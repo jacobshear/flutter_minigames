@@ -620,9 +620,7 @@ class MiniGolfPutt {
       }
 
       for (final o in obstacles) {
-        final n = o.round
-            ? _circleNormal(here, o, r)
-            : _boxNormal(here, o, r);
+        final n = o.round ? _circleNormal(here, o, r) : _boxNormal(here, o, r);
         if (n == null) continue;
         ball.position = Vec3(
           ball.position.x + n.normal.dx * n.push,

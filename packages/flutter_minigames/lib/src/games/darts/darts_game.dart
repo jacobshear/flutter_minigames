@@ -238,8 +238,7 @@ class DartsVisit {
   });
 
   /// Points actually subtracted — zero for a bust.
-  int get total =>
-      busted ? 0 : darts.fold(0, (sum, d) => sum + d.value);
+  int get total => busted ? 0 : darts.fold(0, (sum, d) => sum + d.value);
 
   Map<String, dynamic> toJson() => {
         'playerId': playerId,

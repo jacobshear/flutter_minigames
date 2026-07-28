@@ -62,7 +62,9 @@ class MatchController<S, M> {
 
   /// True when it's specifically [localPlayerId]'s turn (ignores hot-seat).
   bool get isLocalPlayersTurn =>
-      _match != null && _match!.isOpen && _match!.currentPlayerId == localPlayerId;
+      _match != null &&
+      _match!.isOpen &&
+      _match!.currentPlayerId == localPlayerId;
 
   /// Load the current snapshot (if any) and start listening for updates.
   Future<void> connect() async {

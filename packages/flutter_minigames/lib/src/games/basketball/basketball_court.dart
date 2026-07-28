@@ -228,7 +228,9 @@ class BasketballAim {
   /// Horizontal component only — a vertical flick throws nothing extra, which
   /// is the shipped behaviour and the reason power is not an input.
   static double? aimFromDrag(double dx, double dy) {
-    if (math.sqrt(dx * dx + dy * dy) < BasketballCourt.dragDeadZone) return null;
+    if (math.sqrt(dx * dx + dy * dy) < BasketballCourt.dragDeadZone) {
+      return null;
+    }
     return (dx / BasketballCourt.fullDragPixels).clamp(-1.0, 1.0);
   }
 

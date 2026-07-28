@@ -181,13 +181,11 @@ class BasketballState {
   bool hasSubmitted(String playerId) => submissions.containsKey(playerId);
 
   /// Match total for [playerId] (0 until they submit).
-  int scoreOf(String playerId) =>
-      roundsOf(playerId).fold(0, (a, b) => a + b);
+  int scoreOf(String playerId) => roundsOf(playerId).fold(0, (a, b) => a + b);
 
   /// Per-round scores for [playerId], zero-filled until they submit.
   List<int> roundsOf(String playerId) =>
-      submissions[playerId] ??
-      List<int>.filled(BasketballGame.roundCount, 0);
+      submissions[playerId] ?? List<int>.filled(BasketballGame.roundCount, 0);
 
   /// First player (in turn order) who hasn't submitted, or `null` when done.
   String? get nextToPlay {

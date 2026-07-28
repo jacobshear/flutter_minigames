@@ -201,9 +201,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
     final s = _state;
     if (s == null || _outcome != null) return false;
     if (_resolving) return false;
-    if (_hotSeat &&
-        s.phase == ArcheryPhase.handoff &&
-        !_handoffAcknowledged) {
+    if (_hotSeat && s.phase == ArcheryPhase.handoff && !_handoffAcknowledged) {
       return false;
     }
     return widget.controller.canActLocally;
@@ -283,8 +281,9 @@ class _ArcheryRangeState extends State<ArcheryRange>
     _resolving = true;
     _flight
       ..duration = Duration(
-        milliseconds:
-            (result.flightSeconds * 1000 * (slowMo ? 1.9 : 1.15)).round().clamp(200, 4000),
+        milliseconds: (result.flightSeconds * 1000 * (slowMo ? 1.9 : 1.15))
+            .round()
+            .clamp(200, 4000),
       )
       ..forward(from: 0);
     setState(() {});
@@ -570,8 +569,8 @@ class _ArcheryRangeState extends State<ArcheryRange>
       arrowSettle:
           _lastHitFace && _wobble.isAnimating ? (1 - _wobble.value) : 0,
       stray: _stray,
-      arrowsLeft:
-          ArcheryGame.arrowsPerTarget - _stuck.length.clamp(0, ArcheryGame.arrowsPerTarget),
+      arrowsLeft: ArcheryGame.arrowsPerTarget -
+          _stuck.length.clamp(0, ArcheryGame.arrowsPerTarget),
       accent: accent,
     );
   }
@@ -811,7 +810,10 @@ class _PlayerChip extends StatelessWidget {
               height: 1,
               letterSpacing: -0.6,
               shadows: active || winner
-                  ? [Shadow(color: accent.withValues(alpha: 0.65), blurRadius: 10)]
+                  ? [
+                      Shadow(
+                          color: accent.withValues(alpha: 0.65), blurRadius: 10)
+                    ]
                   : null,
             ),
           ),

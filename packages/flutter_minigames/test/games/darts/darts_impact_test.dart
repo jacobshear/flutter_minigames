@@ -77,7 +77,8 @@ void main() {
       expect(same(await pixels(frameAt(0)), settled), isTrue);
     });
 
-    test('is presentation only — the dart it is animating still scores the '
+    test(
+        'is presentation only — the dart it is animating still scores the '
         'same', () async {
       const hit = DartHit(20, 3);
       for (var i = 0; i <= 12; i++) {
@@ -164,11 +165,11 @@ void main() {
     test('deflection is deterministic', () {
       final wireAngle = DartsBoardGeometry.sectorSpan / 2;
       const radius = 0.5 * r;
-      final a = DartsWire.deflect(math.sin(wireAngle) * radius,
-          math.cos(wireAngle) * radius,
+      final a = DartsWire.deflect(
+          math.sin(wireAngle) * radius, math.cos(wireAngle) * radius,
           boardRadius: r);
-      final b = DartsWire.deflect(math.sin(wireAngle) * radius,
-          math.cos(wireAngle) * radius,
+      final b = DartsWire.deflect(
+          math.sin(wireAngle) * radius, math.cos(wireAngle) * radius,
           boardRadius: r);
       expect(a.$1, b.$1);
       expect(a.$2, b.$2);

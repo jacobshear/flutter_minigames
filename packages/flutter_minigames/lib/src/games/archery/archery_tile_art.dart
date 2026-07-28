@@ -139,8 +139,10 @@ class _ArcheryTilePainter extends CustomPainter {
       canvas.drawPath(
         Path()
           ..moveTo(tail.dx, tail.dy)
-          ..lineTo(tail.dx + normal.dx * vane * s, tail.dy + normal.dy * vane * s)
-          ..lineTo(tail.dx + unit.dx * vane * 1.8, tail.dy + unit.dy * vane * 1.8)
+          ..lineTo(
+              tail.dx + normal.dx * vane * s, tail.dy + normal.dy * vane * s)
+          ..lineTo(
+              tail.dx + unit.dx * vane * 1.8, tail.dy + unit.dy * vane * 1.8)
           ..close(),
         Paint()..color = const Color(0xFFD8443C),
       );

@@ -9,8 +9,8 @@ Set<String> codesOf(Meld m) => m.cards.map((c) => c.code).toSet();
 
 bool hasMeld(HandAnalysis a, String codes) {
   final want = hand(codes).map((c) => c.code).toSet();
-  return a.melds.any((m) => codesOf(m).length == want.length &&
-      codesOf(m).containsAll(want));
+  return a.melds.any(
+      (m) => codesOf(m).length == want.length && codesOf(m).containsAll(want));
 }
 
 void main() {
@@ -56,7 +56,8 @@ void main() {
         Meld.tryRun(hand('4C 5C 6C')).hashCode,
         Meld.tryRun(hand('6C 5C 4C')).hashCode,
       );
-      expect(Meld.tryRun(hand('4C 5C 6C')), isNot(Meld.tryRun(hand('5C 6C 7C'))));
+      expect(
+          Meld.tryRun(hand('4C 5C 6C')), isNot(Meld.tryRun(hand('5C 6C 7C'))));
     });
 
     test('JSON round-trips', () {
@@ -67,14 +68,18 @@ void main() {
         expect(Meld.fromJson(m.toJson()), m);
       }
       expect(
-        () => Meld.fromJson({'kind': 'run', 'cards': [0, 5, 9]}),
+        () => Meld.fromJson({
+          'kind': 'run',
+          'cards': [0, 5, 9]
+        }),
         throwsFormatException,
       );
     });
   });
 
   group('lay-offs', () {
-    test('a 3-card set takes a fourth of its rank, a 4-card set takes none', () {
+    test('a 3-card set takes a fourth of its rank, a 4-card set takes none',
+        () {
       final three = Meld.trySet(hand('7S 7H 7D'))!;
       expect(three.canExtendWith(PlayingCard.parse('7C')), isTrue);
       expect(three.canExtendWith(PlayingCard.parse('8C')), isFalse);

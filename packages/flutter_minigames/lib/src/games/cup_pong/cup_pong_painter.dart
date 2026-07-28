@@ -66,14 +66,16 @@ void paintCupPongTable(
     if (cup.removal >= 1) continue;
     scene.add(
       Vec3(cup.mouth.x, CupPongWorld.surfaceY, cup.mouth.z),
-      (c, at) => _paintCup(c, camera, cup, cupColor, ballColor, style, at.depth),
+      (c, at) =>
+          _paintCup(c, camera, cup, cupColor, ballColor, style, at.depth),
     );
   }
   for (final b in view.restingBalls) {
     scene.add(b.position, (c, at) => _paintBall(c, b, ballColor, at, style));
   }
   if (ball != null) {
-    scene.add(ball.position, (c, at) => _paintBall(c, ball, ballColor, at, style));
+    scene.add(
+        ball.position, (c, at) => _paintBall(c, ball, ballColor, at, style));
   }
   scene.paint(canvas);
   // Falloff last: the lamp is a bare pendant in a dim room, so the corners of
@@ -710,10 +712,7 @@ void _paintCup(
     ..sort((a, b) {
       final aw = rings.last.world[a];
       final bw = rings.last.world[b];
-      return camera
-          .toCameraSpace(bw)
-          .z
-          .compareTo(camera.toCameraSpace(aw).z);
+      return camera.toCameraSpace(bw).z.compareTo(camera.toCameraSpace(aw).z);
     });
 
   // A lit saturated red is not a *whiter* red — lerping toward white is what
@@ -892,7 +891,8 @@ void _paintCupDrop(
           (1 - (t - 0.55) / 0.45) *
           0.22;
   final restY = liquidY - CupPongWorld.ballRadius * 0.35;
-  final y = mouthY + CupPongWorld.ballRadius * 0.9 -
+  final y = mouthY +
+      CupPongWorld.ballRadius * 0.9 -
       (mouthY + CupPongWorld.ballRadius * 0.9 - restY) * fall +
       bob * CupPongWorld.ballRadius;
 
@@ -906,7 +906,8 @@ void _paintCupDrop(
   // Inside a cup the ball is in shadow — the lamp is straight overhead and the
   // wall is between it and everything below the rim. Lighting it as brightly as
   // the one in the player's hand is what would make the drop read as a sticker.
-  final shaded = Color.lerp(ballColour, const Color(0xFF3A2410), 0.30 + 0.24 * fall)!;
+  final shaded =
+      Color.lerp(ballColour, const Color(0xFF3A2410), 0.30 + 0.24 * fall)!;
   canvas.drawCircle(
     at.screen,
     r,
@@ -977,8 +978,8 @@ void _paintSplash(
         at.screen,
         math.max(0.7, CupPongWorld.ballRadius * at.scale * 0.16),
         Paint()
-          ..color = const Color(0xFFE9C68A)
-              .withValues(alpha: (1 - up) * 0.8 * alpha),
+          ..color =
+              const Color(0xFFE9C68A).withValues(alpha: (1 - up) * 0.8 * alpha),
       );
     }
   }
@@ -1017,8 +1018,7 @@ void _paintBallSeams(
     // Fade the seam out as it goes edge-on. Held flat it collapses to a single
     // hard chord across the ball, which on a large in-hand ball reads as a
     // crack in the plastic rather than a moulding line.
-    paint.color =
-        Colors.black.withValues(alpha: alpha * (0.15 + 0.85 * open));
+    paint.color = Colors.black.withValues(alpha: alpha * (0.15 + 0.85 * open));
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset.zero,

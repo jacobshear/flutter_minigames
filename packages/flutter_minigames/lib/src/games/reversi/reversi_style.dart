@@ -29,8 +29,7 @@ class ReversiStyle {
 
   Color resolveDark(ColorScheme s) => darkColor ?? const Color(0xFF1C1C1E);
   Color resolveLight(ColorScheme s) => lightColor ?? const Color(0xFFF5F5F7);
-  Color resolveBoard(ColorScheme s) =>
-      boardColor ?? const Color(0xFF2D8A4E);
+  Color resolveBoard(ColorScheme s) => boardColor ?? const Color(0xFF2D8A4E);
   Color resolveGrid(ColorScheme s) =>
       gridColor ?? Colors.black.withValues(alpha: 0.18);
   Color resolveHint(ColorScheme s) =>

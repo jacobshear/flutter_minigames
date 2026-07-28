@@ -49,8 +49,7 @@ class Vec3 {
       );
 
   @override
-  String toString() =>
-      'Vec3(${x.toStringAsFixed(3)}, ${y.toStringAsFixed(3)}, '
+  String toString() => 'Vec3(${x.toStringAsFixed(3)}, ${y.toStringAsFixed(3)}, '
       '${z.toStringAsFixed(3)})';
 
   @override

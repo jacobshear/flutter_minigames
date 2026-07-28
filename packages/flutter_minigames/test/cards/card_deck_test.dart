@@ -22,7 +22,8 @@ void main() {
         for (final c in deck) {
           counts[c.index] = (counts[c.index] ?? 0) + 1;
         }
-        expect(counts.values.every((n) => n == 1), isTrue, reason: 'seed $seed');
+        expect(counts.values.every((n) => n == 1), isTrue,
+            reason: 'seed $seed');
       }
     });
 

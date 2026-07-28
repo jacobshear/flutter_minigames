@@ -229,8 +229,30 @@ class WordBitesGame extends TurnGame<WordBitesState, WordBitesMove> {
   /// Common digraphs, most frequent first — domino picks are weighted toward
   /// the front of this list so TH/ER/IN-style pairs dominate.
   static const List<String> rankedDigraphs = [
-    'th', 'er', 'in', 'an', 're', 'on', 'at', 'st', 'en', 'es', 'or', 'te',
-    'ed', 'is', 'ar', 'al', 'nd', 'le', 'se', 'he', 'ea', 'ou', 'it', 'nt',
+    'th',
+    'er',
+    'in',
+    'an',
+    're',
+    'on',
+    'at',
+    'st',
+    'en',
+    'es',
+    'or',
+    'te',
+    'ed',
+    'is',
+    'ar',
+    'al',
+    'nd',
+    'le',
+    'se',
+    'he',
+    'ea',
+    'ou',
+    'it',
+    'nt',
   ];
 
   /// Weighted single-letter bag — vowel-heavy, Scrabble-like distribution.

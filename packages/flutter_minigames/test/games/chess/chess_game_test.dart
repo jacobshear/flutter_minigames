@@ -76,8 +76,7 @@ void main() {
     });
 
     test('en passant captures the bypassed pawn', () {
-      final s = play(
-          fresh(), ['e2e4', 'a7a6', 'e4e5', 'd7d5', 'e5d6']);
+      final s = play(fresh(), ['e2e4', 'a7a6', 'e4e5', 'd7d5', 'e5d6']);
       final cells = s.boardCells();
       expect(cells[ChessState.cellFromAlgebraic('d6')], 'P');
       expect(cells[ChessState.cellFromAlgebraic('d5')], isNull);
@@ -85,7 +84,13 @@ void main() {
 
     test('kingside castling moves the rook too', () {
       final s = play(fresh(), [
-        'e2e4', 'e7e5', 'g1f3', 'g8f6', 'f1c4', 'f8c5', 'e1g1',
+        'e2e4',
+        'e7e5',
+        'g1f3',
+        'g8f6',
+        'f1c4',
+        'f8c5',
+        'e1g1',
       ]);
       final cells = s.boardCells();
       expect(cells[ChessState.cellFromAlgebraic('g1')], 'K');
@@ -124,8 +129,13 @@ void main() {
 
     test('threefold repetition draws, and survives encode/decode', () {
       var s = play(fresh(), [
-        'g1f3', 'g8f6', 'f3g1', 'f6g8',
-        'g1f3', 'g8f6', 'f3g1',
+        'g1f3',
+        'g8f6',
+        'f3g1',
+        'f6g8',
+        'g1f3',
+        'g8f6',
+        'f3g1',
       ]);
       expect(game.outcome(s), isNull);
       // Round-trip mid-sequence: the history (not just the FEN) must travel.
@@ -160,16 +170,14 @@ void main() {
 
     test('legalMovesFrom only reports the tapped piece', () {
       final s = fresh();
-      final knight =
-          game.legalMovesFrom(s, ChessState.cellFromAlgebraic('g1'));
+      final knight = game.legalMovesFrom(s, ChessState.cellFromAlgebraic('g1'));
       expect(knight.map((m) => m.uci).toSet(), {'g1f3', 'g1h3'});
       expect(
           game.legalMovesFrom(s, ChessState.cellFromAlgebraic('e8')), isEmpty);
     });
 
     test('move encode/decode round-trip keeps promotion', () {
-      final m = game.decodeMove(game.encodeMove(
-          ChessMove.parseUci('e7e8n')));
+      final m = game.decodeMove(game.encodeMove(ChessMove.parseUci('e7e8n')));
       expect(m.uci, 'e7e8n');
       expect(m.promotion, 'n');
     });

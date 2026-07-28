@@ -136,10 +136,9 @@ class ConnectFourGame extends TurnGame<ConnectFourState, ConnectFourMove> {
   /// Prefer a line that includes the last drop when present (UI highlights it).
   List<int>? winningLine(ConnectFourState state) {
     List<int>? found;
-    final last =
-        state.lastRow != null && state.lastCol != null
-            ? state.lastRow! * cols + state.lastCol!
-            : null;
+    final last = state.lastRow != null && state.lastCol != null
+        ? state.lastRow! * cols + state.lastCol!
+        : null;
 
     for (var row = 0; row < rows; row++) {
       for (var col = 0; col < cols; col++) {
@@ -177,8 +176,7 @@ class ConnectFourGame extends TurnGame<ConnectFourState, ConnectFourMove> {
   ConnectFourState decodeState(Map<String, dynamic> json, int version) =>
       ConnectFourState(
         cells: (json['cells'] as List).map((e) => e as String?).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         lastCol: json['lastCol'] as int?,
         lastRow: json['lastRow'] as int?,
       );

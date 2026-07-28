@@ -271,7 +271,8 @@ PileLayout pileLayout({
       final w = (1 - gap / (touch * 0.28)).clamp(0.0, 1.0);
       // Only stones below/behind bury this one; a stone in front of it does
       // not occlude its own lit face.
-      final below = b.course < a.course ? 1.0 : (b.course == a.course ? 0.55 : 0.15);
+      final below =
+          b.course < a.course ? 1.0 : (b.course == a.course ? 0.55 : 0.15);
       crowd += w * below;
       if (d.distance > 1e-4) acc += (d / d.distance) * w * below;
       if (j > i) {
@@ -305,8 +306,7 @@ PileLayout pileLayout({
       return c != 0 ? c : resolved[a].course.compareTo(resolved[b].course);
     });
 
-  final made =
-      PileLayout(slots: resolved, order: order, contacts: contacts);
+  final made = PileLayout(slots: resolved, order: order, contacts: contacts);
   if (_cache.length > 240) _cache.clear();
   _cache[key] = made;
   return made;

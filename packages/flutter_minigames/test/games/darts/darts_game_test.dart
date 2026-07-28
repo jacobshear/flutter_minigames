@@ -305,8 +305,8 @@ void main() {
     });
 
     test('a fresh state round-trips with no last visit', () {
-      final decoded = game.decodeState(
-          game.encodeState(fresh()), game.stateSchemaVersion);
+      final decoded =
+          game.decodeState(game.encodeState(fresh()), game.stateSchemaVersion);
       expect(decoded.lastVisit, isNull);
       expect(decoded.scoreOf('p2'), 501);
     });

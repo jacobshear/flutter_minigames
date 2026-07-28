@@ -91,8 +91,7 @@ class Match {
   factory Match.fromJson(Map<String, dynamic> json) => Match(
         id: json['id'] as String,
         gameId: json['gameId'] as String,
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentPlayerId: json['currentPlayerId'] as String,
         status: MatchStatus.values.byName(json['status'] as String),
         turnCount: json['turnCount'] as int,

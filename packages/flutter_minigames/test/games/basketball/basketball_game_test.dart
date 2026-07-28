@@ -153,7 +153,8 @@ void main() {
       expect(back.roundScores, [12, 8]);
     });
 
-    test('a corrupt payload decodes to something sane rather than throwing', () {
+    test('a corrupt payload decodes to something sane rather than throwing',
+        () {
       final back = game.decodeMove({'owner': 'p1', 'roundScores': 'nonsense'});
       expect(back.roundScores, isEmpty);
       expect(BasketballGame.normaliseRounds(back.roundScores), [0, 0]);

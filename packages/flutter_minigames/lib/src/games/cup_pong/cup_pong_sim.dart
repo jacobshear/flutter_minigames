@@ -460,9 +460,8 @@ class CupPongThrowSim {
         _lastImpact = ball.velocity.length;
         ball.bounce(n, restitution: tuning.wallRestitution, friction: 0.24);
         // Push clear so the next step doesn't re-trigger the same wall.
-        final clear = (CupPongWorld.cupMouthRadius +
-                CupPongWorld.cupBaseRadius) /
-            2;
+        final clear =
+            (CupPongWorld.cupMouthRadius + CupPongWorld.cupBaseRadius) / 2;
         final horiz = Surfaces.horizontalDistance(ball.position, m.x, m.z);
         final want = clear + CupPongWorld.ballRadius + 1e-4;
         if (horiz < want && horiz > 1e-9) {

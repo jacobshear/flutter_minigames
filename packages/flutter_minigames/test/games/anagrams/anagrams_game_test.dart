@@ -51,8 +51,7 @@ void main() {
     });
 
     test('valid dictionary words score', () {
-      final next =
-          game.applyMove(state, const AnagramsMove(['plane', 'ten']));
+      final next = game.applyMove(state, const AnagramsMove(['plane', 'ten']));
       expect(next.wordsOf('p1'), ['plane', 'ten']);
       expect(next.scoreOf('p1'), 1200 + 100);
     });

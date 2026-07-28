@@ -78,8 +78,8 @@ void main() {
     test('velocityToHit aims at the target as well as powering the throw', () {
       const from = Vec3(0, 1.2, 0);
       const target = Vec3(2, 1.2, 6);
-      final v = LaunchSolver.velocityToHit(
-          from: from, target: target, loft: 0.7)!;
+      final v =
+          LaunchSolver.velocityToHit(from: from, target: target, loft: 0.7)!;
       expect(v.x, greaterThan(0), reason: 'target is to the right');
       expect(v.z, greaterThan(0));
       // Lateral/depth split should match the direction to the target.
@@ -176,8 +176,7 @@ void main() {
       // every throw goes in.
       expect(rate, greaterThan(0.25),
           reason: 'banded window too tight to be fun: $rate');
-      expect(rate, lessThan(0.90),
-          reason: 'no skill left in it: $rate');
+      expect(rate, lessThan(0.90), reason: 'no skill left in it: $rate');
     });
 
     test('a naive wide absolute speed range is far worse', () {

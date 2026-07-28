@@ -35,14 +35,12 @@ void main() {
 
     test('bull ring boundaries resolve to the inner band', () {
       // Exactly on the inner-bull wire is still the bullseye.
-      expect(score(DartsBoardGeometry.innerBullRatio, 0),
-          const DartHit(25, 2));
+      expect(score(DartsBoardGeometry.innerBullRatio, 0), const DartHit(25, 2));
       // A hair outside it is the outer bull.
       expect(score(DartsBoardGeometry.innerBullRatio + 1e-6, 0),
           const DartHit(25, 1));
       // Exactly on the outer-bull wire is still 25.
-      expect(score(DartsBoardGeometry.outerBullRatio, 0),
-          const DartHit(25, 1));
+      expect(score(DartsBoardGeometry.outerBullRatio, 0), const DartHit(25, 1));
       // A hair outside drops into the sector bed.
       expect(score(DartsBoardGeometry.outerBullRatio + 1e-6, 0),
           const DartHit(20, 1));
@@ -112,10 +110,10 @@ void main() {
     });
 
     test('treble band boundaries are inclusive', () {
-      expect(score(DartsBoardGeometry.innerTrebleRatio, 90),
-          const DartHit(6, 3));
-      expect(score(DartsBoardGeometry.outerTrebleRatio, 90),
-          const DartHit(6, 3));
+      expect(
+          score(DartsBoardGeometry.innerTrebleRatio, 90), const DartHit(6, 3));
+      expect(
+          score(DartsBoardGeometry.outerTrebleRatio, 90), const DartHit(6, 3));
       expect(score(DartsBoardGeometry.innerTrebleRatio - 1e-6, 90),
           const DartHit(6, 1));
       expect(score(DartsBoardGeometry.outerTrebleRatio + 1e-6, 90),
@@ -123,8 +121,8 @@ void main() {
     });
 
     test('double band boundaries are inclusive, and the edge is the edge', () {
-      expect(score(DartsBoardGeometry.innerDoubleRatio, 180),
-          const DartHit(3, 2));
+      expect(
+          score(DartsBoardGeometry.innerDoubleRatio, 180), const DartHit(3, 2));
       expect(score(DartsBoardGeometry.innerDoubleRatio - 1e-6, 180),
           const DartHit(3, 1));
       expect(score(1.0, 180), const DartHit(3, 2));

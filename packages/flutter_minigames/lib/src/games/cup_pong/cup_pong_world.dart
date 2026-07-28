@@ -120,7 +120,6 @@ class CupPongWorld {
   /// to true scale is invisible.
   static const double heldDrawScale = 1.4;
 
-
   // --- Camera ----------------------------------------------------------------
 
   /// Eye position: behind and above the near table edge.

@@ -46,8 +46,8 @@ class _SeaBattlePlayScreenState extends State<SeaBattlePlayScreen> {
     // Create + swap first, dispose after: the board unsubscribes from the old
     // controller when it rebinds, which lets the old stream close cleanly.
     final old = _controller;
-    final controller = await MatchController.create<SeaBattleState,
-        SeaBattleMove>(
+    final controller =
+        await MatchController.create<SeaBattleState, SeaBattleMove>(
       game: _game,
       transport: _session.transport,
       matchId: 'local-sb-$_round',

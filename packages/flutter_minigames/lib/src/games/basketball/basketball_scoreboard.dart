@@ -78,7 +78,8 @@ class BasketballScoreboard extends StatelessWidget {
               _Segments(
                 text: '${_pad(minutes)}:${_pad(seconds)}',
                 height: 26,
-                color: urgent ? const Color(0xFFFF5A4E) : const Color(0xFF5FE3A1),
+                color:
+                    urgent ? const Color(0xFFFF5A4E) : const Color(0xFF5FE3A1),
               ),
             ],
           ),
@@ -215,7 +216,8 @@ class _SegmentPainter extends CustomPainter {
     }
   }
 
-  void _digit(Canvas canvas, double x, double w, double h, double t, String on) {
+  void _digit(
+      Canvas canvas, double x, double w, double h, double t, String on) {
     final x0 = x + t * 0.62;
     final x1 = x + w - t * 0.62;
     final y0 = t * 0.62;

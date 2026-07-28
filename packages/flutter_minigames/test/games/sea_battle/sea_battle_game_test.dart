@@ -59,30 +59,35 @@ void main() {
 
     test('out-of-bounds ships rejected', () {
       final fleet = fixedFleet();
-      fleet[0] = const ShipPlacement(row: 0, col: 7, length: 4, horizontal: true);
+      fleet[0] =
+          const ShipPlacement(row: 0, col: 7, length: 4, horizontal: true);
       expect(SeaBattleGame.isFleetValid(fleet), isFalse);
-      fleet[0] = const ShipPlacement(row: 8, col: 0, length: 4, horizontal: false);
+      fleet[0] =
+          const ShipPlacement(row: 8, col: 0, length: 4, horizontal: false);
       expect(SeaBattleGame.isFleetValid(fleet), isFalse);
     });
 
     test('overlapping ships rejected', () {
       final fleet = fixedFleet();
       // Move the first 3-ship on top of the 4-ship.
-      fleet[1] = const ShipPlacement(row: 0, col: 2, length: 3, horizontal: true);
+      fleet[1] =
+          const ShipPlacement(row: 0, col: 2, length: 3, horizontal: true);
       expect(SeaBattleGame.isFleetValid(fleet), isFalse);
     });
 
     test('edge-adjacent ships rejected', () {
       final fleet = fixedFleet();
       // Directly below the 4-ship (row 1 touches row 0).
-      fleet[1] = const ShipPlacement(row: 1, col: 0, length: 3, horizontal: true);
+      fleet[1] =
+          const ShipPlacement(row: 1, col: 0, length: 3, horizontal: true);
       expect(SeaBattleGame.isFleetValid(fleet), isFalse);
     });
 
     test('diagonally-adjacent ships rejected', () {
       final fleet = fixedFleet();
       // 1-ship diagonal to the 4-ship's tail (0,3) at (1,4).
-      fleet[6] = const ShipPlacement(row: 1, col: 4, length: 1, horizontal: true);
+      fleet[6] =
+          const ShipPlacement(row: 1, col: 4, length: 1, horizontal: true);
       expect(SeaBattleGame.isFleetValid(fleet), isFalse);
     });
 
@@ -284,8 +289,8 @@ void main() {
 
       expect(await controller.submitMove(PlaceFleetMove(fixedFleet())), isTrue);
       expect(
-          await controller.submitMove(
-              PlaceFleetMove(SeaBattleGame.randomFleet(3))),
+          await controller
+              .submitMove(PlaceFleetMove(SeaBattleGame.randomFleet(3))),
           isTrue);
       expect(controller.state!.phase, SeaBattlePhase.battle);
 

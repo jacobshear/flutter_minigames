@@ -226,8 +226,8 @@ void main() {
       expect(far.impactStrength, inInclusiveRange(0, 1));
       // A long shot is launched harder, so it also arrives harder — the useful
       // thing is that the two are not the same number.
-      expect((far.impactStrength - near.impactStrength).abs(),
-          greaterThan(0.05));
+      expect(
+          (far.impactStrength - near.impactStrength).abs(), greaterThan(0.05));
     });
   });
 }

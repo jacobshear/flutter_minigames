@@ -126,7 +126,8 @@ class GoFishEvent {
   static GoFishEvent fromJson(Map<String, dynamic> json) => GoFishEvent(
         action: GoFishAction.values.byName(json['action'] as String),
         actor: json['actor'] as int?,
-        rank: json['rank'] == null ? null : Rank.fromOrdinal(json['rank'] as int),
+        rank:
+            json['rank'] == null ? null : Rank.fromOrdinal(json['rank'] as int),
         taken: json['taken'] == null
             ? const []
             : List.unmodifiable(PlayingCard.decodeAll(json['taken'])),
@@ -466,7 +467,10 @@ class GoFishGame extends TurnGame<GoFishState, GoFishMove> {
     int? otherSeat,
     List<PlayingCard>? otherCards,
   }) {
-    final out = [List<PlayingCard>.of(hands[0]), List<PlayingCard>.of(hands[1])];
+    final out = [
+      List<PlayingCard>.of(hands[0]),
+      List<PlayingCard>.of(hands[1])
+    ];
     out[seat] = cards;
     if (otherSeat != null && otherCards != null) out[otherSeat] = otherCards;
     return out;

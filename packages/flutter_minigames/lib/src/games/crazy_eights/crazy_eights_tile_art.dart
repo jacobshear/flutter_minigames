@@ -81,11 +81,19 @@ class _CrazyEightsTilePainter extends CustomPainter {
 
     // Discard pile top-right: K♦ underneath, 8♥ lands on top.
     final discardC = Offset(cx + cardW * 1.1, size.height * 0.32);
-    _card(canvas, center: discardC, w: cardW, angle: 0.08,
-        faceUp: true, card: _kingDiamonds);
+    _card(canvas,
+        center: discardC,
+        w: cardW,
+        angle: 0.08,
+        faceUp: true,
+        card: _kingDiamonds);
     if (settle > 0 || flyT >= 1) {
-      _card(canvas, center: discardC, w: cardW, angle: -0.05,
-          faceUp: true, card: _eightHearts);
+      _card(canvas,
+          center: discardC,
+          w: cardW,
+          angle: -0.05,
+          faceUp: true,
+          card: _eightHearts);
     }
 
     // Bottom fan: A♠, 8♥ (flies), 5♣.

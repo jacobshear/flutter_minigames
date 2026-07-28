@@ -1,4 +1,3 @@
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_minigames/src/games/mini_golf/mini_golf.dart';
 import 'package:flutter_minigames/src/core/core.dart';
@@ -177,7 +176,8 @@ void main() {
       final s = fresh();
       expect(game.validateMove(s, putt(p1), p1), isTrue);
       expect(game.validateMove(s, putt(p2), p2), isFalse, reason: 'p1 to play');
-      expect(game.validateMove(s, putt(p2), p1), isFalse, reason: 'wrong owner');
+      expect(game.validateMove(s, putt(p2), p1), isFalse,
+          reason: 'wrong owner');
     });
 
     test('rejects out-of-bounds settled coordinates', () {
@@ -278,7 +278,8 @@ void main() {
   test('a full 3-hole match runs through MatchController', () async {
     const game = MiniGolfGame(holeCount: 3);
     final transport = LocalTransport();
-    final controller = await MatchController.create<MiniGolfState, MiniGolfMove>(
+    final controller =
+        await MatchController.create<MiniGolfState, MiniGolfMove>(
       game: game,
       transport: transport,
       matchId: 'mg-1',

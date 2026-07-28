@@ -35,8 +35,7 @@ void main() {
   }
 
   group('board generation', () {
-    test('fresh board: 56 cells, corner ownership, scores 1-1, p1 to move',
-        () {
+    test('fresh board: 56 cells, corner ownership, scores 1-1, p1 to move', () {
       final s = fresh();
       expect(s.cells.length, 56);
       expect(s.owners.length, 56);
@@ -62,11 +61,11 @@ void main() {
       for (var seed = 0; seed < 300; seed++) {
         final s = fresh(seed);
         // All colors in range.
-        expect(s.cells.every((c) => c >= 0 && c < FillerState.colorCount),
-            isTrue);
+        expect(
+            s.cells.every((c) => c >= 0 && c < FillerState.colorCount), isTrue);
         // Start corners differ.
-        expect(s.cells[FillerState.p1Start],
-            isNot(s.cells[FillerState.p2Start]),
+        expect(
+            s.cells[FillerState.p1Start], isNot(s.cells[FillerState.p2Start]),
             reason: 'seed $seed corners match');
         // No orthogonally-adjacent same-color pair anywhere (includes the
         // corner-neighbor requirement, so turn one always has real choices).
@@ -89,8 +88,8 @@ void main() {
       expect(game.validateMove(s, FillerMove(opp), p1), isFalse);
       expect(game.validateMove(s, const FillerMove(-1), p1), isFalse);
       expect(game.validateMove(s, const FillerMove(6), p1), isFalse);
-      final legal = List.generate(6, (c) => c)
-          .firstWhere((c) => c != own && c != opp);
+      final legal =
+          List.generate(6, (c) => c).firstWhere((c) => c != own && c != opp);
       expect(game.validateMove(s, FillerMove(legal), p1), isTrue);
       // Not bob's turn.
       expect(game.validateMove(s, FillerMove(legal), p2), isFalse);
@@ -254,8 +253,7 @@ void main() {
   });
 
   group('full game', () {
-    test('greedy self-play from a seed terminates with a decisive outcome',
-        () {
+    test('greedy self-play from a seed terminates with a decisive outcome', () {
       for (final seed in [0, 5, 77]) {
         var s = fresh(seed);
         var guard = 0;

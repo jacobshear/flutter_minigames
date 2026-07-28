@@ -238,9 +238,7 @@ class MiniGolfCourse {
   static List<MiniGolfArchetype> archetypeOrder(int baseSeed) {
     final list = List<MiniGolfArchetype>.of(archetypes);
     for (var i = list.length - 1; i > 0; i--) {
-      final j = (_seededUnit(baseSeed, 300 + i) * (i + 1))
-          .floor()
-          .clamp(0, i);
+      final j = (_seededUnit(baseSeed, 300 + i) * (i + 1)).floor().clamp(0, i);
       final tmp = list[i];
       list[i] = list[j];
       list[j] = tmp;
@@ -484,8 +482,7 @@ Offset _dir(Offset a, Offset b) {
 }
 
 /// Heading [radians] off down-range as a unit `(x, z)` direction.
-Offset _heading(double radians) =>
-    Offset(math.sin(radians), math.cos(radians));
+Offset _heading(double radians) => Offset(math.sin(radians), math.cos(radians));
 
 /// Rewinds a polygon counter-clockwise (positive signed area) so the renderer
 /// and the collision layer can derive outward normals the same way.

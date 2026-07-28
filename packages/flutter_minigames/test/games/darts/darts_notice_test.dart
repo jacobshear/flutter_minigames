@@ -85,7 +85,8 @@ void main() {
     });
 
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: DartsBoardWidget(controller: controller))),
+      MaterialApp(
+          home: Scaffold(body: DartsBoardWidget(controller: controller))),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 32));

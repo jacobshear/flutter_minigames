@@ -231,12 +231,10 @@ class _GomokuBoardState extends State<GomokuBoard>
                 aspectRatio: 1,
                 child: LayoutBuilder(
                   builder: (context, c) {
-                    final geom =
-                        _BoardGeom(c.maxWidth, state.size);
+                    final geom = _BoardGeom(c.maxWidth, state.size);
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTapDown: (d) =>
-                          _onTapAt(d.localPosition, geom, state),
+                      onTapDown: (d) => _onTapAt(d.localPosition, geom, state),
                       child: Stack(
                         children: [
                           CustomPaint(
@@ -253,8 +251,8 @@ class _GomokuBoardState extends State<GomokuBoard>
                                   e.key: e.value.value,
                               },
                               winLine: _winLine.toSet(),
-                              winT: Curves.easeOutBack
-                                  .transform(_winCtrl.value),
+                              winT:
+                                  Curves.easeOutBack.transform(_winCtrl.value),
                               gameOver: _outcome != null,
                             ),
                           ),
@@ -297,77 +295,79 @@ class _GomokuBoardState extends State<GomokuBoard>
             child: CustomPaint(
               painter: _FeltPainter(table),
               child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _PlayerChip(
-                  label: style.whiteLabel,
-                  stone: white,
-                  stoneEdge: Colors.black26,
-                  active: _outcome == null &&
-                      state.currentPlayerId == state.whiteId,
-                  winner: _outcome?.isWin == true &&
-                      _outcome!.winnerId == state.whiteId,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  board,
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Center(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          child: pillMsg == null
-                              ? const SizedBox.shrink(key: ValueKey('pill-empty'))
-                              : Container(
-                                  key: ValueKey(pillMsg),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 9,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black
-                                        .withValues(alpha: 0.58),
-                                    borderRadius:
-                                        BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    pillMsg,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                      letterSpacing: 1.1,
-                                    ),
-                                  ),
-                                ),
-                        ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: _PlayerChip(
+                        label: style.whiteLabel,
+                        stone: white,
+                        stoneEdge: Colors.black26,
+                        active: _outcome == null &&
+                            state.currentPlayerId == state.whiteId,
+                        winner: _outcome?.isWin == true &&
+                            _outcome!.winnerId == state.whiteId,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerRight,
-                child: _PlayerChip(
-                  label: style.blackLabel,
-                  stone: black,
-                  stoneEdge: Colors.white24,
-                  active: _outcome == null &&
-                      state.currentPlayerId == state.blackId,
-                  winner: _outcome?.isWin == true &&
-                      _outcome!.winnerId == state.blackId,
+                    const SizedBox(height: 10),
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        board,
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Center(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 220),
+                                child: pillMsg == null
+                                    ? const SizedBox.shrink(
+                                        key: ValueKey('pill-empty'))
+                                    : Container(
+                                        key: ValueKey(pillMsg),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 9,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.58),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          pillMsg,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 14,
+                                            letterSpacing: 1.1,
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _PlayerChip(
+                        label: style.blackLabel,
+                        stone: black,
+                        stoneEdge: Colors.white24,
+                        active: _outcome == null &&
+                            state.currentPlayerId == state.blackId,
+                        winner: _outcome?.isWin == true &&
+                            _outcome!.winnerId == state.blackId,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
               ),
             ),
           ),
@@ -484,7 +484,8 @@ class _GomokuPainter extends CustomPainter {
       final ring = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = math.max(2.0, radius * 0.22)
-        ..color = const Color(0xFFF4B740).withValues(alpha: winT.clamp(0.0, 1.0));
+        ..color =
+            const Color(0xFFF4B740).withValues(alpha: winT.clamp(0.0, 1.0));
       for (final i in winLine) {
         final c = geom.center(i ~/ n, i % n);
         canvas.drawCircle(c, radius * (0.7 + 0.42 * winT), ring);
@@ -662,7 +663,8 @@ void _paintGoban(
   final radius = Radius.circular(w * 0.030);
   final topRect = Rect.fromLTWH(0, 0, w, size.height - thickness);
   final top = RRect.fromRectAndRadius(topRect, radius);
-  final sideRect = Rect.fromLTWH(0, thickness * 0.4, w, size.height - thickness * 0.4);
+  final sideRect =
+      Rect.fromLTWH(0, thickness * 0.4, w, size.height - thickness * 0.4);
   final side = RRect.fromRectAndRadius(sideRect, radius);
 
   final edgeWood = Color.lerp(board, const Color(0xFF6B4A22), 0.42)!;
@@ -771,8 +773,10 @@ void _paintGoban(
     final hB = geom.center(i, n - 1);
     final vA = geom.center(0, i);
     final vB = geom.center(n - 1, i);
-    canvas.drawLine(hA.translate(0, lw * 0.8), hB.translate(0, lw * 0.8), glint);
-    canvas.drawLine(vA.translate(lw * 0.8, 0), vB.translate(lw * 0.8, 0), glint);
+    canvas.drawLine(
+        hA.translate(0, lw * 0.8), hB.translate(0, lw * 0.8), glint);
+    canvas.drawLine(
+        vA.translate(lw * 0.8, 0), vB.translate(lw * 0.8, 0), glint);
     canvas.drawLine(hA, hB, ink);
     canvas.drawLine(vA, vB, ink);
   }
@@ -892,8 +896,7 @@ void _paintStone(
     Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = r * 0.10
-      ..color =
-          Colors.white.withValues(alpha: isBlack ? 0.14 : 0.16),
+      ..color = Colors.white.withValues(alpha: isBlack ? 0.14 : 0.16),
   );
 
   // Specular: a soft bloom with a small hot core, both on the key side.
@@ -1017,8 +1020,7 @@ class _FeltPainter extends CustomPainter {
         final py = y * 5.0 + j * 5;
         nap.color = (j > 0.78 ? Colors.white : Colors.black)
             .withValues(alpha: 0.012 + k * 0.016);
-        canvas.drawLine(
-            Offset(px, py), Offset(px + 1.6 + k, py + 0.8), nap);
+        canvas.drawLine(Offset(px, py), Offset(px + 1.6 + k, py + 0.8), nap);
       }
     }
   }

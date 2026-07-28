@@ -264,7 +264,7 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
         if (suit != null) {
           _raiseNotice(
             '$who ${actor == _bottomSeat ? 'call' : 'calls'} '
-                '${_kSuitNames[suit].toLowerCase()}',
+            '${_kSuitNames[suit].toLowerCase()}',
             GameNoticeTone.score,
           );
         }
@@ -476,20 +476,20 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
       ),
       clipBehavior: Clip.antiAlias,
       child: CustomPaint(
-      painter: _BaizePainter(table),
-      child: state == null
-          ? const Center(child: CircularProgressIndicator())
-          : LayoutBuilder(
-              builder: (context, c) {
-                final size = Size(c.maxWidth, c.maxHeight);
-                return AnimatedBuilder(
-                  animation: Listenable.merge(
-                    [_entrance, _fly, _drawFly, _confettiCtrl],
-                  ),
-                  builder: (context, _) => _buildTable(size, state),
-                );
-              },
-            ),
+        painter: _BaizePainter(table),
+        child: state == null
+            ? const Center(child: CircularProgressIndicator())
+            : LayoutBuilder(
+                builder: (context, c) {
+                  final size = Size(c.maxWidth, c.maxHeight);
+                  return AnimatedBuilder(
+                    animation: Listenable.merge(
+                      [_entrance, _fly, _drawFly, _confettiCtrl],
+                    ),
+                    builder: (context, _) => _buildTable(size, state),
+                  );
+                },
+              ),
       ),
     );
   }
@@ -649,8 +649,7 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
     }
 
     // Discard pile: during a play animation the previous top stays visible.
-    final topCard =
-        _playAnim != null ? _playAnim!.prevTop : state.topCard;
+    final topCard = _playAnim != null ? _playAnim!.prevTop : state.topCard;
     // The declared suit paints onto the wild 8 itself, so the pile carries the
     // live colour even before the eye reaches the badge.
     final declared = state.declaredSuit;
@@ -688,15 +687,16 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
     // and the right-hand one is the single most useful sentence in Crazy 8s:
     // what will actually go down next.
     final active = state.activeSuit;
-    final topRank = CrazyEightsCards.rankLabels[
-        CrazyEightsCards.rankOf(state.topCard)];
+    final topRank =
+        CrazyEightsCards.rankLabels[CrazyEightsCards.rankOf(state.topCard)];
     widgets.add(Positioned(
       left: stockC.dx - cardW * 0.9,
       top: stockC.dy + cardH / 2 + 9,
       width: cardW * 1.8,
       child: Center(
         child: GamePill(
-          text: state.stock.isEmpty ? 'Stock out' : '${state.stock.length} left',
+          text:
+              state.stock.isEmpty ? 'Stock out' : '${state.stock.length} left',
         ),
       ),
     ));
@@ -710,9 +710,7 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
               ? 'Anything goes'
               : '${_kSuitNames[active]} or $topRank',
           strong: true,
-          accent: active == null
-              ? null
-              : CrazyEightsCardArt.suitColor(active),
+          accent: active == null ? null : CrazyEightsCardArt.suitColor(active),
         ),
       ),
     ));
@@ -934,9 +932,7 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
     return Positioned(
       left: 16,
       right: 16,
-      top: outcome != null
-          ? size.height * 0.44
-          : size.height * _kNoticeY,
+      top: outcome != null ? size.height * 0.44 : size.height * _kNoticeY,
       child: IgnorePointer(
         child: Center(
           child: GameNotice(

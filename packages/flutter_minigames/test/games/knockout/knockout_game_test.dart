@@ -9,7 +9,8 @@ void main() {
       game.initialState(seed: 0, playerIds: const ['p1', 'p2']);
 
   // Snapshot every current live puck as a carried-over (unmoved) position.
-  List<KnockoutPosition> carry(KnockoutState s, {Set<String> fell = const {}}) =>
+  List<KnockoutPosition> carry(KnockoutState s,
+          {Set<String> fell = const {}}) =>
       [
         for (final p in s.pucks)
           KnockoutPosition(
@@ -85,7 +86,8 @@ void main() {
   group('shot classification', () {
     test('clean hit vs own goal vs miss', () {
       final s = fresh();
-      final clean = game.classifyShot(s, flick(s, 'p1', 'p1-0', fell: {'p2-0'}));
+      final clean =
+          game.classifyShot(s, flick(s, 'p1', 'p1-0', fell: {'p2-0'}));
       expect(clean.isCleanHit, isTrue);
       expect(clean.oppKnocked, 1);
 
@@ -199,7 +201,8 @@ void main() {
 
     test('rejects moves once the game is over', () {
       var s = game.initialState(seed: 0, playerIds: const ['p1', 'p2']);
-      s = game.applyMove(s, flick(s, 'p1', 'p1-0', fell: {'p2-0', 'p2-1', 'p2-2'}));
+      s = game.applyMove(
+          s, flick(s, 'p1', 'p1-0', fell: {'p2-0', 'p2-1', 'p2-2'}));
       expect(game.outcome(s), isNotNull);
       expect(game.validateMove(s, flick(s, 'p2', 'p2-0'), 'p2'), isFalse);
     });

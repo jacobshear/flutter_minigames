@@ -434,8 +434,8 @@ void _paintWall(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
 
   // The pool of light the lamp throws on the plaster. Centred a little above
   // the bull and a little left of it, which is where [DartsLight.lamp] is.
-  final pool = camera.project(
-      Vec3(-0.10, DartsWorld.boardCentreY + 0.30, DartsWorld.wallZ));
+  final pool = camera
+      .project(Vec3(-0.10, DartsWorld.boardCentreY + 0.30, DartsWorld.wallZ));
   if (pool.visible) {
     final glow = DartsWorld.surroundRadius * 4.2 * pool.scale;
     canvas.save();
@@ -578,7 +578,8 @@ void _paintFloor(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
   // the floor is timber rather than a brown gradient with lines on it.
   for (var i = -9; i <= 8; i++) {
     final x0 = i * plankWidth;
-    final quad = _floorQuad(camera, x0, x0 + plankWidth, nearZ, DartsWorld.wallZ);
+    final quad =
+        _floorQuad(camera, x0, x0 + plankWidth, nearZ, DartsWorld.wallZ);
     if (quad == null) continue;
     final tint = (_hash01(i, 31) - 0.5) * 0.16;
     canvas.drawPath(
@@ -601,7 +602,8 @@ void _paintFloor(Canvas canvas, Size size, Camera3 camera, DartsStyle style) {
         near.screen,
         far.screen,
         Paint()
-          ..color = Colors.black.withValues(alpha: 0.06 + _hash01(i + g, 33) * 0.06)
+          ..color =
+              Colors.black.withValues(alpha: 0.06 + _hash01(i + g, 33) * 0.06)
           ..strokeWidth = math.max(0.7, size.width * 0.0022),
       );
     }
@@ -745,8 +747,8 @@ void _paintThrowMat(Canvas canvas, Size size, Camera3 camera) {
 
   // The throw line: the mat's own marking, painted across it.
   const markZ = 1.62;
-  final l = camera.project(
-      const Vec3(-halfWidth + 0.06, DartsWorld.floorY, markZ));
+  final l =
+      camera.project(const Vec3(-halfWidth + 0.06, DartsWorld.floorY, markZ));
   final r =
       camera.project(const Vec3(halfWidth - 0.06, DartsWorld.floorY, markZ));
   if (l.visible && r.visible) {
@@ -771,10 +773,10 @@ void _paintLamp(Canvas canvas, Camera3 camera, DartsStyle style) {
 
   // Cone of light down onto the board. Drawn before the board, so the board's
   // own art sits inside the light rather than under a wash.
-  final spreadL =
-      camera.project(Vec3(-DartsWorld.surroundRadius * 1.5, DartsWorld.boardCentreY - 0.42, DartsWorld.wallZ));
-  final spreadR =
-      camera.project(Vec3(DartsWorld.surroundRadius * 1.5, DartsWorld.boardCentreY - 0.42, DartsWorld.wallZ));
+  final spreadL = camera.project(Vec3(-DartsWorld.surroundRadius * 1.5,
+      DartsWorld.boardCentreY - 0.42, DartsWorld.wallZ));
+  final spreadR = camera.project(Vec3(DartsWorld.surroundRadius * 1.5,
+      DartsWorld.boardCentreY - 0.42, DartsWorld.wallZ));
   if (spreadL.visible && spreadR.visible) {
     final cone = Path()
       ..moveTo(left.screen.dx, left.screen.dy)
@@ -848,7 +850,8 @@ void _paintLamp(Canvas canvas, Camera3 camera, DartsStyle style) {
 /// numbers, and the tip of a stuck dart — which is what makes a wobble read as
 /// the surface being displaced rather than as an effect drawn over a static
 /// picture. With no [warp] the arithmetic is exactly what it always was.
-Offset? _boardPoint(Camera3 camera, double bx, double by, [DartsBoardWarp? warp]) {
+Offset? _boardPoint(Camera3 camera, double bx, double by,
+    [DartsBoardWarp? warp]) {
   final (x, y) = warp?.apply(bx, by) ?? (bx, by);
   final p = camera.project(DartsWorld.boardPoint(x, y));
   return p.visible ? p.screen : null;
@@ -856,8 +859,7 @@ Offset? _boardPoint(Camera3 camera, double bx, double by, [DartsBoardWarp? warp]
 
 /// Pixels per metre at the board face.
 double _boardScale(Camera3 camera) {
-  final p = camera.project(
-      Vec3(0, DartsWorld.boardCentreY, DartsWorld.boardZ));
+  final p = camera.project(Vec3(0, DartsWorld.boardCentreY, DartsWorld.boardZ));
   return p.visible ? p.scale : 0;
 }
 
@@ -1045,8 +1047,8 @@ void _paintSurround(
     Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = math.max(0.8, 0.0028 * scale)
-      ..color = Color.lerp(style.wire, Colors.white, 0.45)!
-          .withValues(alpha: 0.75),
+      ..color =
+          Color.lerp(style.wire, Colors.white, 0.45)!.withValues(alpha: 0.75),
   );
 }
 
@@ -1080,8 +1082,8 @@ void _paintBeds(
       if (path != null) canvas.drawPath(path, Paint()..color = color);
     }
 
-    band(DartsBoardGeometry.outerBullRatio,
-        DartsBoardGeometry.innerTrebleRatio, bed);
+    band(DartsBoardGeometry.outerBullRatio, DartsBoardGeometry.innerTrebleRatio,
+        bed);
     band(DartsBoardGeometry.innerTrebleRatio,
         DartsBoardGeometry.outerTrebleRatio, ring);
     band(DartsBoardGeometry.outerTrebleRatio,
@@ -1104,7 +1106,8 @@ void _paintBeds(
       final h = _hash01(i * 7 + k, 41);
       final from = (0.20 + h * 0.16) * r;
       final to = (0.86 + _hash01(i * 7 + k, 42) * 0.13) * r;
-      final p0 = _boardPoint(camera, math.sin(a) * from, math.cos(a) * from, warp);
+      final p0 =
+          _boardPoint(camera, math.sin(a) * from, math.cos(a) * from, warp);
       final p1 = _boardPoint(camera, math.sin(a) * to, math.cos(a) * to, warp);
       if (p0 == null || p1 == null) continue;
       final light = _hash01(i * 7 + k, 43) < 0.5;
@@ -1115,14 +1118,12 @@ void _paintBeds(
   }
 
   // Bulls, painted after the grain — they are a separate cut of sisal.
-  final outerBull = _boardCircle(
-      camera, DartsBoardGeometry.outerBullRatio * r,
+  final outerBull = _boardCircle(camera, DartsBoardGeometry.outerBullRatio * r,
       segments: warp == null ? 40 : 96, warp: warp);
   if (outerBull != null) {
     canvas.drawPath(outerBull, Paint()..color = style.green);
   }
-  final innerBull = _boardCircle(
-      camera, DartsBoardGeometry.innerBullRatio * r,
+  final innerBull = _boardCircle(camera, DartsBoardGeometry.innerBullRatio * r,
       segments: 32, warp: warp);
   if (innerBull != null) {
     canvas.drawPath(innerBull, Paint()..color = style.red);
@@ -1155,8 +1156,8 @@ void _paintSpider(
   final gleam = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = math.max(0.6, body * 0.42)
-    ..color = Color.lerp(style.wire, Colors.white, 0.65)!
-        .withValues(alpha: 0.85);
+    ..color =
+        Color.lerp(style.wire, Colors.white, 0.65)!.withValues(alpha: 0.85);
 
   const ratios = [
     DartsBoardGeometry.outerBullRatio,
@@ -1167,8 +1168,8 @@ void _paintSpider(
     1.0,
   ];
   for (final ratio in ratios) {
-    final circle =
-        _boardCircle(camera, ratio * r, segments: warp == null ? 64 : 160, warp: warp);
+    final circle = _boardCircle(camera, ratio * r,
+        segments: warp == null ? 64 : 160, warp: warp);
     if (circle == null) continue;
     canvas.drawPath(circle.shift(Offset(lift * 0.8, lift * 0.7)), shadow);
     canvas.drawPath(circle, steel);
@@ -1429,9 +1430,7 @@ void _paintDart(
     // Alternate shading so the four vanes separate even when nearly edge-on.
     canvas.drawPath(
       vane,
-      Paint()
-        ..color =
-            i.isEven ? color : Color.lerp(color, Colors.black, 0.3)!,
+      Paint()..color = i.isEven ? color : Color.lerp(color, Colors.black, 0.3)!,
     );
     canvas.drawPath(vane, outline);
   }
@@ -1512,8 +1511,11 @@ void _paintSwipeArrow(Canvas canvas, DartsView view) {
   final side = Offset(-dir.dy, dir.dx) * head * 0.62;
   canvas.drawPath(
     Path()
-      ..addPolygon([to + dir * head, to - dir * head * 0.35 + side,
-        to - dir * head * 0.35 - side], true),
+      ..addPolygon([
+        to + dir * head,
+        to - dir * head * 0.35 + side,
+        to - dir * head * 0.35 - side
+      ], true),
     Paint()..color = tint.withValues(alpha: 0.95),
   );
 }
@@ -1528,7 +1530,8 @@ void _paintPowerMeter(Canvas canvas, Size size, DartsView view) {
     Rect.fromLTWH(left, top, w, h),
     Radius.circular(h),
   );
-  canvas.drawRRect(track, Paint()..color = Colors.black.withValues(alpha: 0.45));
+  canvas.drawRRect(
+      track, Paint()..color = Colors.black.withValues(alpha: 0.45));
   final p = view.power.clamp(0.0, 1.0);
   canvas.drawRRect(
     RRect.fromRectAndRadius(
@@ -1539,7 +1542,8 @@ void _paintPowerMeter(Canvas canvas, Size size, DartsView view) {
   );
 }
 
-void _text(Canvas canvas, Offset centre, String text, double size, Color color) {
+void _text(
+    Canvas canvas, Offset centre, String text, double size, Color color) {
   final tp = TextPainter(
     text: TextSpan(
       text: text,

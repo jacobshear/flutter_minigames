@@ -42,11 +42,11 @@ class ChessPieceArt {
       case 'p':
         body.addOval(Rect.fromCircle(center: p(0.5, 0.32), radius: 0.13 * h));
         body.moveTo(p(0.42, 0.42).dx, p(0.42, 0.42).dy);
-        body.quadraticBezierTo(
-            p(0.36, 0.62).dx, p(0.36, 0.62).dy, p(0.30, 0.84).dx, p(0.30, 0.84).dy);
+        body.quadraticBezierTo(p(0.36, 0.62).dx, p(0.36, 0.62).dy,
+            p(0.30, 0.84).dx, p(0.30, 0.84).dy);
         body.lineTo(p(0.70, 0.84).dx, p(0.70, 0.84).dy);
-        body.quadraticBezierTo(
-            p(0.64, 0.62).dx, p(0.64, 0.62).dy, p(0.58, 0.42).dx, p(0.58, 0.42).dy);
+        body.quadraticBezierTo(p(0.64, 0.62).dx, p(0.64, 0.62).dy,
+            p(0.58, 0.42).dx, p(0.58, 0.42).dy);
         body.close();
         body.addRRect(RRect.fromRectAndRadius(
             box(0.34, 0.44, 0.66, 0.50), Radius.circular(0.02 * h)));
@@ -237,7 +237,8 @@ class ChessPieceArt {
     canvas.drawRect(
       box(0.30, 0.04, 0.44, 0.86),
       Paint()
-        ..color = Colors.white.withValues(alpha: (isWhite ? 0.26 : 0.13) * opacity)
+        ..color =
+            Colors.white.withValues(alpha: (isWhite ? 0.26 : 0.13) * opacity)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.05 * h),
     );
     canvas.restore();

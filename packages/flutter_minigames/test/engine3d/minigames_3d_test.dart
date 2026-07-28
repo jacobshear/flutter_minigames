@@ -15,8 +15,7 @@ Camera3 cam({double pitch = 0.18}) => Camera3(
 void main() {
   group('Camera3 projection', () {
     test('a point straight ahead lands on the centre line', () {
-      final c =
-          Camera3(eye: const Vec3(0, 1, 0), viewport: viewport, pitch: 0);
+      final c = Camera3(eye: const Vec3(0, 1, 0), viewport: viewport, pitch: 0);
       final p = c.project(const Vec3(0, 1, 10));
       expect(p.visible, isTrue);
       expect(p.screen.dx, closeTo(viewport.width / 2, 0.001));
@@ -38,8 +37,7 @@ void main() {
     });
 
     test('world +x projects to the right, world +y projects upward', () {
-      final c =
-          Camera3(eye: const Vec3(0, 1, 0), viewport: viewport, pitch: 0);
+      final c = Camera3(eye: const Vec3(0, 1, 0), viewport: viewport, pitch: 0);
       final right = c.project(const Vec3(2, 1, 10));
       final up = c.project(const Vec3(0, 3, 10));
       expect(right.screen.dx, greaterThan(viewport.width / 2));

@@ -119,9 +119,7 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
   List<int>? _findWinLine(TicTacToeState state) {
     for (final line in TicTacToeGame.winningLines) {
       final a = state.cells[line[0]];
-      if (a != null &&
-          a == state.cells[line[1]] &&
-          a == state.cells[line[2]]) {
+      if (a != null && a == state.cells[line[1]] && a == state.cells[line[2]]) {
         return line;
       }
     }
@@ -197,7 +195,8 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
     final winnerIsX = _winLine == null
         ? null
         : state.playerIds.indexOf(state.cells[_winLine!.first]!) == 0;
-    final winColor = style.winLineColor ?? (winnerIsX == true ? xColor : oColor);
+    final winColor =
+        style.winLineColor ?? (winnerIsX == true ? xColor : oColor);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -857,7 +856,8 @@ void _paintSlab(Canvas canvas, Size size, _StonePalette pal) {
       if (h < 0.86) continue;
       final x = body.left + (i + _hash2(i, j + 91)) / cells * body.width;
       final y = body.top + (j + _hash2(i + 57, j)) / cells * body.height;
-      grain.color = pal.grain.withValues(alpha: 0.03 + 0.07 * (h - 0.86) / 0.14);
+      grain.color =
+          pal.grain.withValues(alpha: 0.03 + 0.07 * (h - 0.86) / 0.14);
       canvas.drawCircle(Offset(x, y), s * (0.0012 + 0.0022 * h), grain);
     }
   }

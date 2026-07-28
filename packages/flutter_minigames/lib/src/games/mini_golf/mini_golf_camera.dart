@@ -164,7 +164,8 @@ class MiniGolfCamera {
 
   /// Per-phase damping rates, in nepers per second. Roughly: 95% of the way
   /// there takes `3 / λ` seconds.
-  static MiniGolfCameraLambdas lambdasFor(MiniGolfCameraPhase phase) => switch (phase) {
+  static MiniGolfCameraLambdas lambdasFor(MiniGolfCameraPhase phase) =>
+      switch (phase) {
         // A slow, cinematic sweep — a bit over a second end to end.
         MiniGolfCameraPhase.preview =>
           const MiniGolfCameraLambdas(focus: 3.2, dolly: 3.0, frame: 3.2),
@@ -239,9 +240,7 @@ class MiniGolfCamera {
     final r = (0.5 - frame) * 2 * tanY;
     final tau = back / math.max(1e-6, height);
     final denom = tau - r;
-    final raw = denom.abs() < 1e-6
-        ? maxPitch
-        : math.atan2(1 + r * tau, denom);
+    final raw = denom.abs() < 1e-6 ? maxPitch : math.atan2(1 + r * tau, denom);
     return raw.clamp(minPitch, maxPitch);
   }
 
@@ -455,8 +454,7 @@ class MiniGolfCamera {
     Offset velocity,
   ) {
     final speed = velocity.distance;
-    final heading =
-        speed < 1e-6 ? const Offset(0, 1) : velocity / speed;
+    final heading = speed < 1e-6 ? const Offset(0, 1) : velocity / speed;
     final lookAhead = math.min(lookAheadMax, speed * lookAheadPerSpeed);
     final focus = ball + heading * lookAhead;
 
@@ -503,8 +501,7 @@ class MiniGolfCamera {
     height = height.clamp(minHeight, maxHeight).toDouble();
 
     final eyeZ = ball.dy - tauBall * height;
-    final back =
-        (focus.dy - eyeZ).clamp(minBack, maxBack).toDouble();
+    final back = (focus.dy - eyeZ).clamp(minBack, maxBack).toDouble();
 
     // The focus sits wherever that set-back puts it; report the fraction so the
     // damper has something meaningful to interpolate against the aim framing.

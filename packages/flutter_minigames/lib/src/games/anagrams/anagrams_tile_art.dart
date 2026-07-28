@@ -37,8 +37,8 @@ class _AnagramsTileArtState extends State<AnagramsTileArt>
 
   void _maybeAdvance(double t) {
     if (t + 0.25 < _lastT) {
-      _wordIndex = (_wordIndex + 1 + _rng.nextInt(_words.length - 1)) %
-          _words.length;
+      _wordIndex =
+          (_wordIndex + 1 + _rng.nextInt(_words.length - 1)) % _words.length;
     }
     _lastT = t;
   }
@@ -148,8 +148,10 @@ class _AnagramsTilePainter extends CustomPainter {
       final pop = _letterPop(i, n) * presence;
       if (pop <= 0.02) continue;
       // Tiny synchronized bounce during the celebrate beat.
-      final bounce =
-          math.sin(celebrate * math.pi) * tileSide * 0.10 * (i.isEven ? 1 : 0.7);
+      final bounce = math.sin(celebrate * math.pi) *
+          tileSide *
+          0.10 *
+          (i.isEven ? 1 : 0.7);
       final cx = left + i * (tileSide + gap) + tileSide / 2;
       _drawTile(
         canvas,

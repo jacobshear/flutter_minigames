@@ -306,8 +306,8 @@ void main() {
     });
 
     test('summary reads as a HUD line', () {
-      const c = TargetConditions(
-          index: 2, distance: 30, windSpeed: 6, windAngle: 0);
+      const c =
+          TargetConditions(index: 2, distance: 30, windSpeed: 6, windAngle: 0);
       expect(c.summary(), 'Target 3 · 30 m · wind 6.0 →');
     });
   });
@@ -327,7 +327,8 @@ void main() {
       expect(decoded.targetIndex, s.targetIndex);
       expect(decoded.arrowIndex, s.arrowIndex);
       expect(decoded.phase, s.phase);
-      expect(decoded.shotsOf('p1').first.offsetX, s.shotsOf('p1').first.offsetX);
+      expect(
+          decoded.shotsOf('p1').first.offsetX, s.shotsOf('p1').first.offsetX);
       expect(decoded.shotsOf('p1')[1].onFace, isFalse);
     });
 

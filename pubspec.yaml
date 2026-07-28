@@ -13,4 +13,5 @@ workspace:
   - packages/flutter_minigames
   - packages/flutter_minigames_firebase
   - packages/minigames_test
+  - packages/flutter_minigames/example
   - packages/example_app

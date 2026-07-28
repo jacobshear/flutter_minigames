@@ -187,7 +187,8 @@ class BasketballRoundSim {
       id: _nextId++,
       spawnX: x,
       body: Projectile(
-        position: Vec3(x, BasketballCourt.spawnPoint.y, BasketballCourt.spawnPoint.z),
+        position:
+            Vec3(x, BasketballCourt.spawnPoint.y, BasketballCourt.spawnPoint.z),
         velocity: Vec3.zero,
         config: BasketballCourt.throwConfig,
         // Randomised idle spin: the ball is never sitting the same way twice.
@@ -358,7 +359,8 @@ class BasketballRoundSim {
         body.velocity.y,
         body.velocity.z * damp,
       );
-      body.spinRate = -body.velocity.horizontalLength / BasketballCourt.ballRadius;
+      body.spinRate =
+          -body.velocity.horizontalLength / BasketballCourt.ballRadius;
       if (body.velocity.horizontalLength < 0.14) {
         body.velocity = Vec3.zero;
         body.spinRate = 0;

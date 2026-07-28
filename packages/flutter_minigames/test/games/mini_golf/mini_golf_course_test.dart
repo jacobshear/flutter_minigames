@@ -62,7 +62,8 @@ void main() {
     test('every hole in a course has a unique fingerprint', () {
       for (var base = 0; base < 40; base++) {
         final prints = <String>{
-          for (var h = 0; h < 9; h++) MiniGolfCourse.forHole(base, h).fingerprint,
+          for (var h = 0; h < 9; h++)
+            MiniGolfCourse.forHole(base, h).fingerprint,
         };
         expect(prints.length, 9, reason: 'base $base repeats a layout');
       }
@@ -136,7 +137,8 @@ void main() {
     test('length varies substantially across a course', () {
       for (var base = 0; base < 30; base++) {
         final routes = [
-          for (var h = 0; h < 9; h++) MiniGolfCourse.forHole(base, h).routeLength,
+          for (var h = 0; h < 9; h++)
+            MiniGolfCourse.forHole(base, h).routeLength,
         ]..sort();
         expect(routes.last / routes.first, greaterThan(1.5),
             reason: 'base $base: every hole is the same length');
@@ -146,7 +148,9 @@ void main() {
     test('par spreads across a course and covers short and long holes', () {
       final seen = <int>{};
       for (var base = 0; base < 30; base++) {
-        final pars = [for (var h = 0; h < 9; h++) MiniGolfCourse.forHole(base, h).par];
+        final pars = [
+          for (var h = 0; h < 9; h++) MiniGolfCourse.forHole(base, h).par
+        ];
         expect(pars.toSet().length, greaterThanOrEqualTo(2),
             reason: 'base $base plays one flat par');
         seen.addAll(pars);
@@ -218,8 +222,8 @@ void main() {
               reason: '${a.name} seed $seed narrows to ${c.minFairwayWidth}');
           for (final o in c.obstacles) {
             obstacles++;
-            expect(o.laneGap,
-                greaterThanOrEqualTo(MiniGolfCourse.minObstacleGap),
+            expect(
+                o.laneGap, greaterThanOrEqualTo(MiniGolfCourse.minObstacleGap),
                 reason: '${a.name} seed $seed');
           }
         }

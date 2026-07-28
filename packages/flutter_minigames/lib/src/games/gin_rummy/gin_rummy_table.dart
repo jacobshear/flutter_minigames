@@ -939,8 +939,9 @@ class _GinRummyTableState extends State<GinRummyTable>
     // surface and coming back down rather than sliding across it.
     final hop = math.sin(t * math.pi);
     final centre = at - Offset(0, hop * g.size.height * 0.045);
-    final w = _lerp(air.fromWidth(g, _bottomSeat), air.toWidth(g, _bottomSeat), t) *
-        (1 + 0.06 * hop);
+    final w =
+        _lerp(air.fromWidth(g, _bottomSeat), air.toWidth(g, _bottomSeat), t) *
+            (1 + 0.06 * hop);
     final h = w * kCardAspectRatio;
     final angle = _lerp(air.fromAngle, air.toAngle, t);
 
@@ -1110,8 +1111,7 @@ class _GinRummyTableState extends State<GinRummyTable>
                               deadwoodValue: result.knockerDeadwoodValue,
                               mini: mini,
                               note: result.gin ? 'Gin — no deadwood' : null,
-                              winner:
-                                  result.winnerIndex == result.knockerIndex,
+                              winner: result.winnerIndex == result.knockerIndex,
                             ),
                           ),
                           _Revealed(
@@ -1449,8 +1449,7 @@ class _Geom {
       final (scale, constant) = _rowCost(deadCards, 1);
       byWidth = math.min(byWidth, (avail - constant) / scale);
     }
-    final byHeight =
-        (size.height * 0.455 - 34) / (handRows * kCardAspectRatio);
+    final byHeight = (size.height * 0.455 - 34) / (handRows * kCardAspectRatio);
     return math.min(math.min(byWidth, byHeight), 80.0).clamp(26.0, 80.0);
   }
 
@@ -1481,8 +1480,7 @@ class _Geom {
 
   /// Piles grow into whatever the band has spare, so the middle of the table
   /// is never a hole.
-  double get pileW =>
-      ((_bandHeight - 62) / kCardAspectRatio).clamp(42.0, 96.0);
+  double get pileW => ((_bandHeight - 62) / kCardAspectRatio).clamp(42.0, 96.0);
   double get pileH => pileW * kCardAspectRatio;
 
   double get _pileTop => _bandTop + (_bandHeight - (pileH + 62)) / 2;
@@ -1610,7 +1608,6 @@ class _Flight {
         return g.cardW > 0 ? g.cardW : g.pileW;
     }
   }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -1780,7 +1777,8 @@ class _CountBadge extends StatelessWidget {
     final fg = lit ? accent : Colors.white;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      padding: EdgeInsets.fromLTRB(large ? 10 : 7, large ? 3 : 2, 9, large ? 4 : 3),
+      padding:
+          EdgeInsets.fromLTRB(large ? 10 : 7, large ? 3 : 2, 9, large ? 4 : 3),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: lit ? 0.52 : 0.34),
         borderRadius: BorderRadius.circular(large ? 11 : 8),
@@ -1929,13 +1927,13 @@ class _MiniRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final step = width * 0.68;
-    final tint = kind == null
-        ? null
-        : (kind == MeldKind.run ? runTint : setTint);
+    final tint =
+        kind == null ? null : (kind == MeldKind.run ? runTint : setTint);
     return Container(
       padding: const EdgeInsets.fromLTRB(4, 10, 4, 4),
       decoration: BoxDecoration(
-        color: (tint ?? Colors.white).withValues(alpha: tint == null ? 0.07 : 0.20),
+        color: (tint ?? Colors.white)
+            .withValues(alpha: tint == null ? 0.07 : 0.20),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: (tint ?? Colors.white)
@@ -2241,7 +2239,10 @@ class _TableButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = switch (tone) {
-      _ButtonTone.primary => (Colors.black.withValues(alpha: 0.58), Colors.white),
+      _ButtonTone.primary => (
+          Colors.black.withValues(alpha: 0.58),
+          Colors.white
+        ),
       _ButtonTone.gold => (const Color(0xFFF4B740), const Color(0xFF221B08)),
       _ButtonTone.quiet => (
           Colors.black.withValues(alpha: 0.34),
@@ -2327,7 +2328,8 @@ class _FeltPainter extends CustomPainter {
     const spacing = 5.0;
     final reach = size.width + size.height;
     for (var d = -size.height; d < reach; d += spacing) {
-      canvas.drawLine(Offset(d, 0), Offset(d + size.height, size.height), weave);
+      canvas.drawLine(
+          Offset(d, 0), Offset(d + size.height, size.height), weave);
       canvas.drawLine(
         Offset(d + 1.6, 0),
         Offset(d + size.height + 1.6, size.height),
@@ -2335,7 +2337,8 @@ class _FeltPainter extends CustomPainter {
       );
     }
     for (var d = 0.0; d < reach; d += spacing) {
-      canvas.drawLine(Offset(d, 0), Offset(d - size.height, size.height), weave);
+      canvas.drawLine(
+          Offset(d, 0), Offset(d - size.height, size.height), weave);
     }
     canvas.restore();
 

@@ -53,8 +53,7 @@ void main() {
       );
     });
 
-    test('a book dealt in the opening 7 is laid down before the first ask',
-        () {
+    test('a book dealt in the opening 7 is laid down before the first ask', () {
       // Not reachable via initialState directly, so exercise the same settle
       // path through a move: a hand holding three of a rank plus the fourth
       // arriving books immediately.
@@ -77,8 +76,8 @@ void main() {
     test('a rank you do not hold is rejected, even one the opponent has', () {
       expect(_game.validateMove(s, const GoFishMove.ask(Rank.nine), 'p1'),
           isFalse);
-      expect(
-          _game.validateMove(s, const GoFishMove.ask(Rank.king), 'p1'), isFalse);
+      expect(_game.validateMove(s, const GoFishMove.ask(Rank.king), 'p1'),
+          isFalse);
     });
 
     test('asking out of turn is rejected', () {
@@ -104,12 +103,14 @@ void main() {
       final s = _state(h0: '7C 3D', h1: '7H 7S 9C', pond: '2C 4D');
       final next = _game.applyMove(s, const GoFishMove.ask(Rank.seven));
 
-      expect(_codes(next.hands[0]), _codes(PlayingCard.parseAll('7C 7H 7S 3D')));
+      expect(
+          _codes(next.hands[0]), _codes(PlayingCard.parseAll('7C 7H 7S 3D')));
       expect(_codes(next.hands[1]), '9C');
       expect(next.currentIndex, 0, reason: 'a hit means you go again');
       expect(next.pond.length, 2, reason: 'a hit never touches the pond');
       expect(next.lastEvent.action, GoFishAction.caught);
-      expect(_codes(next.lastEvent.taken), _codes(PlayingCard.parseAll('7H 7S')));
+      expect(
+          _codes(next.lastEvent.taken), _codes(PlayingCard.parseAll('7H 7S')));
       expect(next.lastEvent.keepsTurn, isTrue);
     });
 

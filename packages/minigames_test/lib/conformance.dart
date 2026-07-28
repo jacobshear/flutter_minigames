@@ -29,7 +29,8 @@ void _check(bool ok, String message) {
 
 /// Give async backends (a real DB) time for a round-trip; effectively instant
 /// for an in-memory transport.
-Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 50));
+Future<void> _settle() =>
+    Future<void>.delayed(const Duration(milliseconds: 50));
 
 /// Exercises the full [GameTransport] contract against the transport returned
 /// by [createTransport] (which must return a fresh, empty transport each call).

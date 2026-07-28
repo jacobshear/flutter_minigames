@@ -40,8 +40,7 @@ void main() {
   }
 
   group('deal', () {
-    test('8 cards each, one flipped, 35 in stock, full deck accounted for',
-        () {
+    test('8 cards each, one flipped, 35 in stock, full deck accounted for', () {
       final s = game.initialState(seed: 42, playerIds: const ['p1', 'p2']);
       expect(s.hands[0].length, 8);
       expect(s.hands[1].length, 8);
@@ -278,8 +277,7 @@ void main() {
       expect(after.passes, 1);
     });
 
-    test('draw-until-playable at the table edge: empty stock forbids draw',
-        () {
+    test('draw-until-playable at the table edge: empty stock forbids draw', () {
       final s = make(
         hand0: [card(di, 3)],
         discard: [card(he, 9)],
@@ -434,11 +432,13 @@ void main() {
       expect(playDecoded.card, card(cl, 7));
       expect(playDecoded.declaredSuit, he);
 
-      final draw = game.decodeMove(game.encodeMove(const CrazyEightsMove.draw()));
+      final draw =
+          game.decodeMove(game.encodeMove(const CrazyEightsMove.draw()));
       expect(draw.type, CrazyEightsMoveType.draw);
       expect(draw.card, isNull);
 
-      final pass = game.decodeMove(game.encodeMove(const CrazyEightsMove.pass()));
+      final pass =
+          game.decodeMove(game.encodeMove(const CrazyEightsMove.pass()));
       expect(pass.type, CrazyEightsMoveType.pass);
     });
   });
@@ -452,8 +452,7 @@ void main() {
         guard++;
         final seat = s.currentIndex;
         final hand = s.hands[seat];
-        final playable =
-            hand.where((c) => game.isPlayable(s, c)).toList();
+        final playable = hand.where((c) => game.isPlayable(s, c)).toList();
         if (playable.isNotEmpty) {
           final c = playable.first;
           final move = CrazyEightsCards.isEight(c)

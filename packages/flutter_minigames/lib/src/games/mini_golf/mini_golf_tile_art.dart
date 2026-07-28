@@ -181,8 +181,7 @@ class _MiniGolfTilePainter extends CustomPainter {
     final cup = at(0.05, cupD);
     final cupR = w * 0.085 / cupD * _dNear;
     canvas.drawOval(
-      Rect.fromCenter(
-          center: cup, width: cupR * 2, height: cupR * 0.85),
+      Rect.fromCenter(center: cup, width: cupR * 2, height: cupR * 0.85),
       Paint()..color = const Color(0xFF0C1F13),
     );
 

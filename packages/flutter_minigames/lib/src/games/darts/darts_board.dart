@@ -235,8 +235,7 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
   // Flight
   // -------------------------------------------------------------------------
 
-  bool get _canThrow =>
-      _state != null && _outcome == null && _flight == null;
+  bool get _canThrow => _state != null && _outcome == null && _flight == null;
 
   void _onTick(Duration elapsed) {
     final flight = _flight;
@@ -705,7 +704,10 @@ class _PlayerChip extends StatelessWidget {
               height: 1,
               letterSpacing: -0.8,
               shadows: active || winner
-                  ? [Shadow(color: accent.withValues(alpha: 0.6), blurRadius: 10)]
+                  ? [
+                      Shadow(
+                          color: accent.withValues(alpha: 0.6), blurRadius: 10)
+                    ]
                   : null,
             ),
           ),
@@ -764,7 +766,11 @@ class _VisitStrip extends StatelessWidget {
                   height: 1.15,
                   letterSpacing: -0.5,
                   shadows: state.visitTotal > 0
-                      ? [Shadow(color: accent.withValues(alpha: 0.55), blurRadius: 9)]
+                      ? [
+                          Shadow(
+                              color: accent.withValues(alpha: 0.55),
+                              blurRadius: 9)
+                        ]
                       : null,
                 ),
               ),

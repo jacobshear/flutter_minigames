@@ -19,7 +19,8 @@ void main() {
         b.advance(0.1, 0, 0.5);
       }
       expect(b.angle.abs(), closeTo(oneHop, 1e-9));
-      expect(oneHop, closeTo(2 / 0.5 * ShuffleboardSlideSpin.turnsPerRadius, 1e-9));
+      expect(oneHop,
+          closeTo(2 / 0.5 * ShuffleboardSlideSpin.turnsPerRadius, 1e-9));
     });
 
     test('grows monotonically with further travel', () {
@@ -31,7 +32,8 @@ void main() {
         last = s.angle.abs();
       }
       // 8 steps x 0.5 units on a 0.44 radius.
-      expect(last, closeTo(4 / 0.44 * ShuffleboardSlideSpin.turnsPerRadius, 1e-9));
+      expect(
+          last, closeTo(4 / 0.44 * ShuffleboardSlideSpin.turnsPerRadius, 1e-9));
     });
 
     test('a puck that has not moved does not turn', () {
@@ -46,14 +48,17 @@ void main() {
       expect(a.angle, b.angle, reason: 'same id must turn the same way');
       final ids = ['p1-0', 'p1-1', 'p1-2', 'p2-0', 'p2-1', 'p2-2'];
       final signs = {
-        for (final id in ids) (ShuffleboardSlideSpin(id)..advance(1, 0, 0.5)).angle.sign,
+        for (final id in ids)
+          (ShuffleboardSlideSpin(id)..advance(1, 0, 0.5)).angle.sign,
       };
       expect(signs.length, 2, reason: 'not every puck turns the same way');
     });
   });
 
   group('fall off a lip', () {
-    ShuffleboardFallingPuck at(double p, {double carry = 0, ShuffleboardFallEdge edge = ShuffleboardFallEdge.top}) =>
+    ShuffleboardFallingPuck at(double p,
+            {double carry = 0,
+            ShuffleboardFallEdge edge = ShuffleboardFallEdge.top}) =>
         shuffleboardFallFrame(
           edge: edge,
           along: 0.5,

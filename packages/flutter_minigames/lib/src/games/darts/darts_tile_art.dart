@@ -166,7 +166,8 @@ class _DartsTilePainter extends CustomPainter {
     final target = centre +
         Offset(
           -r * 0.06,
-          -r * (DartsBoardGeometry.innerTrebleRatio +
+          -r *
+              (DartsBoardGeometry.innerTrebleRatio +
                   DartsBoardGeometry.outerTrebleRatio) /
               2,
         );

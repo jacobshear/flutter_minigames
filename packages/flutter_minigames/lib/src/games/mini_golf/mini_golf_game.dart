@@ -210,8 +210,7 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
       MiniGolfState(
         baseSeed: (json['baseSeed'] as num).toInt(),
         holeCount: (json['holeCount'] as num).toInt(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentHole: (json['currentHole'] as num).toInt(),
         currentPlayerId: json['currentPlayerId'] as String,
         scorecard: {

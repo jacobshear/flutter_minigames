@@ -160,8 +160,7 @@ class GomokuGame extends TurnGame<GomokuState, GomokuMove> {
   GomokuState decodeState(Map<String, dynamic> json, int version) =>
       GomokuState(
         cells: (json['cells'] as List).map((e) => e as String?).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         size: json['size'] as int,
         lastCell: json['lastCell'] as int?,
       );

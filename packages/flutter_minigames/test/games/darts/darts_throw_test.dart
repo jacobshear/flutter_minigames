@@ -71,7 +71,15 @@ void main() {
 
     test('direction walks the dart across the board, monotonically', () {
       var previous = -double.infinity;
-      for (final degrees in const [-45.0, -25.0, -10.0, 0.0, 10.0, 25.0, 45.0]) {
+      for (final degrees in const [
+        -45.0,
+        -25.0,
+        -10.0,
+        0.0,
+        10.0,
+        25.0,
+        45.0
+      ]) {
         final x = fling(length: 200, degrees: degrees).boardX;
         expect(x, greaterThan(previous), reason: '$degrees°');
         previous = x;
@@ -257,8 +265,8 @@ void main() {
       // one drops into the single bed above or below.
       const t20 = DartsWorld.boardRadius *
           (DartsBoardGeometry.innerTrebleRatio +
-                  DartsBoardGeometry.outerTrebleRatio) /
-              2;
+              DartsBoardGeometry.outerTrebleRatio) /
+          2;
       expect(fire(aimY: t20).hit, const DartHit(20, 3));
       expect(fire(aimY: t20, power: 0.30).hit, const DartHit(20, 1));
       expect(fire(aimY: t20, power: 0.70).hit, const DartHit(20, 1));
@@ -318,8 +326,8 @@ void main() {
     });
 
     test('a dart past the surround is a miss but still sticks in the wall', () {
-      final impact = fire(aimX: 0, aimY: DartsWorld.boardRadius * 0.97,
-          power: 1.0);
+      final impact =
+          fire(aimX: 0, aimY: DartsWorld.boardRadius * 0.97, power: 1.0);
       expect(impact.onFloor, isFalse);
       if (impact.radius > DartsWorld.boardRadius) {
         expect(impact.hit, DartHit.miss);

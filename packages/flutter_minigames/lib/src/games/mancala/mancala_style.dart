@@ -40,17 +40,11 @@ class MancalaStyle {
   });
 
   // Warm hardwood slab + scoops routed from the same stock (GP read).
-  Color resolveBoard(ColorScheme s) =>
-      boardColor ?? const Color(0xFFCFAE74);
-  Color resolvePit(ColorScheme s) =>
-      pitColor ?? const Color(0xFFBE9A5E);
-  Color resolveSeed(ColorScheme s) =>
-      seedColor ?? const Color(0xFFFFE082);
-  Color resolveSouth(ColorScheme s) =>
-      southAccent ?? const Color(0xFF1C1C1E);
-  Color resolveNorth(ColorScheme s) =>
-      northAccent ?? const Color(0xFFE53935);
+  Color resolveBoard(ColorScheme s) => boardColor ?? const Color(0xFFCFAE74);
+  Color resolvePit(ColorScheme s) => pitColor ?? const Color(0xFFBE9A5E);
+  Color resolveSeed(ColorScheme s) => seedColor ?? const Color(0xFFFFE082);
+  Color resolveSouth(ColorScheme s) => southAccent ?? const Color(0xFF1C1C1E);
+  Color resolveNorth(ColorScheme s) => northAccent ?? const Color(0xFFE53935);
   // Deep maroon felt (GP chat-table read).
-  Color resolveTable(ColorScheme s) =>
-      tableColor ?? const Color(0xFF6E3B3B);
+  Color resolveTable(ColorScheme s) => tableColor ?? const Color(0xFF6E3B3B);
 }

@@ -117,10 +117,22 @@ class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
 
   /// The classic 16 Boggle dice (1992 set). `Q` renders as the `Qu` face.
   static const List<String> _dice = [
-    'AAEEGN', 'ABBJOO', 'ACHOPS', 'AFFKPS',
-    'AOOTTW', 'CIMOTU', 'DEILRX', 'DELRVY',
-    'DISTTY', 'EEGHNW', 'EEINSU', 'EHRTVW',
-    'EIOSST', 'ELRTTY', 'HIMNQU', 'HLNNRZ',
+    'AAEEGN',
+    'ABBJOO',
+    'ACHOPS',
+    'AFFKPS',
+    'AOOTTW',
+    'CIMOTU',
+    'DEILRX',
+    'DELRVY',
+    'DISTTY',
+    'EEGHNW',
+    'EEINSU',
+    'EHRTVW',
+    'EIOSST',
+    'ELRTTY',
+    'HIMNQU',
+    'HLNNRZ',
   ];
 
   @override
@@ -309,15 +321,12 @@ class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
   WordHuntState decodeState(Map<String, dynamic> json, int version) =>
       WordHuntState(
         letters: (json['letters'] as List).map((e) => e as String).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         found: {
           for (final e in (json['found'] as Map).entries)
-            e.key as String:
-                (e.value as List).map((w) => w as String).toList(),
+            e.key as String: (e.value as List).map((w) => w as String).toList(),
         },
-        submitted:
-            (json['submitted'] as List).map((e) => e as String).toList(),
+        submitted: (json['submitted'] as List).map((e) => e as String).toList(),
       );
 
   @override

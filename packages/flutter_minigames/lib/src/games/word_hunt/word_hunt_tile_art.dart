@@ -49,10 +49,22 @@ class _WordHuntTilePainter extends CustomPainter {
   /// Fixed miniature board (row-major). "HUNT" runs down the diagonal-ish
   /// path below; the rest is quiet filler.
   static const List<String> _letters = [
-    'H', 'E', 'R', 'O',
-    'A', 'U', 'S', 'E',
-    'P', 'I', 'N', 'D',
-    'W', 'O', 'T', 'L',
+    'H',
+    'E',
+    'R',
+    'O',
+    'A',
+    'U',
+    'S',
+    'E',
+    'P',
+    'I',
+    'N',
+    'D',
+    'W',
+    'O',
+    'T',
+    'L',
   ];
 
   /// Trace path for HUNT: H(0,0) → U(1,1) → N(2,2) → T(3,2).
@@ -149,8 +161,8 @@ class _WordHuntTilePainter extends CustomPainter {
         rr,
         Paint()
           ..color = selected
-              ? Color.lerp(const Color(0xFFFDF6E0), traceColor,
-                  fade.clamp(0.0, 1.0))!
+              ? Color.lerp(
+                  const Color(0xFFFDF6E0), traceColor, fade.clamp(0.0, 1.0))!
               : const Color(0xFFFDF6E0),
       );
       canvas.drawRRect(

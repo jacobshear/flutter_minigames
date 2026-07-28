@@ -265,12 +265,10 @@ class _WordBitesBoardState extends State<WordBitesBoard>
     final id = _dragId;
     if (id == null) return;
     final piece = _pieceById(id);
-    final col = (_dragPx.dx / _cell)
-        .round()
-        .clamp(0, widget.cols - piece.cellWidth);
-    final row = (_dragPx.dy / _cell)
-        .round()
-        .clamp(0, widget.rows - piece.cellHeight);
+    final col =
+        (_dragPx.dx / _cell).round().clamp(0, widget.cols - piece.cellWidth);
+    final row =
+        (_dragPx.dy / _cell).round().clamp(0, widget.rows - piece.cellHeight);
     final target = (row, col);
 
     final ok = !_overlapsOthers(piece, target);
@@ -506,7 +504,8 @@ class _WordBitesBoardState extends State<WordBitesBoard>
                     ),
                     decoration: BoxDecoration(
                       // Newest brightest, so the eye finds the last one taken.
-                      color: style.flash.withValues(alpha: i == 0 ? 0.62 : 0.24),
+                      color:
+                          style.flash.withValues(alpha: i == 0 ? 0.62 : 0.24),
                       borderRadius: BorderRadius.circular(7),
                     ),
                     child: Row(
@@ -662,8 +661,7 @@ class _WordBitesBoardState extends State<WordBitesBoard>
     final lifted = piece.id == _dragId;
     final settling = piece.id == _settleId;
     // Satisfying settle: a small scale pulse as the piece lands.
-    final settlePop =
-        settling ? math.sin(math.pi * _settle.value) * 0.06 : 0.0;
+    final settlePop = settling ? math.sin(math.pi * _settle.value) * 0.06 : 0.0;
     final scale = lifted ? 1.08 : 1.0 + settlePop;
     final w = piece.cellWidth * _cell;
     final h = piece.cellHeight * _cell;
@@ -699,7 +697,8 @@ class _WordBitesBoardState extends State<WordBitesBoard>
         ],
       ),
       child: piece.shape == WordBitesPieceShape.vertical
-          ? Column(children: _letterChildren(letterCells, style, vertical: true))
+          ? Column(
+              children: _letterChildren(letterCells, style, vertical: true))
           : Row(children: _letterChildren(letterCells, style, vertical: false)),
     );
 

@@ -112,8 +112,7 @@ class MarkPainter extends CustomPainter {
     canvas.drawPath(
       path.shift(Offset(width * 0.19, width * 0.21)),
       stroke(width * 0.30)
-        ..color =
-            Color.lerp(color, Colors.black, 0.55)!.withValues(alpha: 0.45)
+        ..color = Color.lerp(color, Colors.black, 0.55)!.withValues(alpha: 0.45)
         ..blendMode = BlendMode.srcATop
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, width * 0.12),
     );
@@ -154,7 +153,8 @@ class TicTacToeGlyph extends StatelessWidget {
         width: size,
         height: size,
         child: CustomPaint(
-          painter: MarkPainter(isX: isX, color: color, progress: 1, thickness: 1.1),
+          painter:
+              MarkPainter(isX: isX, color: color, progress: 1, thickness: 1.1),
         ),
       );
 }

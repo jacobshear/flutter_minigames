@@ -92,11 +92,12 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
   ColorScheme _scheme = _fallbackScheme;
 
   void _bind() {
-    final scene = ShuffleboardScene(style: widget.style, scheme: _fallbackScheme)
-      ..onLaunch = _onLaunch
-      ..onCollision = _onCollision
-      ..onSettled = _onSlideSettled
-      ..onAimChanged = () => setState(() {});
+    final scene =
+        ShuffleboardScene(style: widget.style, scheme: _fallbackScheme)
+          ..onLaunch = _onLaunch
+          ..onCollision = _onCollision
+          ..onSettled = _onSlideSettled
+          ..onAimChanged = () => setState(() {});
     _scene = scene;
     _celebrated = false;
     _clearNotice();
@@ -423,55 +424,55 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(18),
                     child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onPanStart: _panStart,
-                        onPanUpdate: _panUpdate,
-                        onPanEnd: _panEnd,
-                        child: GameWidget(game: scene),
-                      ),
-                    ),
-                    if (style.confetti && _confetti.isNotEmpty)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: AnimatedBuilder(
-                            animation: _confettiCtrl,
-                            builder: (context, _) => LayoutBuilder(
-                              builder: (context, c) => CustomPaint(
-                                painter: _ConfettiPainter(
-                                  confetti: _confetti,
-                                  t: _confettiCtrl.value,
-                                  boardSize: c.maxWidth,
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: _panStart,
+                            onPanUpdate: _panUpdate,
+                            onPanEnd: _panEnd,
+                            child: GameWidget(game: scene),
+                          ),
+                        ),
+                        if (style.confetti && _confetti.isNotEmpty)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: AnimatedBuilder(
+                                animation: _confettiCtrl,
+                                builder: (context, _) => LayoutBuilder(
+                                  builder: (context, c) => CustomPaint(
+                                    painter: _ConfettiPainter(
+                                      confetti: _confetti,
+                                      t: _confettiCtrl.value,
+                                      boardSize: c.maxWidth,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: Center(
-                          child: GameNotice(
-                            message: _notice,
-                            tone: _noticeTone,
-                            accent: _noticeAccent,
-                            strong: _noticeSticky,
-                            autoDismiss: _noticeSticky
-                                ? null
-                                : const Duration(milliseconds: 1700),
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Center(
+                              child: GameNotice(
+                                message: _notice,
+                                tone: _noticeTone,
+                                accent: _noticeAccent,
+                                strong: _noticeSticky,
+                                autoDismiss: _noticeSticky
+                                    ? null
+                                    : const Duration(milliseconds: 1700),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                        ],
-                      ),
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
+          ),
           const SizedBox(height: 6),
           // Below-board aim slider: nudge the shooter left/right before the
           // slide. Centres for every new shot; disabled once the puck is moving.
@@ -500,9 +501,8 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
                       ),
                       min: ShuffleboardScene.startEdgeInset,
                       max: 1 - ShuffleboardScene.startEdgeInset,
-                      onChanged: (scene.canAim && _outcome == null)
-                          ? _onSlider
-                          : null,
+                      onChanged:
+                          (scene.canAim && _outcome == null) ? _onSlider : null,
                     ),
                   ),
                 ),
@@ -912,8 +912,12 @@ class ShuffleboardScene extends FlameGame {
       // Exit speed perpendicular to the lip, normalized — a puck that dribbles
       // over topples slowly, one that is blasted off launches clear of it.
       final exit = switch (edge) {
-        ShuffleboardFallEdge.top || ShuffleboardFallEdge.bottom => (-v.y / tableL).abs(),
-        ShuffleboardFallEdge.left || ShuffleboardFallEdge.right => (v.x / tableW).abs(),
+        ShuffleboardFallEdge.top ||
+        ShuffleboardFallEdge.bottom =>
+          (-v.y / tableL).abs(),
+        ShuffleboardFallEdge.left ||
+        ShuffleboardFallEdge.right =>
+          (v.x / tableW).abs(),
       };
       _falling.add(_Falling(
         edge: edge,
@@ -950,8 +954,9 @@ class ShuffleboardScene extends FlameGame {
     );
     final status =
         ShuffleboardGame.statusFor(launched.ny, removed: launched.removed);
-    final value =
-        status == PuckStatus.inZone ? ShuffleboardGame.zoneValue(launched.ny) : 0;
+    final value = status == PuckStatus.inZone
+        ? ShuffleboardGame.zoneValue(launched.ny)
+        : 0;
     onSettled?.call(
       ShuffleboardMove(
         launchedPuckId: shooterId,
@@ -977,10 +982,10 @@ class ShuffleboardScene extends FlameGame {
       if (d.removed) continue;
       final n = _toNorm(d.position);
       final owner = d.owner as String;
-      final score = ShuffleboardGame.statusFor(n.ny, removed: false) ==
-              PuckStatus.inZone
-          ? ShuffleboardGame.zoneValue(n.ny)
-          : 0;
+      final score =
+          ShuffleboardGame.statusFor(n.ny, removed: false) == PuckStatus.inZone
+              ? ShuffleboardGame.zoneValue(n.ny)
+              : 0;
       pucks.add(
         ShuffleboardRenderPuck(
           nx: n.nx,
@@ -1561,8 +1566,8 @@ void paintShuffleboardTable(
   // The far lip itself — the edge everything falls over. Bright cut edge on
   // top, hard shadow dropping away underneath it onto the floor.
   canvas.drawRect(
-    Rect.fromLTRB(tableRect.left, tableRect.top - w * 0.028,
-        tableRect.right, tableRect.top),
+    Rect.fromLTRB(tableRect.left, tableRect.top - w * 0.028, tableRect.right,
+        tableRect.top),
     Paint()
       ..shader = LinearGradient(
         begin: Alignment.bottomCenter,
@@ -1571,8 +1576,8 @@ void paintShuffleboardTable(
           Colors.black.withValues(alpha: 0.55),
           Colors.transparent,
         ],
-      ).createShader(Rect.fromLTRB(tableRect.left,
-          tableRect.top - w * 0.028, tableRect.right, tableRect.top)),
+      ).createShader(Rect.fromLTRB(tableRect.left, tableRect.top - w * 0.028,
+          tableRect.right, tableRect.top)),
   );
   canvas.drawLine(
     Offset(laneRect.left, laneRect.top + w * 0.002),
@@ -1747,7 +1752,8 @@ void _paintBoardGrain(Canvas canvas, Rect b, int seed) {
       path,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(0.6, b.width * (0.02 + rnd.nextDouble() * 0.03))
+        ..strokeWidth =
+            math.max(0.6, b.width * (0.02 + rnd.nextDouble() * 0.03))
         ..color = (rnd.nextDouble() < 0.35 ? Colors.white : Colors.black)
             .withValues(alpha: rnd.nextDouble() < 0.35 ? 0.05 : 0.055),
     );
@@ -1804,10 +1810,16 @@ void _paintScoringInlays(Canvas canvas, Rect lane, Color zone, double w) {
         ..color = cream.withValues(alpha: 0.92)
         ..strokeWidth = lw,
     );
-    _bandLabel(canvas, Offset(lane.left + lane.width * 0.14,
-        (prevY + bottom) / 2), label, lane.width * 0.125);
-    _bandLabel(canvas, Offset(lane.right - lane.width * 0.14,
-        (prevY + bottom) / 2), label, lane.width * 0.125);
+    _bandLabel(
+        canvas,
+        Offset(lane.left + lane.width * 0.14, (prevY + bottom) / 2),
+        label,
+        lane.width * 0.125);
+    _bandLabel(
+        canvas,
+        Offset(lane.right - lane.width * 0.14, (prevY + bottom) / 2),
+        label,
+        lane.width * 0.125);
     prevY = bottom;
   }
 }
@@ -1900,8 +1912,8 @@ void _paintWaxSheen(Canvas canvas, Rect lane) {
       ).createShader(lane),
   );
   final hot = Rect.fromCenter(
-    center: Offset(
-        lane.left + lane.width * 0.38, lane.top + lane.height * 0.26),
+    center:
+        Offset(lane.left + lane.width * 0.38, lane.top + lane.height * 0.26),
     width: lane.width * 1.5,
     height: lane.height * 0.75,
   );
@@ -1919,8 +1931,7 @@ void _paintWaxSheen(Canvas canvas, Rect lane) {
 
 /// Occlusion where the lane meets the frame, and the lit shoulder on the side
 /// the lamp is on.
-void _paintLaneEdgeShading(
-    Canvas canvas, Rect lane, RRect laneRR, double w) {
+void _paintLaneEdgeShading(Canvas canvas, Rect lane, RRect laneRR, double w) {
   canvas.drawRRect(
     laneRR.deflate(w * 0.022),
     Paint()
@@ -1957,14 +1968,15 @@ void _paintImpact(Canvas canvas, Offset c, double r, ShuffleboardImpactRing i) {
       c,
       r * 0.7,
       Paint()
-        ..color = Colors.white
-            .withValues(alpha: 0.22 * i.strength * (1 - t / 0.35))
+        ..color =
+            Colors.white.withValues(alpha: 0.22 * i.strength * (1 - t / 0.35))
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.4),
     );
   }
 }
 
-void _paintFallingPuck(Canvas canvas, Offset c, double r, ShuffleboardFallingPuck f) {
+void _paintFallingPuck(
+    Canvas canvas, Offset c, double r, ShuffleboardFallingPuck f) {
   if (r <= 0.3 || f.alpha <= 0.01) return;
   final bounds = Rect.fromCircle(center: c, radius: r * 3);
   canvas.saveLayer(
@@ -2027,7 +2039,8 @@ void _bandLabel(Canvas canvas, Offset center, String text, double fontSize) {
 /// The steel body + coloured cap of one weight, with every marking that should
 /// turn as the puck slides drawn through [spin]. Shared by resting and falling
 /// pucks so a puck looks like the same object on its way over the lip.
-void _paintPuckFace(Canvas canvas, Offset c, double r, Color base, double spin) {
+void _paintPuckFace(
+    Canvas canvas, Offset c, double r, Color base, double spin) {
   // Steel body.
   canvas.drawCircle(
     c,
@@ -2144,8 +2157,8 @@ void _paintPuckFace(Canvas canvas, Offset c, double r, Color base, double spin) 
 
   // Specular hit on the cap, fixed to the lamp.
   canvas.save();
-  canvas.translate(c.dx + _kLight.x * capR * 0.55,
-      c.dy + _kLight.y * capR * 0.55);
+  canvas.translate(
+      c.dx + _kLight.x * capR * 0.55, c.dy + _kLight.y * capR * 0.55);
   canvas.rotate(-0.6);
   canvas.drawOval(
     Rect.fromCenter(
@@ -2226,8 +2239,8 @@ void _paintAim(
   // Power-tinted shaft: green -> amber -> red as power climbs (two-stop so the
   // mid range reads amber, not a muddy blend).
   final col = aim.power < 0.5
-      ? Color.lerp(const Color(0xFF3FBF63), const Color(0xFFF5A623),
-          aim.power / 0.5)!
+      ? Color.lerp(
+          const Color(0xFF3FBF63), const Color(0xFFF5A623), aim.power / 0.5)!
       : Color.lerp(const Color(0xFFF5A623), const Color(0xFFE5322B),
           (aim.power - 0.5) / 0.5)!;
   canvas.drawLine(

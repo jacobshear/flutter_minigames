@@ -263,7 +263,8 @@ class ArcheryFaceDent {
   final double x;
   final double y;
 
-  const ArcheryFaceDent({required this.amount, required this.x, required this.y});
+  const ArcheryFaceDent(
+      {required this.amount, required this.x, required this.y});
 
   /// How far out the straw is dragged in, metres — about a ring and a half.
   static const double reach = 0.21;
@@ -325,7 +326,8 @@ class ArcheryCamera {
     // Look slightly down: enough to see the ground converge, while the face
     // still sits a little above centre.
     final pitch =
-        (ArcheryBallistics.eyeHeight - ArcheryBallistics.targetCentreHeight) / d +
+        (ArcheryBallistics.eyeHeight - ArcheryBallistics.targetCentreHeight) /
+                d +
             0.045;
     return Camera3(
       eye: const Vec3(0, ArcheryBallistics.eyeHeight, -0.15),
@@ -518,8 +520,7 @@ void _paintSky(
       (-w * 0.05, -h * 0.10, lit),
     ]) {
       canvas.drawOval(
-        Rect.fromCenter(
-            center: Offset(cx + dx, cy + dy), width: w, height: h),
+        Rect.fromCenter(center: Offset(cx + dx, cy + dy), width: w, height: h),
         Paint()..color = color,
       );
       canvas.drawOval(
@@ -633,8 +634,8 @@ void _paintGround(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          Color.lerp(style.resolveGrassFar(scheme), style.resolveHaze(scheme),
-              0.62)!,
+          Color.lerp(
+              style.resolveGrassFar(scheme), style.resolveHaze(scheme), 0.62)!,
           style.resolveGrassFar(scheme),
           style.resolveGrassNear(scheme),
         ],
@@ -709,8 +710,8 @@ void _paintGround(
     final z = 2.0 + _hash01(i, 71) * (far - 2.0);
     final x = (_hash01(i, 72) - 0.5) * 18;
     final radius = 1.2 + _hash01(i, 73) * 3.4;
-    final patch = camera.horizontalCirclePath(Vec3(x, 0.005, z), radius,
-        segments: 14);
+    final patch =
+        camera.horizontalCirclePath(Vec3(x, 0.005, z), radius, segments: 14);
     if (patch == null) continue;
     final worn = _hash01(i, 74) < 0.45;
     canvas.drawPath(
@@ -753,10 +754,8 @@ void _paintGround(
     final base = camera.project(Vec3(x, 0, z));
     if (!base.visible) continue;
     final tall = _hash01(i, 8);
-    final h = (inLane
-            ? 0.04 + tall * 0.07
-            : 0.11 + tall * tall * 0.30) *
-        base.scale;
+    final h =
+        (inLane ? 0.04 + tall * 0.07 : 0.11 + tall * tall * 0.30) * base.scale;
     if (h < 0.7) continue;
     final sway = math.sin(view.time * 1.6 + i) * 0.12 + lean;
     final shade = _hash01(i, 9);
@@ -779,8 +778,7 @@ void _paintGround(
       final spread = k * 0.30;
       canvas.drawLine(
         base.screen,
-        base.screen +
-            Offset((spread + sway) * h, -h * (1 - k.abs() * 0.12)),
+        base.screen + Offset((spread + sway) * h, -h * (1 - k.abs() * 0.12)),
         tuftPaint,
       );
     }
@@ -841,7 +839,8 @@ void _paintProps(
   final scene = Scene3(camera);
   final d = view.conditions.distance;
 
-  scene.add(Vec3(0, 0, d + 0.4), (c, at) => _paintButt(c, camera, view, style, scheme));
+  scene.add(Vec3(0, 0, d + 0.4),
+      (c, at) => _paintButt(c, camera, view, style, scheme));
   scene.add(Vec3(1.15, 0, d - 0.6),
       (c, at) => _paintWindFlag(c, camera, view, style, scheme));
 
@@ -851,8 +850,7 @@ void _paintProps(
     if (!shot.onFace) continue;
     // Only the arrow that just went in is still ringing; the earlier ones in
     // this end are dead still.
-    final settle =
-        i == view.stuckArrows.length - 1 ? view.arrowSettle : 0.0;
+    final settle = i == view.stuckArrows.length - 1 ? view.arrowSettle : 0.0;
     final (ox, oy) =
         dent?.apply(shot.offsetX, shot.offsetY) ?? (shot.offsetX, shot.offsetY);
     scene.add(
@@ -898,8 +896,8 @@ void _paintButt(
   final d = view.conditions.distance;
   final haze = style.resolveHaze(scheme);
   final depth = camera.project(Vec3(0, 1.3, d)).depth;
-  final scale = camera.project(Vec3(0, ArcheryBallistics.targetCentreHeight, d))
-      .scale;
+  final scale =
+      camera.project(Vec3(0, ArcheryBallistics.targetCentreHeight, d)).scale;
   const buttTop = 2.24;
   const buttBottom = 0.34;
   const buttHalf = 0.88;
@@ -920,7 +918,8 @@ void _paintButt(
       shadow,
       Paint()
         ..color = Colors.black.withValues(alpha: 0.22)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, math.max(1, scale * 0.02)),
+        ..maskFilter =
+            MaskFilter.blur(BlurStyle.normal, math.max(1, scale * 0.02)),
     );
   }
 
@@ -1119,8 +1118,7 @@ void _paintButt(
     );
   }
   // Inner ten-ring mark.
-  final inner = verticalCirclePath(
-      camera, centre, ArcheryGame.ringWidth * 0.42,
+  final inner = verticalCirclePath(camera, centre, ArcheryGame.ringWidth * 0.42,
       segments: segments, dent: dent);
   if (inner != null) {
     canvas.drawPath(
@@ -1316,9 +1314,8 @@ Vec3 _quivered(Vec3 direction, double settle) {
   // Squared decay: nearly gone by halfway, then just settling.
   final amp = 0.085 * s * s;
   final t = (1 - s) * 24;
-  final up = direction.y.abs() > 0.95
-      ? const Vec3(1, 0, 0)
-      : const Vec3(0, 1, 0);
+  final up =
+      direction.y.abs() > 0.95 ? const Vec3(1, 0, 0) : const Vec3(0, 1, 0);
   final u = _cross(direction, up).normalized;
   final v = _cross(direction, u).normalized;
   return (direction +
@@ -1397,8 +1394,8 @@ void _paintFlyingArrow(
         a.screen,
         b.screen,
         Paint()
-          ..color = Colors.white
-              .withValues(alpha: 0.26 * (i / flight.trail.length))
+          ..color =
+              Colors.white.withValues(alpha: 0.26 * (i / flight.trail.length))
           ..strokeWidth = math.max(2.0, a.scale * 0.035)
           ..strokeCap = StrokeCap.round,
       );
@@ -1450,7 +1447,8 @@ void _paintShaft(
   canvas.drawCircle(
     h.screen,
     width * 0.75,
-    Paint()..color = _hazed(const Color(0xFF6E6E76), h.depth, haze, strength: 0.5),
+    Paint()
+      ..color = _hazed(const Color(0xFF6E6E76), h.depth, haze, strength: 0.5),
   );
 
   // Fletching: three vanes at the nock end, drawn perpendicular to the shaft
@@ -1473,8 +1471,7 @@ void _paintShaft(
     math.max(outline ? 7.0 : 2.6, t.scale * (outline ? 0.075 : 0.044)),
   );
   final hen = _hazed(accent, t.depth, haze, strength: 0.45);
-  final cock = _hazed(
-      Color.lerp(accent, Colors.white, 0.42)!, t.depth, haze,
+  final cock = _hazed(Color.lerp(accent, Colors.white, 0.42)!, t.depth, haze,
       strength: 0.45);
 
   /// One vane: a swept quadrilateral from the nock forward along the shaft,
@@ -1484,7 +1481,8 @@ void _paintShaft(
     final tipOut = root +
         normal * (vane * reach * side * 0.72) +
         Offset(dir.dx, dir.dy) * (vane * 0.5);
-    final trail = t.screen - Offset(dir.dx, dir.dy) * (vane * 0.24) +
+    final trail = t.screen -
+        Offset(dir.dx, dir.dy) * (vane * 0.24) +
         normal * (vane * reach * side * 0.42);
     final front = t.screen + Offset(dir.dx, dir.dy) * (vane * 1.9);
     canvas.drawPath(
@@ -1562,8 +1560,7 @@ Path _taperedBody(List<Offset> spine, double Function(int) halfWidth) {
     left.add(spine[i] + normal);
     right.add(spine[i] - normal);
   }
-  return Path()
-    ..addPolygon([...left, ...right.reversed], true);
+  return Path()..addPolygon([...left, ...right.reversed], true);
 }
 
 void _paintBow(
@@ -1649,8 +1646,7 @@ void _paintBow(
   // Arrow shelf: the ledge the shaft rests over, catching the light.
   canvas.drawRRect(
     RRect.fromRectAndRadius(
-      Rect.fromLTWH(gripX + w * 0.008, gripY - h * 0.036, w * 0.048,
-          h * 0.012),
+      Rect.fromLTWH(gripX + w * 0.008, gripY - h * 0.036, w * 0.048, h * 0.012),
       Radius.circular(w * 0.006),
     ),
     Paint()..color = const Color(0xFF6B4A2A),
@@ -1906,9 +1902,7 @@ void _paintHud(
       at,
       4,
       Paint()
-        ..color = live
-            ? view.accent
-            : Colors.white.withValues(alpha: 0.22),
+        ..color = live ? view.accent : Colors.white.withValues(alpha: 0.22),
     );
   }
 
@@ -1928,8 +1922,8 @@ void _paintHud(
   canvas.drawRRect(rr, Paint()..color = Colors.black.withValues(alpha: 0.3));
   final fill = view.holdProgress.clamp(0.0, 1.0);
   final fillColor = view.focusBreak > 0
-      ? Color.lerp(const Color(0xFFFFC44D), const Color(0xFFE2483C),
-          view.focusBreak)!
+      ? Color.lerp(
+          const Color(0xFFFFC44D), const Color(0xFFE2483C), view.focusBreak)!
       : Color.lerp(Colors.white70, const Color(0xFF9BE07A), fill)!;
   canvas.drawRRect(
     RRect.fromRectAndRadius(

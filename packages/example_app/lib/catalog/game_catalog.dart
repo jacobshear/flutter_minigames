@@ -12,7 +12,8 @@ import 'package:flutter_minigames/games/go_fish.dart' show GoFishTileArt;
 import 'package:flutter_minigames/games/knockout.dart' show KnockoutTileArt;
 import 'package:flutter_minigames/games/mini_golf.dart' show MiniGolfTileArt;
 import 'package:flutter_minigames/games/sea_battle.dart' show SeaBattleTileArt;
-import 'package:flutter_minigames/games/shuffleboard.dart' show ShuffleboardTileArt;
+import 'package:flutter_minigames/games/shuffleboard.dart'
+    show ShuffleboardTileArt;
 import 'package:flutter_minigames/games/word_bites.dart' show WordBitesTileArt;
 import 'package:flutter_minigames/games/word_hunt.dart' show WordHuntTileArt;
 

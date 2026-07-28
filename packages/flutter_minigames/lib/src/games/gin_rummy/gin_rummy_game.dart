@@ -284,7 +284,8 @@ class GinRummyKnock {
 
   int get defenderIndex => 1 - knockerIndex;
 
-  int get defenderDeadwoodValue => GinRummyMelds.deadwoodValue(defenderDeadwood);
+  int get defenderDeadwoodValue =>
+      GinRummyMelds.deadwoodValue(defenderDeadwood);
 
   /// Whether any remaining deadwood card fits any of the knocker's melds.
   bool get hasLayOff =>
@@ -468,8 +469,7 @@ class GinRummyMatchResult {
       );
 }
 
-List<int> _ints(Object? json) =>
-    [for (final v in (json as List)) v as int];
+List<int> _ints(Object? json) => [for (final v in (json as List)) v as int];
 
 /// Immutable Gin Rummy state. Nothing here is mutated after construction.
 @immutable
@@ -599,8 +599,9 @@ class GinRummyState {
         dealerIndex: dealerIndex,
         phase: phase ?? this.phase,
         openingPasses: openingPasses ?? this.openingPasses,
-        blockedDiscard:
-            clearBlockedDiscard ? null : (blockedDiscard ?? this.blockedDiscard),
+        blockedDiscard: clearBlockedDiscard
+            ? null
+            : (blockedDiscard ?? this.blockedDiscard),
         scores: scores ?? this.scores,
         handsWon: handsWon ?? this.handsWon,
         handNumber: handNumber,
@@ -639,7 +640,8 @@ class GinRummyMove {
   /// Index into the knocker's melds, for [GinRummyMoveType.layOff].
   final int? meldIndex;
 
-  const GinRummyMove._(this.type, {this.card, this.knock = false, this.meldIndex});
+  const GinRummyMove._(this.type,
+      {this.card, this.knock = false, this.meldIndex});
 
   /// Opening offer: take the turned-up card.
   const GinRummyMove.takeUpcard() : this._(GinRummyMoveType.takeUpcard);
@@ -892,9 +894,7 @@ class GinRummyGame extends TurnGame<GinRummyState, GinRummyMove> {
           // First refusal hands the offer to the dealer; the second starts
           // play, and the refuser must draw from the stock.
           currentIndex: passes == 1 ? state.dealerIndex : state.nonDealerIndex,
-          phase: passes == 1
-              ? GinRummyPhase.upcardOffer
-              : GinRummyPhase.draw,
+          phase: passes == 1 ? GinRummyPhase.upcardOffer : GinRummyPhase.draw,
           openingPasses: passes,
           lastAction: GinRummyAction.passUpcard,
           lastActor: seat,
@@ -1135,7 +1135,8 @@ class GinRummyGame extends TurnGame<GinRummyState, GinRummyMove> {
       for (var i = 0; i < 2; i++)
         scores[i] + box[i] + (i == reacher ? gameBonus : 0),
     ];
-    final winner = finals[0] == finals[1] ? null : (finals[0] > finals[1] ? 0 : 1);
+    final winner =
+        finals[0] == finals[1] ? null : (finals[0] > finals[1] ? 0 : 1);
     return GinRummyMatchResult(
       winnerIndex: winner,
       targetReacherIndex: reacher,

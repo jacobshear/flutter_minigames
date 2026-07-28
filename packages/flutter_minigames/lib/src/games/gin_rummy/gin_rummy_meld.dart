@@ -108,16 +108,13 @@ class Meld {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is Meld &&
-          other.kind == kind &&
-          listEquals(other.cards, cards));
+      (other is Meld && other.kind == kind && listEquals(other.cards, cards));
 
   @override
   int get hashCode => Object.hash(kind, Object.hashAll(cards));
 
   @override
-  String toString() =>
-      '${kind.name}(${cards.map((c) => c.code).join(' ')})';
+  String toString() => '${kind.name}(${cards.map((c) => c.code).join(' ')})';
 }
 
 /// A hand split into melds plus what is left over.

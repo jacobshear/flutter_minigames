@@ -432,8 +432,7 @@ class _CourtPainter {
         canvas.drawPath(
           riser,
           Paint()
-            ..color =
-                haze(Color.lerp(backdrop, Colors.black, 0.46)!, at.depth),
+            ..color = haze(Color.lerp(backdrop, Colors.black, 0.46)!, at.depth),
         );
       }
 
@@ -564,7 +563,8 @@ class _CourtPainter {
         // Housing, then the tube inside it, then the halo. Three passes is what
         // separates "a light fitting" from "a blurred white smudge".
         canvas.drawRRect(
-          RRect.fromRectAndRadius(rect.inflate(w * 0.04), Radius.circular(w * 0.05)),
+          RRect.fromRectAndRadius(
+              rect.inflate(w * 0.04), Radius.circular(w * 0.05)),
           Paint()..color = Color.lerp(backdrop, Colors.black, 0.45)!,
         );
         canvas.drawRRect(
@@ -572,7 +572,8 @@ class _CourtPainter {
           Paint()..color = const Color(0xFFFFF6DE).withValues(alpha: 0.92),
         );
         canvas.drawRRect(
-          RRect.fromRectAndRadius(rect.inflate(w * 0.10), Radius.circular(w * 0.1)),
+          RRect.fromRectAndRadius(
+              rect.inflate(w * 0.10), Radius.circular(w * 0.1)),
           Paint()
             ..color = const Color(0xFFFFF3D6).withValues(alpha: 0.30)
             ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.20),
@@ -1052,8 +1053,7 @@ class _CourtPainter {
         canvas.drawPath(
           padRail,
           Paint()
-            ..color =
-                haze(Color.lerp(rimColor, Colors.black, 0.62)!, at.depth),
+            ..color = haze(Color.lerp(rimColor, Colors.black, 0.62)!, at.depth),
         );
       }
       // Lit top arris of the frame — the ceiling is the key light.
@@ -1161,9 +1161,7 @@ class _CourtPainter {
     final wobble = view.netWobble.clamp(0.0, 1.0);
     // A decaying ring rather than a straight ramp: the net overshoots, comes
     // back, and settles, which is the shape of a real one snapping back.
-    final ring = wobble == 0
-        ? 0.0
-        : math.sin(wobble * math.pi * 1.6) * wobble;
+    final ring = wobble == 0 ? 0.0 : math.sin(wobble * math.pi * 1.6) * wobble;
     final depth = 0.40 * (1 + 0.50 * wobble);
     const rimR = BasketballCourt.rimRadius;
     final mouthR = rimR * (1 + 0.10 * ring.abs());
@@ -1250,8 +1248,8 @@ class _CourtPainter {
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
         ..strokeWidth = width * 0.9
-        ..color = haze(Colors.white, at.depth)
-            .withValues(alpha: 0.45 + 0.2 * wobble);
+        ..color =
+            haze(Colors.white, at.depth).withValues(alpha: 0.45 + 0.2 * wobble);
       for (final f in const [0.34, 0.66, 0.95]) {
         final r = rimR * 0.86 + (bottomR - rimR * 0.86) * f;
         final course = _arcPath(
@@ -1286,8 +1284,8 @@ class _CourtPainter {
               p.screen,
               BasketballCourt.ballRadius * p.scale * (0.34 + 0.5 * f),
               Paint()
-                ..color = haze(ballColor, p.depth)
-                    .withValues(alpha: 0.04 + 0.10 * f),
+                ..color =
+                    haze(ballColor, p.depth).withValues(alpha: 0.04 + 0.10 * f),
             );
           }
         }

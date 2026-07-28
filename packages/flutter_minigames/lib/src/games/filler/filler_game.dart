@@ -238,8 +238,7 @@ class FillerGame extends TurnGame<FillerState, FillerMove> {
       FillerState(
         cells: (json['cells'] as List).map((e) => e as int).toList(),
         owners: (json['owners'] as List).map((e) => e as int).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         turnIndex: json['turn'] as int,
       );
 

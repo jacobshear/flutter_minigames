@@ -144,8 +144,9 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
     if (claimed > _lastClaimedEdges &&
         state.lastWasHorizontal != null &&
         state.lastEdgeIndex != null) {
-      final key =
-          state.lastWasHorizontal! ? 'h:${state.lastEdgeIndex}' : 'v:${state.lastEdgeIndex}';
+      final key = state.lastWasHorizontal!
+          ? 'h:${state.lastEdgeIndex}'
+          : 'v:${state.lastEdgeIndex}';
       _ensureEdge(key, animate: true);
       if (style.haptics) HapticFeedback.lightImpact();
       style.sounds.onClaim?.call();
@@ -219,8 +220,8 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
 
   List<_Confetto> _spawnConfetti(DotsAndBoxesState state, GameOutcome outcome) {
     final scheme = Theme.of(context).colorScheme;
-    final winnerIsP0 =
-        outcome.winnerId != null && state.playerIds.indexOf(outcome.winnerId!) == 0;
+    final winnerIsP0 = outcome.winnerId != null &&
+        state.playerIds.indexOf(outcome.winnerId!) == 0;
     final palette = <Color>[
       widget.style.resolveP0(scheme),
       widget.style.resolveP1(scheme),
@@ -428,9 +429,8 @@ class _StatusBanner extends StatelessWidget {
     if (outcome == null) {
       if (showAgain) {
         final t = Curves.easeOutBack.transform(againT.clamp(0.0, 1.0));
-        final color = state.playerIds.indexOf(state.currentPlayerId) == 0
-            ? p0
-            : p1;
+        final color =
+            state.playerIds.indexOf(state.currentPlayerId) == 0 ? p0 : p1;
         center = Opacity(
           key: const ValueKey('again'),
           opacity: (1.0 - (againT - 0.7).clamp(0.0, 0.3) / 0.3).clamp(0.0, 1.0),
@@ -489,10 +489,10 @@ class _StatusBanner extends StatelessWidget {
       );
     }
 
-    final winnerIsP0 =
-        outcome?.isWin == true && state.playerIds.indexOf(outcome!.winnerId!) == 0;
-    final winnerIsP1 =
-        outcome?.isWin == true && state.playerIds.indexOf(outcome!.winnerId!) == 1;
+    final winnerIsP0 = outcome?.isWin == true &&
+        state.playerIds.indexOf(outcome!.winnerId!) == 0;
+    final winnerIsP1 = outcome?.isWin == true &&
+        state.playerIds.indexOf(outcome!.winnerId!) == 1;
 
     return Row(
       children: [
@@ -594,7 +594,8 @@ class _ScoreChip extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: winner ? 0.22 : (active ? 0.12 : 0.05)),
+            color:
+                color.withValues(alpha: winner ? 0.22 : (active ? 0.12 : 0.05)),
             blurRadius: winner ? 12 : 8,
             offset: const Offset(0, 4),
           ),
@@ -933,8 +934,8 @@ class _GridPainter extends CustomPainter {
       final parts = hoverKey!.split(':');
       final isH = parts[0] == 'h';
       final idx = int.parse(parts[1]);
-      final ghostColor = _playerColor(state.currentPlayerId)
-          .withValues(alpha: 0.45);
+      final ghostColor =
+          _playerColor(state.currentPlayerId).withValues(alpha: 0.45);
       final paint = Paint()
         ..color = ghostColor
         ..strokeWidth = stroke * 1.15
@@ -1110,8 +1111,8 @@ void _paintPanel(Canvas canvas, Size size, int n, Color dotColor) {
   final step = size.width / n;
   // The panel bleeds past the peg grid — the board widget pads around it, and
   // the material should run under that padding rather than stop at the pegs.
-  final panel = Rect.fromLTWH(0, 0, size.width, size.height)
-      .inflate(step * 0.62);
+  final panel =
+      Rect.fromLTWH(0, 0, size.width, size.height).inflate(step * 0.62);
 
   // Pressed-board speckle: dense, tiny, low contrast. This is the whole reason
   // the surface stops reading as blank paper.
@@ -1277,7 +1278,8 @@ class _ConfettiPainter extends CustomPainter {
       } else {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromCenter(center: Offset.zero, width: dim, height: dim * 0.55),
+            Rect.fromCenter(
+                center: Offset.zero, width: dim, height: dim * 0.55),
             Radius.circular(dim * 0.12),
           ),
           paint,

@@ -49,7 +49,8 @@ class AnagramsStyle {
   Color resolveTable(ColorScheme s) => tableColor ?? const Color(0xFF6E3B3B);
 
   // Warm birch tile with a sun-bleached top edge.
-  Color resolveTileTop(ColorScheme s) => tileTopColor ?? const Color(0xFFF6E9C8);
+  Color resolveTileTop(ColorScheme s) =>
+      tileTopColor ?? const Color(0xFFF6E9C8);
   Color resolveTileBottom(ColorScheme s) =>
       tileBottomColor ?? const Color(0xFFDDC08D);
   Color resolveGlyph(ColorScheme s) => glyphColor ?? const Color(0xFF3E2E14);

@@ -87,7 +87,8 @@ void main() {
 
     test('codes parse and print', () {
       expect(PlayingCard.parse('AS'), const PlayingCard(Rank.ace, Suit.spades));
-      expect(PlayingCard.parse('10d'), const PlayingCard(Rank.ten, Suit.diamonds));
+      expect(
+          PlayingCard.parse('10d'), const PlayingCard(Rank.ten, Suit.diamonds));
       expect(PlayingCard.parse('TD').code, 'TD');
       expect(const PlayingCard(Rank.king, Suit.clubs).label, 'K♣');
       expect(() => PlayingCard.parse('A'), throwsFormatException);
@@ -114,13 +115,16 @@ void main() {
     test('sorting: suit-major by default, rank comparators available', () {
       final hand = PlayingCard.parseAll('KH 2S AS 5H AC');
       final bySuit = List.of(hand)..sort();
-      expect(bySuit.map((c) => c.code).toList(), ['AC', '5H', 'KH', 'AS', '2S']);
+      expect(
+          bySuit.map((c) => c.code).toList(), ['AC', '5H', 'KH', 'AS', '2S']);
 
       final byRank = List.of(hand)..sort(PlayingCard.byRankThenSuit);
-      expect(byRank.map((c) => c.code).toList(), ['AC', 'AS', '2S', '5H', 'KH']);
+      expect(
+          byRank.map((c) => c.code).toList(), ['AC', 'AS', '2S', '5H', 'KH']);
 
       final aceHigh = List.of(hand)..sort(PlayingCard.byRankAceHigh);
-      expect(aceHigh.map((c) => c.code).toList(), ['2S', '5H', 'KH', 'AC', 'AS']);
+      expect(
+          aceHigh.map((c) => c.code).toList(), ['2S', '5H', 'KH', 'AC', 'AS']);
     });
 
     test('card values delegate to rank', () {

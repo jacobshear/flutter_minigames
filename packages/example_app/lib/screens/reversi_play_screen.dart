@@ -48,8 +48,7 @@ class _ReversiPlayScreenState extends State<ReversiPlayScreen> {
     // Create + swap first, dispose after: the board unsubscribes from the old
     // controller when it rebinds, which lets the old stream close cleanly.
     final old = _controller;
-    final controller =
-        await MatchController.create<ReversiState, ReversiMove>(
+    final controller = await MatchController.create<ReversiState, ReversiMove>(
       game: _game,
       transport: _session.transport,
       matchId: 'local-rev-$_round',

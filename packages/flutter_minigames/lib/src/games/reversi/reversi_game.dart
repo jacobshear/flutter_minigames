@@ -38,11 +38,9 @@ class ReversiState {
   String get darkId => playerIds[0];
   String get lightId => playerIds[1];
 
-  int scoreFor(String playerId) =>
-      cells.where((c) => c == playerId).length;
+  int scoreFor(String playerId) => cells.where((c) => c == playerId).length;
 
-  String opponentOf(String playerId) =>
-      playerId == darkId ? lightId : darkId;
+  String opponentOf(String playerId) => playerId == darkId ? lightId : darkId;
 
   String? cellAt(int row, int col) {
     if (row < 0 || row >= size || col < 0 || col >= size) return null;
@@ -69,9 +67,14 @@ class ReversiGame extends TurnGame<ReversiState, ReversiMove> {
   static const int size = ReversiState.size;
 
   static const _dirs = <(int, int)>[
-    (-1, -1), (-1, 0), (-1, 1),
-    (0, -1), (0, 1),
-    (1, -1), (1, 0), (1, 1),
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
   ];
 
   @override
@@ -186,13 +189,13 @@ class ReversiGame extends TurnGame<ReversiState, ReversiMove> {
     final nextPlayer = legalMoves(oppState, opp).isNotEmpty
         ? opp
         : (legalMoves(
-                  ReversiState(
-                    cells: next,
-                    playerIds: state.playerIds,
-                    currentPlayerId: player,
-                  ),
-                  player,
-                ).isNotEmpty
+            ReversiState(
+              cells: next,
+              playerIds: state.playerIds,
+              currentPlayerId: player,
+            ),
+            player,
+          ).isNotEmpty
             ? player
             : opp);
 
@@ -240,8 +243,7 @@ class ReversiGame extends TurnGame<ReversiState, ReversiMove> {
   ReversiState decodeState(Map<String, dynamic> json, int version) =>
       ReversiState(
         cells: (json['cells'] as List).map((e) => e as String?).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentPlayerId: json['currentPlayerId'] as String,
         lastCell: json['lastCell'] as int?,
         lastFlipped: (json['lastFlipped'] as List? ?? const [])

@@ -45,7 +45,8 @@ void main() {
     test('respects letter multiset and minLength', () {
       // letters: t,e,n,e,t → 'tenet' fits, 'nett' needs two t's (has), 'no' too short/absent n? n present but o absent
       final found = dict.anagramsOf('tenet');
-      expect(found, containsAll(['ten', 'net', 'tent', 'tenet', 'tee', 'nett']));
+      expect(
+          found, containsAll(['ten', 'net', 'tent', 'tenet', 'tee', 'nett']));
       expect(found, isNot(contains('no')));
     });
   });

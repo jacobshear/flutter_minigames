@@ -52,8 +52,7 @@ class _MancalaPlayScreenState extends State<MancalaPlayScreen> {
     // Create + swap first, dispose after: the board unsubscribes from the old
     // controller when it rebinds, which lets the old stream close cleanly.
     final old = _controller;
-    final controller =
-        await MatchController.create<MancalaState, MancalaMove>(
+    final controller = await MatchController.create<MancalaState, MancalaMove>(
       game: _game,
       transport: _session.transport,
       matchId: 'local-mcl-$_round',

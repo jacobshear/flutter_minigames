@@ -5,8 +5,21 @@ import 'package:flutter_minigames/src/words/words.dart';
 
 void main() {
   final dict = WordDictionary.fromWords([
-    'the', 'her', 'ten', 'net', 'rat', 'tar', 'art', 'toe', 'rate', 'tea',
-    'stone', 'notes', 'onset', 'ratio', 'aal',
+    'the',
+    'her',
+    'ten',
+    'net',
+    'rat',
+    'tar',
+    'art',
+    'toe',
+    'rate',
+    'tea',
+    'stone',
+    'notes',
+    'onset',
+    'ratio',
+    'aal',
   ]);
   final game = WordBitesGame(dictionary: dict);
 
@@ -17,8 +30,7 @@ void main() {
     WordBitesPiece(id: 0, shape: WordBitesPieceShape.single, letters: 't'),
     WordBitesPiece(id: 1, shape: WordBitesPieceShape.single, letters: 'h'),
     WordBitesPiece(id: 2, shape: WordBitesPieceShape.single, letters: 'e'),
-    WordBitesPiece(
-        id: 3, shape: WordBitesPieceShape.horizontal, letters: 'ra'),
+    WordBitesPiece(id: 3, shape: WordBitesPieceShape.horizontal, letters: 'ra'),
     WordBitesPiece(id: 4, shape: WordBitesPieceShape.vertical, letters: 'on'),
     WordBitesPiece(id: 5, shape: WordBitesPieceShape.single, letters: 'a'),
   ];
@@ -256,10 +268,11 @@ void main() {
 
     test('p1 then p2 submit; higher validated score wins', () {
       var s = fresh();
-      expect(game.validateMove(s, const WordBitesMove(words: []), 'p2'),
-          isFalse, reason: 'out of turn');
-      expect(game.validateMove(s, WordBitesMove(words: [theePlay]), 'p1'),
-          isTrue);
+      expect(
+          game.validateMove(s, const WordBitesMove(words: []), 'p2'), isFalse,
+          reason: 'out of turn');
+      expect(
+          game.validateMove(s, WordBitesMove(words: [theePlay]), 'p1'), isTrue);
 
       // p1 scores "the" + "rat" = 200; the bogus word is dropped silently.
       s = game.applyMove(
@@ -280,8 +293,9 @@ void main() {
       expect(s.isFinished, isTrue);
       expect(s.scoreOf('p2'), 100);
       expect(game.outcome(s), const GameOutcome.win('p1'));
-      expect(game.validateMove(s, const WordBitesMove(words: []), 'p1'),
-          isFalse, reason: 'finished');
+      expect(
+          game.validateMove(s, const WordBitesMove(words: []), 'p1'), isFalse,
+          reason: 'finished');
     });
 
     test('equal scores draw', () {

@@ -8,7 +8,8 @@ import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 /// A phone-shaped board.
 const _size = Size(420, 560);
 
-MiniGolfCamera _aimAt(MiniGolfCourse c, Offset ball) => MiniGolfCamera.targetFor(
+MiniGolfCamera _aimAt(MiniGolfCourse c, Offset ball) =>
+    MiniGolfCamera.targetFor(
       viewport: _size,
       course: c,
       ball: ball,
@@ -91,7 +92,8 @@ void main() {
       final c = _straight();
       final rig = _aimAt(c, const Offset(0, 1));
       final target = _aimAt(c, const Offset(0, 9));
-      expect(rig.step(target, MiniGolfCameraPhase.flight, 0).focusZ, rig.focusZ);
+      expect(
+          rig.step(target, MiniGolfCameraPhase.flight, 0).focusZ, rig.focusZ);
       expect(
           rig.step(target, MiniGolfCameraPhase.flight, -1).focusZ, rig.focusZ);
     });
@@ -220,7 +222,8 @@ void main() {
             velocity: const Offset(0, 0.4),
           );
           expect(rig.back, greaterThanOrEqualTo(MiniGolfCamera.minBack - 1e-9),
-              reason: 'near-first-person degeneration at $ball / ${phase.name}');
+              reason:
+                  'near-first-person degeneration at $ball / ${phase.name}');
         }
       }
     });
@@ -324,7 +327,8 @@ void main() {
         );
         rig = rig.step(target, MiniGolfCameraPhase.flight, 1 / 60);
         // A sunk ball drops below the green; frame its last rolling position.
-        observe(rig, Vec3(s.position.x, math.max(0.0, s.position.y), s.position.z));
+        observe(
+            rig, Vec3(s.position.x, math.max(0.0, s.position.y), s.position.z));
       }
 
       // Settle: half a second easing back to aim framing.
@@ -334,13 +338,7 @@ void main() {
         rig = rig.step(aim, MiniGolfCameraPhase.settle, 1 / 60);
         observe(rig, Vec3(rest.dx, MiniGolfWorld.ballY, rest.dy));
       }
-      return (
-        minX: minX,
-        maxX: maxX,
-        minY: minY,
-        maxY: maxY,
-        minBack: minBack
-      );
+      return (minX: minX, maxX: maxX, minY: minY, maxY: maxY, minBack: minBack);
     }
 
     test('the ball never leaves a safe screen box, on every archetype', () {
@@ -370,8 +368,7 @@ void main() {
               reason: '${a.name} @$power rode up into the sky');
           expect(r.maxY, lessThan(_size.height * 0.97),
               reason: '${a.name} @$power fell off the bottom');
-          expect(r.minBack,
-              greaterThanOrEqualTo(MiniGolfCamera.minBack - 1e-9),
+          expect(r.minBack, greaterThanOrEqualTo(MiniGolfCamera.minBack - 1e-9),
               reason: '${a.name} @$power closed in too far');
         }
       }

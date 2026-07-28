@@ -53,8 +53,7 @@ class ShuffleboardStyle {
   // Deep walnut frame the lane floats in.
   Color resolveFrame(ColorScheme s) => frameColor ?? const Color(0xFF5A3A22);
   // Cool chalk wash for the scoring triangle.
-  Color resolveZone(ColorScheme s) =>
-      zoneColor ?? const Color(0xFF3E6E8E);
+  Color resolveZone(ColorScheme s) => zoneColor ?? const Color(0xFF3E6E8E);
   Color resolveFoulLine(ColorScheme s) =>
       foulLineColor ?? const Color(0xFF7A2E2E);
   // Red vs blue weights (GP read).

@@ -223,7 +223,8 @@ class ArcheryBallistics {
       if (impact == null) {
         // Swept: the crossing is solved on the segment, so a fast arrow cannot
         // slip through the face between two frames.
-        final hit = Surfaces.verticalPlaneHit(from, projectile.position, distance);
+        final hit =
+            Surfaces.verticalPlaneHit(from, projectile.position, distance);
         if (hit != null) {
           impact = hit;
           impactVelocity = projectile.velocity;
@@ -312,8 +313,7 @@ class ArcheryShotResult {
 
   /// Arrival speed as 0..1 over the band the ranges here actually produce.
   /// A close target is struck hard; a thirty-eight metre arrow arrives tired.
-  double get impactStrength =>
-      ((impactSpeed - 28) / (56 - 28)).clamp(0.0, 1.0);
+  double get impactStrength => ((impactSpeed - 28) / (56 - 28)).clamp(0.0, 1.0);
 
   bool get isBullseye => ring == 10;
 
@@ -322,7 +322,9 @@ class ArcheryShotResult {
 
   /// Position along [path] at [t] seconds, linearly interpolated.
   Vec3 positionAt(double t) {
-    if (path.length < 2) return path.isEmpty ? ArcheryBallistics.bowOrigin : path.first;
+    if (path.length < 2) {
+      return path.isEmpty ? ArcheryBallistics.bowOrigin : path.first;
+    }
     final span = flightSeconds <= 0 ? 1.0 : flightSeconds;
     final u = (t / span).clamp(0.0, 1.0) * (path.length - 1);
     final i = u.floor().clamp(0, path.length - 2);
@@ -445,7 +447,8 @@ class ArcheryDraw {
   /// flash a warning.
   static bool isWarning(double heldSeconds) {
     final t = heldSeconds - fullDrawSeconds;
-    return t > focusGraceSeconds - focusWarnSeconds && focusBreak(heldSeconds) <= 0;
+    return t > focusGraceSeconds - focusWarnSeconds &&
+        focusBreak(heldSeconds) <= 0;
   }
 
   /// Power (for [LaunchSolver.speedFromPower]) for a hold of [heldSeconds].
@@ -487,10 +490,10 @@ class ArcheryDraw {
     final p2 = _phase(shotSeed, 3);
     final p3 = _phase(shotSeed, 4);
     final t = heldSeconds * swayRate;
-    final yaw = amp *
-        (0.62 * math.sin(2.3 * t + p0) + 0.38 * math.sin(3.7 * t + p1));
-    final pitch = amp *
-        (0.55 * math.sin(2.9 * t + p2) + 0.45 * math.sin(4.3 * t + p3));
+    final yaw =
+        amp * (0.62 * math.sin(2.3 * t + p0) + 0.38 * math.sin(3.7 * t + p1));
+    final pitch =
+        amp * (0.55 * math.sin(2.9 * t + p2) + 0.45 * math.sin(4.3 * t + p3));
     return (yaw, pitch);
   }
 

@@ -97,9 +97,8 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
     if (s != null) {
       _outcome = _game.outcome(s);
       _celebrated = _outcome != null;
-      _actingPlayer = _hotSeat
-          ? s.currentPlayerId
-          : widget.controller.localPlayerId;
+      _actingPlayer =
+          _hotSeat ? s.currentPlayerId : widget.controller.localPlayerId;
     }
     _shotCtrl.addListener(_onShotTick);
     _shotCtrl.addStatusListener(_onShotStatus);
@@ -450,95 +449,97 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
             child: CustomPaint(
               painter: _FeltPainter(table),
               child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _PlayerChip(
-                  label: _labelFor(enemy),
-                  accent: style.resolveHit(scheme),
-                  active: _outcome == null &&
-                      !_coverVisible &&
-                      state.currentPlayerId == enemy,
-                  winner: _outcome?.winnerId == enemy,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Transform.scale(
-                scale: 0.94 + 0.06 * enter,
-                child: Opacity(
-                  opacity: enter.clamp(0.0, 1.0),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      content,
-                      if (widget.style.confetti && _confetti.isNotEmpty)
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: LayoutBuilder(
-                              builder: (context, c) => CustomPaint(
-                                painter: _ConfettiPainter(
-                                  confetti: _confetti,
-                                  t: _confettiCtrl.value,
-                                  boardSize: c.maxWidth,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: _PlayerChip(
+                        label: _labelFor(enemy),
+                        accent: style.resolveHit(scheme),
+                        active: _outcome == null &&
+                            !_coverVisible &&
+                            state.currentPlayerId == enemy,
+                        winner: _outcome?.winnerId == enemy,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Transform.scale(
+                      scale: 0.94 + 0.06 * enter,
+                      child: Opacity(
+                        opacity: enter.clamp(0.0, 1.0),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            content,
+                            if (widget.style.confetti && _confetti.isNotEmpty)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: LayoutBuilder(
+                                    builder: (context, c) => CustomPaint(
+                                      painter: _ConfettiPainter(
+                                        confetti: _confetti,
+                                        t: _confettiCtrl.value,
+                                        boardSize: c.maxWidth,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Center(
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 200),
+                                    child: pillMsg == null
+                                        ? const SizedBox.shrink(
+                                            key: ValueKey('pill-empty'))
+                                        : Container(
+                                            key: ValueKey(pillMsg),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 9,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.58),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: Text(
+                                              pillMsg,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 14,
+                                                letterSpacing: 1.1,
+                                              ),
+                                            ),
+                                          ),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: Center(
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 200),
-                              child: pillMsg == null
-                                  ? const SizedBox.shrink(key: ValueKey('pill-empty'))
-                                  : Container(
-                                      key: ValueKey(pillMsg),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 9,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.58),
-                                        borderRadius:
-                                            BorderRadius.circular(10),
-                                      ),
-                                      child: Text(
-                                        pillMsg,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 14,
-                                          letterSpacing: 1.1,
-                                        ),
-                                      ),
-                                    ),
-                            ),
-                          ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _PlayerChip(
+                        label: _labelFor(_actingPlayer),
+                        accent: style.resolveWater(scheme),
+                        active: _outcome == null &&
+                            !_coverVisible &&
+                            state.currentPlayerId == _actingPlayer,
+                        winner: _outcome?.winnerId == _actingPlayer,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerRight,
-                child: _PlayerChip(
-                  label: _labelFor(_actingPlayer),
-                  accent: style.resolveWater(scheme),
-                  active: _outcome == null &&
-                      !_coverVisible &&
-                      state.currentPlayerId == _actingPlayer,
-                  winner: _outcome?.winnerId == _actingPlayer,
-                ),
-              ),
-            ],
-          ),
               ),
             ),
           ),
@@ -950,8 +951,7 @@ void _paintChart(
     for (var sIdx = 1; sIdx <= segs; sIdx++) {
       final x = chart.left + chart.width * sIdx / segs;
       final cx = chart.left + chart.width * (sIdx - 0.5) / segs;
-      path.quadraticBezierTo(
-          cx, y + (sIdx.isEven ? amp : -amp), x, y);
+      path.quadraticBezierTo(cx, y + (sIdx.isEven ? amp : -amp), x, y);
     }
     canvas.drawPath(path, swell);
   }
@@ -1223,13 +1223,11 @@ class _SeaGridPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Frame, sea texture, grid and coordinate ruler never move: one cached
     // picture, so only the fleet and the pegs cost anything per frame.
-    canvas.drawPicture(
-        _chartFor(size, geom, water, gridLine, spec.compact));
+    canvas.drawPicture(_chartFor(size, geom, water, gridLine, spec.compact));
 
     // Ship hulls.
     for (final ship in spec.ships) {
-      _paintShip(canvas, ship,
-          sunk: ship.cells.every(spec.sunkCells.contains));
+      _paintShip(canvas, ship, sunk: ship.cells.every(spec.sunkCells.contains));
     }
 
     // Selected highlight (placement).
@@ -1293,15 +1291,15 @@ class _SeaGridPainter extends CustomPainter {
 
     // Two-part contact shadow, pushed away from the key light.
     canvas.drawRRect(
-      rr.shift(Offset(-_kLight.dx * geom.cell * 0.16,
-          -_kLight.dy * geom.cell * 0.18)),
+      rr.shift(Offset(
+          -_kLight.dx * geom.cell * 0.16, -_kLight.dy * geom.cell * 0.18)),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.22)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, geom.cell * 0.16),
     );
     canvas.drawRRect(
-      rr.shift(Offset(-_kLight.dx * geom.cell * 0.05,
-          -_kLight.dy * geom.cell * 0.06)),
+      rr.shift(Offset(
+          -_kLight.dx * geom.cell * 0.05, -_kLight.dy * geom.cell * 0.06)),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.24)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, geom.cell * 0.05),
@@ -1341,8 +1339,7 @@ class _SeaGridPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = math.max(1, geom.cell * 0.05)
-        ..color = Color.lerp(base, Colors.black, 0.45)!
-            .withValues(alpha: 0.55),
+        ..color = Color.lerp(base, Colors.black, 0.45)!.withValues(alpha: 0.55),
     );
 
     // Deck detail: a porthole per cell (skip on the tiny grid).
@@ -1706,8 +1703,7 @@ class _HandoffCover extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [Color(0xFF25384C), Color(0xFF17222E)],
               ),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.12)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,

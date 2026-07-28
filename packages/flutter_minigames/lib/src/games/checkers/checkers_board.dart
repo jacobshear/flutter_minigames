@@ -192,9 +192,8 @@ class _CheckersBoardState extends State<CheckersBoard>
     }
 
     if (_selected != null) {
-      final hit = legal
-          .where((m) => m.from == _selected && m.to == cell)
-          .toList();
+      final hit =
+          legal.where((m) => m.from == _selected && m.to == cell).toList();
       if (hit.isEmpty) {
         setState(() => _selected = null);
         return;
@@ -816,8 +815,8 @@ void _paintGrain(
   for (var i = 0; i < lines; i++) {
     final h = _hash2(seed, i);
     final tone = (h - 0.5) * 0.075 * strength;
-    paint.color = (tone < 0 ? Colors.black : Colors.white)
-        .withValues(alpha: tone.abs());
+    paint.color =
+        (tone < 0 ? Colors.black : Colors.white).withValues(alpha: tone.abs());
     final t = (i + 0.5) / lines;
     if (horizontal) {
       final y = rect.top + t * rect.height;
@@ -840,8 +839,8 @@ void _paintGrain(
       final u = s / steps;
       final wobble = (_hash2(seed + k * 31, s) - 0.5) * 0.06;
       final p = horizontal
-          ? Offset(rect.left + u * rect.width,
-              rect.top + (t + wobble) * rect.height)
+          ? Offset(
+              rect.left + u * rect.width, rect.top + (t + wobble) * rect.height)
           : Offset(rect.left + (t + wobble) * rect.width,
               rect.top + u * rect.height);
       s == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
@@ -875,8 +874,8 @@ void _paintWoodBoard(
       frameBase,
       12,
       horizontal: true);
-  _paintGrain(canvas, Rect.fromLTWH(0, 0, frame * 1.4, size.height), frameBase,
-      13,
+  _paintGrain(
+      canvas, Rect.fromLTWH(0, 0, frame * 1.4, size.height), frameBase, 13,
       horizontal: false);
   _paintGrain(
       canvas,
@@ -892,8 +891,8 @@ void _paintWoodBoard(
     ..color = Colors.black.withValues(alpha: 0.30);
   canvas.drawLine(Offset.zero, Offset(frame, frame), mitre);
   canvas.drawLine(Offset(side, 0), Offset(side - frame, frame), mitre);
-  canvas.drawLine(Offset(0, size.height), Offset(frame, size.height - frame),
-      mitre);
+  canvas.drawLine(
+      Offset(0, size.height), Offset(frame, size.height - frame), mitre);
   canvas.drawLine(Offset(side, size.height),
       Offset(side - frame, size.height - frame), mitre);
 
@@ -1097,14 +1096,14 @@ class _ManPainter extends CustomPainter {
     final l = lift.clamp(0.0, 1.0);
     canvas.drawOval(
       Rect.fromCenter(
-        center: base.translate(r * (0.14 + 0.5 * l), wall + r * (0.30 + 0.7 * l)),
+        center:
+            base.translate(r * (0.14 + 0.5 * l), wall + r * (0.30 + 0.7 * l)),
         width: r * (1.95 - 0.25 * l),
         height: r * (0.62 - 0.10 * l),
       ),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.34 * (1 - 0.45 * l))
-        ..maskFilter =
-            MaskFilter.blur(BlurStyle.normal, r * (0.16 + 0.30 * l)),
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * (0.16 + 0.30 * l)),
     );
 
     if (isKing) {
@@ -1263,8 +1262,7 @@ class _ManPainter extends CustomPainter {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [Color(0xFFFFE9A3), Color(0xFFE0A93B)],
-        ).createShader(
-            Rect.fromCenter(center: c, width: s * 2, height: s * 2)),
+        ).createShader(Rect.fromCenter(center: c, width: s * 2, height: s * 2)),
     );
   }
 

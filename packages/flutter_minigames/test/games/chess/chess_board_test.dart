@@ -4,8 +4,7 @@ import 'package:flutter_minigames/src/games/chess/chess.dart';
 import 'package:flutter_minigames/src/core/core.dart';
 
 void main() {
-  testWidgets('win pill shows CHECKMATE, then the winner name',
-      (tester) async {
+  testWidgets('win pill shows CHECKMATE, then the winner name', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -32,10 +31,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
 
     for (final uci in [
-      'e2e4', 'e7e5', 'f1c4', 'b8c6', 'd1h5', 'g8f6', 'h5f7',
+      'e2e4',
+      'e7e5',
+      'f1c4',
+      'b8c6',
+      'd1h5',
+      'g8f6',
+      'h5f7',
     ]) {
-      await tester.runAsync(
-          () => controller.submitMove(ChessMove.parseUci(uci)));
+      await tester
+          .runAsync(() => controller.submitMove(ChessMove.parseUci(uci)));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
     }

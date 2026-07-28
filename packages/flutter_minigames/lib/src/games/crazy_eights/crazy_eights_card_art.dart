@@ -82,8 +82,7 @@ abstract final class CrazyEightsCardArt {
     int card, {
     int? declaredSuit,
   }) {
-    final declared =
-        CrazyEightsCards.isEight(card) ? declaredSuit : null;
+    final declared = CrazyEightsCards.isEight(card) ? declaredSuit : null;
     _draw(canvas, rect, _key(rect.size, card, declared),
         (c, s) => _recordFace(c, s, card, declared));
   }
@@ -149,7 +148,8 @@ abstract final class CrazyEightsCardArt {
   static int _key(Size size, int face, int? declared) {
     final w = (size.width * 2).round();
     final h = (size.height * 2).round();
-    return (((w * 8192 + h) * 64) + face) * 8 + (declared == null ? 0 : declared + 1);
+    return (((w * 8192 + h) * 64) + face) * 8 +
+        (declared == null ? 0 : declared + 1);
   }
 
   static void _draw(

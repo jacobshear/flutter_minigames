@@ -83,9 +83,7 @@ class ChessMove {
   const ChessMove(this.from, this.to, {this.promotion});
 
   String get uci =>
-      ChessState.algebraic(from) +
-      ChessState.algebraic(to) +
-      (promotion ?? '');
+      ChessState.algebraic(from) + ChessState.algebraic(to) + (promotion ?? '');
 
   static ChessMove parseUci(String uci) => ChessMove(
         ChessState.cellFromAlgebraic(uci.substring(0, 2)),
@@ -172,8 +170,7 @@ class ChessGame extends TurnGame<ChessState, ChessMove> {
     final e = _engineFor(state);
     if (e.in_checkmate) {
       // Side to move is mated; the other player won.
-      return GameOutcome.win(
-          state.whiteToMove ? state.blackId : state.whiteId);
+      return GameOutcome.win(state.whiteToMove ? state.blackId : state.whiteId);
     }
     if (e.in_draw) return const GameOutcome.draw();
     return null;
@@ -211,11 +208,11 @@ class ChessGame extends TurnGame<ChessState, ChessMove> {
   @override
   ChessState decodeState(Map<String, dynamic> json, int version) => ChessState(
         startFen: json['startFen'] as String,
-        history:
-            (json['history'] as List? ?? const []).map((e) => e as String).toList(),
+        history: (json['history'] as List? ?? const [])
+            .map((e) => e as String)
+            .toList(),
         fen: json['fen'] as String,
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
       );
 
   @override

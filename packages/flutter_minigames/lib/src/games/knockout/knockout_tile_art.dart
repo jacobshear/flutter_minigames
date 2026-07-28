@@ -77,8 +77,7 @@ class _KnockoutTilePainter extends CustomPainter {
       platRR.shift(Offset(0, size.width * 0.03)),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.5)
-        ..maskFilter =
-            MaskFilter.blur(BlurStyle.normal, size.width * 0.03),
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.03),
     );
     canvas.save();
     canvas.clipRRect(platRR);

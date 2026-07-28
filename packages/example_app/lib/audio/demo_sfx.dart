@@ -84,8 +84,7 @@ class DemoSfx {
   void mark() => _fire(_mark);
 
   /// Connect Four disc land. Use [longDrop] for tall falls (deeper thud).
-  void drop({bool longDrop = false}) =>
-      _fire(longDrop ? _dropLong : _drop);
+  void drop({bool longDrop = false}) => _fire(longDrop ? _dropLong : _drop);
 
   void invalid() => _fire(_invalid);
   void win() => _fire(_win);

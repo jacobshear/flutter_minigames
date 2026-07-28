@@ -11,7 +11,8 @@ import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 void main() {
   group('flight', () {
     test('a shot arcs — it rises, peaks, then falls through the rim plane', () {
-      final sim = BasketballRoundSim(mode: BasketballHoopMode.normal, rng: math.Random(1));
+      final sim = BasketballRoundSim(
+          mode: BasketballHoopMode.normal, rng: math.Random(1));
       sim.ready = _ballAt(0);
       final ball = sim.shoot(0)!;
 
@@ -41,14 +42,16 @@ void main() {
     });
 
     test('a ball rising through the rim is NOT a basket', () {
-      final sim = BasketballRoundSim(mode: BasketballHoopMode.normal, rng: math.Random(2));
+      final sim = BasketballRoundSim(
+          mode: BasketballHoopMode.normal, rng: math.Random(2));
       // Drop a ball into the sim directly beneath the hoop, travelling upward
       // through the exact centre of the ring.
       final rising = LiveBall(
         id: 99,
         spawnX: 0,
         body: Projectile(
-          position: Vec3(0, BasketballCourt.rimHeight - 0.6, BasketballCourt.hoopZ),
+          position:
+              Vec3(0, BasketballCourt.rimHeight - 0.6, BasketballCourt.hoopZ),
           velocity: const Vec3(0, 9, 0),
           config: BasketballCourt.throwConfig,
         ),
@@ -65,7 +68,8 @@ void main() {
     });
 
     test('a fast shot cannot tunnel through the hoop between frames', () {
-      final sim = BasketballRoundSim(mode: BasketballHoopMode.normal, rng: math.Random(3));
+      final sim = BasketballRoundSim(
+          mode: BasketballHoopMode.normal, rng: math.Random(3));
       // 40 m/s straight down covers 0.33 m per fixed step — nearly three ball
       // diameters, so a naive point-in-disc test would step clean past the ring
       // and score nothing.
@@ -73,7 +77,8 @@ void main() {
         id: 98,
         spawnX: 0,
         body: Projectile(
-          position: Vec3(0, BasketballCourt.rimHeight + 0.30, BasketballCourt.hoopZ),
+          position:
+              Vec3(0, BasketballCourt.rimHeight + 0.30, BasketballCourt.hoopZ),
           velocity: const Vec3(0, -40, 0),
           config: BasketballCourt.throwConfig,
         ),
@@ -92,7 +97,8 @@ void main() {
     });
 
     test('a make is scored once, not once per frame inside the ring', () {
-      final sim = BasketballRoundSim(mode: BasketballHoopMode.normal, rng: math.Random(4));
+      final sim = BasketballRoundSim(
+          mode: BasketballHoopMode.normal, rng: math.Random(4));
       sim.ready = _ballAt(0);
       final ball = sim.shoot(0)!;
       for (var i = 0; i < 400 && !ball.atRest; i++) {
@@ -462,8 +468,7 @@ void main() {
       var made = 0;
       for (var i = 0; i < trials; i++) {
         final time = rng.nextDouble() * mode.period;
-        final spawnX =
-            (rng.nextDouble() * 2 - 1) * BasketballCourt.spawnSpread;
+        final spawnX = (rng.nextDouble() * 2 - 1) * BasketballCourt.spawnSpread;
         final ideal = BasketballAim.leadAim(mode, spawnX, time);
         final noise = _gaussian(rng) * sigma;
         final ball = simulateShot(

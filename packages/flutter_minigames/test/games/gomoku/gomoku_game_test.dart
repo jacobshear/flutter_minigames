@@ -46,7 +46,15 @@ void main() {
 
     test('horizontal five wins', () {
       final s = play(fresh(), [
-        (7, 3), (0, 0), (7, 4), (0, 1), (7, 5), (0, 2), (7, 6), (0, 3), (7, 7),
+        (7, 3),
+        (0, 0),
+        (7, 4),
+        (0, 1),
+        (7, 5),
+        (0, 2),
+        (7, 6),
+        (0, 3),
+        (7, 7),
       ]);
       expect(game.outcome(s), const GameOutcome.win('black'));
       expect(game.winningLine(s).length, 5);
@@ -54,21 +62,44 @@ void main() {
 
     test('vertical five wins for white', () {
       final s = play(fresh(), [
-        (0, 0), (3, 7), (0, 1), (4, 7), (0, 2), (5, 7), (0, 3), (6, 7),
-        (14, 14), (7, 7),
+        (0, 0),
+        (3, 7),
+        (0, 1),
+        (4, 7),
+        (0, 2),
+        (5, 7),
+        (0, 3),
+        (6, 7),
+        (14, 14),
+        (7, 7),
       ]);
       expect(game.outcome(s), const GameOutcome.win('white'));
     });
 
     test('diagonal and anti-diagonal fives win', () {
       final diag = play(fresh(), [
-        (3, 3), (0, 1), (4, 4), (0, 2), (5, 5), (0, 3), (6, 6), (0, 4), (7, 7),
+        (3, 3),
+        (0, 1),
+        (4, 4),
+        (0, 2),
+        (5, 5),
+        (0, 3),
+        (6, 6),
+        (0, 4),
+        (7, 7),
       ]);
       expect(diag.cells[diag.index(7, 7)], 'black');
       expect(game.outcome(diag), const GameOutcome.win('black'));
 
       final anti = play(fresh(), [
-        (3, 11), (0, 1), (4, 10), (0, 2), (5, 9), (0, 3), (6, 8), (0, 4),
+        (3, 11),
+        (0, 1),
+        (4, 10),
+        (0, 2),
+        (5, 9),
+        (0, 3),
+        (6, 8),
+        (0, 4),
         (7, 7),
       ]);
       expect(game.outcome(anti), const GameOutcome.win('black'));
@@ -77,8 +108,17 @@ void main() {
     test('overlines (six or more) win in freestyle rules', () {
       // Black builds _ X X X X _ then fills the gap for six in a row.
       final s = play(fresh(), [
-        (7, 4), (0, 0), (7, 5), (0, 2), (7, 6), (0, 4), (7, 8), (0, 6),
-        (7, 9), (0, 8), (7, 7),
+        (7, 4),
+        (0, 0),
+        (7, 5),
+        (0, 2),
+        (7, 6),
+        (0, 4),
+        (7, 8),
+        (0, 6),
+        (7, 9),
+        (0, 8),
+        (7, 7),
       ]);
       expect(game.outcome(s), const GameOutcome.win('black'));
       expect(game.winningLine(s).length, 6);
@@ -86,15 +126,21 @@ void main() {
 
     test('four in a row is not a win; no moves after game over', () {
       final four = play(fresh(), [
-        (7, 3), (0, 0), (7, 4), (0, 1), (7, 5), (0, 2), (7, 6),
+        (7, 3),
+        (0, 0),
+        (7, 4),
+        (0, 1),
+        (7, 5),
+        (0, 2),
+        (7, 6),
       ]);
       expect(game.outcome(four), isNull);
 
       final won = play(four, [(0, 3), (7, 7)]);
       expect(game.outcome(won), isNotNull);
       expect(
-        game.validateMove(won, GomokuMove(won.index(10, 10)),
-            won.currentPlayerId),
+        game.validateMove(
+            won, GomokuMove(won.index(10, 10)), won.currentPlayerId),
         isFalse,
       );
     });

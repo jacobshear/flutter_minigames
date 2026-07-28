@@ -104,8 +104,7 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
     widget.onRoundComplete(List.of(_found));
   }
 
-  String get _stagedWord =>
-      _staged.map((i) => widget.state.letters[i]).join();
+  String get _stagedWord => _staged.map((i) => widget.state.letters[i]).join();
 
   void _tapTile(int letterIndex) {
     if (_completed) return;
@@ -138,9 +137,8 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
     if (_completed) return;
     final word = _stagedWord;
     if (word.isEmpty) return;
-    final ok =
-        widget.game.isAcceptableWord(widget.state, word) &&
-            !_found.contains(word);
+    final ok = widget.game.isAcceptableWord(widget.state, word) &&
+        !_found.contains(word);
     if (ok) {
       final points = AnagramsGame.scoreForWord(word);
       widget.style.sounds.onValid?.call();
@@ -529,8 +527,7 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
             duration: const Duration(milliseconds: 150),
             opacity: hasStage ? 1 : 0.45,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 26, vertical: 11),
+              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 11),
               decoration: BoxDecoration(
                 color: style.validColor,
                 borderRadius: BorderRadius.circular(14),

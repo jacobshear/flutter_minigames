@@ -235,8 +235,8 @@ class _ReversiBoardState extends State<ReversiBoard>
     final legal = style.showLegalMoves && _outcome == null
         ? _game.legalMoves(state, state.currentPlayerId).toSet()
         : const <int>{};
-    final winnerIsDark = _outcome?.isWin == true &&
-        _outcome!.winnerId == state.darkId;
+    final winnerIsDark =
+        _outcome?.isWin == true && _outcome!.winnerId == state.darkId;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1075,7 +1075,8 @@ class _ConfettiPainter extends CustomPainter {
       } else {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromCenter(center: Offset.zero, width: dim, height: dim * 0.55),
+            Rect.fromCenter(
+                center: Offset.zero, width: dim, height: dim * 0.55),
             Radius.circular(dim * 0.12),
           ),
           paint,

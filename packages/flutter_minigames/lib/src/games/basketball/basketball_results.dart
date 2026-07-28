@@ -319,7 +319,8 @@ class _ConfettiPainter extends CustomPainter {
       } else {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromCenter(center: Offset.zero, width: dim, height: dim * 0.55),
+            Rect.fromCenter(
+                center: Offset.zero, width: dim, height: dim * 0.55),
             Radius.circular(dim * 0.12),
           ),
           paint,

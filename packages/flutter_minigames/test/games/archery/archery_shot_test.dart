@@ -36,7 +36,8 @@ void main() {
     test('the band is a real trade: under-drawn low, over-drawn high', () {
       final c = at(30);
       final low = ArcheryBallistics.fire(conditions: c, power: 0, windScale: 0);
-      final high = ArcheryBallistics.fire(conditions: c, power: 1, windScale: 0);
+      final high =
+          ArcheryBallistics.fire(conditions: c, power: 1, windScale: 0);
       expect(low.offsetY, lessThan(-0.2));
       expect(high.offsetY, greaterThan(0.2));
       // Still on the face at both extremes — a mistimed shot scores badly, it
@@ -64,8 +65,8 @@ void main() {
           ArcheryBallistics.fire(conditions: at(15), power: 0.5, windScale: 0);
       final far =
           ArcheryBallistics.fire(conditions: at(38), power: 0.5, windScale: 0);
-      expect(far.timeToImpactSeconds,
-          greaterThan(near.timeToImpactSeconds * 1.4));
+      expect(
+          far.timeToImpactSeconds, greaterThan(near.timeToImpactSeconds * 1.4));
     });
   });
 
@@ -135,8 +136,7 @@ void main() {
               final pitch = math.atan(ay / d);
               final (rx, ry) =
                   reticleFor(d, held, 7, aimYaw: yaw, aimPitch: pitch);
-              final shot =
-                  shotFor(d, held, 7, aimYaw: yaw, aimPitch: pitch);
+              final shot = shotFor(d, held, 7, aimYaw: yaw, aimPitch: pitch);
               final miss = math.sqrt((shot.offsetX - rx) * (shot.offsetX - rx) +
                   (shot.offsetY - ry) * (shot.offsetY - ry));
               if (miss > worst) worst = miss;
@@ -356,8 +356,7 @@ void main() {
     test('aiming off into the wind puts it back in the gold', () {
       // The skill loop, end to end: the reticle lies, the archer corrects.
       final c = at(30, wind: 6);
-      final uncorrected =
-          ArcheryBallistics.fire(conditions: c, power: 0.5);
+      final uncorrected = ArcheryBallistics.fire(conditions: c, power: 0.5);
       expect(uncorrected.ring, lessThan(10));
       // Aim off by the angle the drift subtends, upwind.
       final correction = -math.atan(uncorrected.offsetX / c.distance);
@@ -411,8 +410,7 @@ void main() {
       for (var i = 0; i < 600; i++) {
         final from = projectile.step();
         hit = Surfaces.verticalPlaneHit(from, projectile.position, distance);
-        if ((projectile.position.z - distance).abs() <
-            ArcheryGame.faceRadius) {
+        if ((projectile.position.z - distance).abs() < ArcheryGame.faceRadius) {
           samplesInsideTheFace++;
         }
         if (hit != null) break;
@@ -572,7 +570,8 @@ void main() {
 
     test('a ripe hold beats a snatched one, and both stay on the face', () {
       int ringFor(double held, int seed) {
-        final (y, p) = ArcheryDraw.swayOffset(heldSeconds: held, shotSeed: seed);
+        final (y, p) =
+            ArcheryDraw.swayOffset(heldSeconds: held, shotSeed: seed);
         return ArcheryBallistics.fire(
           conditions: at(30),
           power: ArcheryDraw.power(held),

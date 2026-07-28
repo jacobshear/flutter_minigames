@@ -407,8 +407,7 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
                           child: IgnorePointer(
                             child: Center(
                               child: GamePill(
-                                text: widget.mode ==
-                                        BasketballHoopMode.moving
+                                text: widget.mode == BasketballHoopMode.moving
                                     ? 'Round ${_roundIndex + 1}/'
                                         '${BasketballGame.roundCount} · Moving'
                                     : 'Round ${_roundIndex + 1}/'

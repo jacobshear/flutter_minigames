@@ -98,7 +98,8 @@ void main() {
         );
         if (r.sunk && r.has(PuttEventKind.rattle)) rattled = true;
       }
-      expect(rattled, isTrue, reason: 'no holed putt ever touched the cup wall');
+      expect(rattled, isTrue,
+          reason: 'no holed putt ever touched the cup wall');
     });
 
     test('the drop never changes what the reducer is told', () {

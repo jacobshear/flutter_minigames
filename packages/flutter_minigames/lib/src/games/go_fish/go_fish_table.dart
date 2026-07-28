@@ -674,8 +674,7 @@ class _GoFishTableState extends State<GoFishTable>
     final e = s.lastEvent;
     final style = widget.style;
 
-    String who(int seat) =>
-        seat == _bottomSeat ? 'You' : style.seatLabel(seat);
+    String who(int seat) => seat == _bottomSeat ? 'You' : style.seatLabel(seat);
     String plural(Rank r) => r == Rank.six ? 'sixes' : '${r.label}s';
 
     final actor = e.actor;
@@ -848,9 +847,8 @@ class _GoFishTableState extends State<GoFishTable>
     } else if (_bottomActs) {
       final rank = _selected;
       children.add(_TableButton(
-        label: rank == null
-            ? 'Pick a rank to ask for'
-            : 'Ask for ${rank.label}s',
+        label:
+            rank == null ? 'Pick a rank to ask for' : 'Ask for ${rank.label}s',
         tone: rank == null ? _ButtonTone.disabled : _ButtonTone.gold,
         onTap: rank == null ? null : _ask,
       ));
@@ -1155,8 +1153,8 @@ class _RankTrayPainter extends CustomPainter {
       canvas.drawCircle(
         Offset(dx, labelHeight / 2),
         dotR,
-        Paint()..color = (selected ? color : Colors.white)
-            .withValues(alpha: 0.85),
+        Paint()
+          ..color = (selected ? color : Colors.white).withValues(alpha: 0.85),
       );
       dx -= dotR * 3;
     }

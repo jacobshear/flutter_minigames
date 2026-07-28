@@ -111,15 +111,13 @@ class _AnagramsResultsViewState extends State<AnagramsResultsView>
           children: [
             // Winner pill (black translucent, repo convention).
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.58),
                 borderRadius: BorderRadius.circular(10),
                 border: outcome.isWin
                     ? Border.all(
-                        color: const Color(0xFFFFCC00)
-                            .withValues(alpha: 0.65),
+                        color: const Color(0xFFFFCC00).withValues(alpha: 0.65),
                       )
                     : null,
               ),

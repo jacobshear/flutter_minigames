@@ -53,8 +53,7 @@ class DotsAndBoxesState {
   int get vCount => n * (n + 1);
   int get boxCount => n * n;
 
-  int scoreFor(String playerId) =>
-      boxes.where((b) => b == playerId).length;
+  int scoreFor(String playerId) => boxes.where((b) => b == playerId).length;
 
   bool get allBoxesClaimed => boxes.every((b) => b != null);
 
@@ -202,9 +201,8 @@ class DotsAndBoxesGame extends TurnGame<DotsAndBoxesState, DotsAndBoxesMove> {
     }
 
     final kept = completed.isNotEmpty;
-    final nextPlayer = kept
-        ? player
-        : state.playerIds.firstWhere((p) => p != player);
+    final nextPlayer =
+        kept ? player : state.playerIds.firstWhere((p) => p != player);
 
     return DotsAndBoxesState(
       n: n,
@@ -254,8 +252,7 @@ class DotsAndBoxesGame extends TurnGame<DotsAndBoxesState, DotsAndBoxesMove> {
         hEdges: (json['hEdges'] as List).map((e) => e as String?).toList(),
         vEdges: (json['vEdges'] as List).map((e) => e as String?).toList(),
         boxes: (json['boxes'] as List).map((e) => e as String?).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentPlayerId: json['currentPlayerId'] as String,
         lastWasHorizontal: json['lastWasHorizontal'] as bool?,
         lastEdgeIndex: json['lastEdgeIndex'] as int?,

@@ -27,8 +27,7 @@ class DotsAndBoxesStyle {
 
   Color resolveP0(ColorScheme s) => player0Color ?? s.primary;
   Color resolveP1(ColorScheme s) => player1Color ?? s.tertiary;
-  Color resolveBoard(ColorScheme s) =>
-      boardColor ?? const Color(0xFFFFFDF8);
+  Color resolveBoard(ColorScheme s) => boardColor ?? const Color(0xFFFFFDF8);
   Color resolveFreeEdge(ColorScheme s) =>
       freeEdgeColor ?? s.onSurface.withValues(alpha: 0.14);
   Color resolveDot(ColorScheme s) =>

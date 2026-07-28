@@ -9,37 +9,47 @@ The whole framework is two reusable machines:
 
 Build a game once; it plays pass-and-play, over Firebase, over anything.
 
-## Repo layout (Dart pub workspace + Melos)
+## Repo layout (Dart pub workspace)
 
 ```
 packages/
-  minigames_core/         # pure Dart: TurnGame, Match, GameTransport, LocalTransport, MatchController
-  minigames_test/         # shared conformance suite any GameTransport can run
-  minigame_tictactoe/     # reference game: logic + animated board
-  minigame_connect_four/    # connect four: gravity drops + animated board
-  minigame_dots_and_boxes/   # dots and boxes: edges, box chains, extra turns
-  minigame_reversi/           # reversi/othello: flips, passes, scores
-  minigame_checkers/           # checkers: optional captures, multi-jump, kings
-  minigame_mancala/            # mancala (kalah): sow, capture, extra turns
-  minigame_gomoku/             # gomoku: five in a row on a 15×15 board
-  minigame_chess/              # chess: full rules via the `chess` package (BSD), vector pieces
-  minigames_firebase/        # GameTransport backed by Firebase Realtime Database
-  example_app/               # GP-style launcher + local hot-seat; multiplayer seam ready
+  flutter_minigames/          # the published package: engine, shared layers, 24 games
+    lib/
+      flutter_minigames.dart  # everything (reaches all games — defeats tree-shaking)
+      core.dart ui.dart cards.dart words.dart flame.dart engine3d.dart
+      games/<game>.dart       # per-game entry points, so 3 games cost 3 games
+      src/{core,ui,cards,engine3d,flame,words}/
+      src/games/<game>/
+    example/                  # minimal one-game integration
+  flutter_minigames_firebase/ # GameTransport over Realtime Database
+  minigames_test/             # conformance suite any transport can run (not published)
+  example_app/                # the full launcher: every game, hot-seat
 ```
 
-- `minigames_core` imports **nothing** — no Flutter, no Firebase, no Flame.
-- Per-game packages depend only on `minigames_core` (+ Flutter for their widget).
-- Backend adapters (e.g. `minigames_firebase`) are optional standalone packages —
-  consumers who don't use Firebase never pull it. The core stays backend-free.
-- Physics games (later) add a `minigames_flame` adapter so board-game consumers don't pull Flame.
+Two published packages, not thirty. The earlier split meant a consumer needed a
+`dependency_overrides` entry per transitive package — around thirty of them —
+because inter-package deps resolved against pub.dev. One package, one
+dependency, no overrides.
+
+**The Firebase transport stays separate on purpose.** `firebase_core` and
+`firebase_database` are the only native plugins in the tree; bundling them would
+force a Firebase project onto every consumer and contradict the whole claim
+below. Flame, Forge2D and the chess engine are pure Dart, so those bundle
+freely and tree-shake.
 
 ### Reusability guarantees
 
 - **Dependency inversion:** games depend on the `GameTransport` interface, never a
-  backend. Swap `LocalTransport` ↔ `FirebaseGameTransport` with no game changes.
+  backend. Swap `LocalTransport` for your own with no game changes.
 - **Conformance suite:** `minigames_test` exposes `runGameTransportConformanceTests`
   — every transport (Local, Firebase, yours) proves it meets the same contract.
-- **Private implementation:** only barrel files are public API; the rest is `src/`.
+- **Purity:** `applyMove` has no timers, no `Random`, no I/O. Randomness derives
+  from the match seed, so a match replays exactly from `(seed, moves)`.
+- **Physics without desync:** simulate locally, serialize the outcome. The
+  shooter runs the simulation and the move carries the settled positions; the
+  receiver never re-simulates.
+- **Private implementation:** only the entry points under `lib/` are public API;
+  everything else lives in `lib/src/`.
 
 ## Architecture in one screen
 
@@ -84,16 +94,15 @@ the same catalog + play screens; multiplayer injects via
 ## Test
 
 ```bash
-# unit / widget (run inside each package)
-(cd packages/minigames_core   && dart test)      # turn engine
-(cd packages/minigames_test   && dart test)      # transport conformance (LocalTransport)
-(cd packages/minigame_tictactoe    && flutter test) # tic-tac-toe logic
-(cd packages/minigame_connect_four    && flutter test) # connect four
-(cd packages/minigame_dots_and_boxes  && flutter test) # dots and boxes
-(cd packages/minigame_reversi         && flutter test) # reversi
-(cd packages/minigame_checkers        && flutter test) # checkers
-(cd packages/minigame_mancala         && flutter test) # mancala
-(cd packages/example_app              && flutter test test/)  # widget smoke
+# everything: 912 tests across the engine, shared layers and all 24 games
+(cd packages/flutter_minigames && flutter test)
+
+# one area, or one game
+(cd packages/flutter_minigames && flutter test test/core)
+(cd packages/flutter_minigames && flutter test test/games/mancala)
+
+(cd packages/minigames_test && dart test)             # transport conformance
+(cd packages/example_app    && flutter test test/)    # launcher widget smoke
 ```
 
 Note: run `flutter test test/` for `example_app` — pointing at the whole package
@@ -120,10 +129,13 @@ uses a well-formed placeholder so no real project is needed for emulator runs.)
 
 ## Adding a game
 
-1. In a new `minigame_<name>` package, implement `TurnGame<YourState, YourMove>`.
+1. Under `packages/flutter_minigames/lib/src/games/<name>/`, implement
+   `TurnGame<YourState, YourMove>` and give it a barrel `<name>.dart`.
 2. Write a widget that takes a `MatchController<YourState, YourMove>`, renders
    `stateStream`, and calls `submitMove` on input.
-3. Add a row to `example_app/lib/catalog/game_catalog.dart` and a play screen
+3. Export it from `lib/flutter_minigames.dart` and add
+   `lib/games/<name>.dart` so it can be imported on its own.
+4. Add a row to `example_app/lib/catalog/game_catalog.dart` and a play screen
    that uses `PlaySession.localHotSeat()`.
 
 That's the entire loop — everything hard (turns, sync, resume) lives in core.

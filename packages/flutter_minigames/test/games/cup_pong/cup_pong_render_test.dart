@@ -9,7 +9,8 @@ import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 const _size = Size(340, 470);
 final _scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF007AFF));
 
-CupPongView _viewOf({CupPongBallView? ball, CupPongAimView? aim, int count = 10}) {
+CupPongView _viewOf(
+    {CupPongBallView? ball, CupPongAimView? aim, int count = 10}) {
   final cups = CupPongGame.rackFor([for (var i = 0; i < count; i++) i]);
   return CupPongView(
     cups: [
@@ -446,8 +447,7 @@ void main() {
 
     test('a ball shrinks as it flies away', () {
       double radiusAt(double z) =>
-          CupPongWorld.ballRadius *
-          camera.project(Vec3(0, 0.2, z)).scale;
+          CupPongWorld.ballRadius * camera.project(Vec3(0, 0.2, z)).scale;
 
       final hand = radiusAt(CupPongWorld.launchPoint.z);
       final mid = radiusAt(CupPongWorld.rackApexZ / 2);

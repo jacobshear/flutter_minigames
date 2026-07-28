@@ -248,7 +248,6 @@ class _GameNoticeState extends State<GameNotice>
       ),
     );
   }
-
 }
 
 class _NoticePalette {
@@ -303,8 +302,8 @@ class _NoticeBody extends StatelessWidget {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color.alphaBlend(Colors.white.withValues(alpha: 0.07),
-                    palette.fill),
+                Color.alphaBlend(
+                    Colors.white.withValues(alpha: 0.07), palette.fill),
                 palette.fill,
               ],
             ),

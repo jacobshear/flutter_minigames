@@ -63,9 +63,7 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
         KnockoutPuck(
           id: '$owner-$i',
           owner: owner,
-          nx: n == 1
-              ? 0.5
-              : _laneInset + (i / (n - 1)) * (1 - 2 * _laneInset),
+          nx: n == 1 ? 0.5 : _laneInset + (i / (n - 1)) * (1 - 2 * _laneInset),
           ny: ny,
         ),
     ];
@@ -127,8 +125,7 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
     // Trust the settled positions: survivors are the pucks that did not fall.
     final pucks = [
       for (final p in move.positions)
-        if (!p.fell)
-          KnockoutPuck(id: p.id, owner: p.owner, nx: p.nx, ny: p.ny),
+        if (!p.fell) KnockoutPuck(id: p.id, owner: p.owner, nx: p.nx, ny: p.ny),
     ];
 
     // Turn always passes to the other player; [outcome] decides if it is over.
@@ -190,8 +187,7 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
           for (final p in (json['pucks'] as List))
             KnockoutPuck.fromJson(Map<String, dynamic>.from(p as Map)),
         ],
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentPlayerId: json['currentPlayerId'] as String,
         frame: (json['frame'] as num).toInt(),
         pucksPerPlayer: (json['pucksPerPlayer'] as num).toInt(),

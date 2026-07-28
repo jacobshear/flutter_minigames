@@ -290,10 +290,12 @@ void main() {
       expect(sim.atRest, isTrue,
           reason: 'it stopped on the table, so the board may leave it lying');
       expect(sim.position.y, closeTo(CupPongWorld.ballRadius, 1e-6));
-      expect(sim.position.z, inInclusiveRange(
-        CupPongWorld.nearZ,
-        CupPongWorld.farZ,
-      ));
+      expect(
+          sim.position.z,
+          inInclusiveRange(
+            CupPongWorld.nearZ,
+            CupPongWorld.farZ,
+          ));
     });
 
     test('a ball that leaves the table is NOT reported at rest', () {

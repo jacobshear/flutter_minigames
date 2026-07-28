@@ -83,7 +83,8 @@ void main() {
           hoopCentre: sim.hoopCentre,
           balls: [
             for (final b in sim.balls)
-              BasketballBallView(position: b.position, spin: b.spin, opacity: b.opacity),
+              BasketballBallView(
+                  position: b.position, spin: b.spin, opacity: b.opacity),
           ],
           trail: [for (final b in sim.live) b.position],
         ),
@@ -101,7 +102,8 @@ void main() {
       expect(camera.horizonY, lessThan(size.height));
     });
 
-    test('the hoop sits in the upper part of the frame, backboard included', () {
+    test('the hoop sits in the upper part of the frame, backboard included',
+        () {
       final rim = camera.project(
         BasketballCourt.hoopCentreAt(BasketballHoopMode.normal, 0),
       );
@@ -163,7 +165,8 @@ void main() {
       expect(farPx, lessThan(nearPx * 0.6), reason: 'far diameter ${farPx}px');
     });
 
-    test('the rim projects to a depth-varying conic, never a fixed ellipse', () {
+    test('the rim projects to a depth-varying conic, never a fixed ellipse',
+        () {
       Rect boundsAt(double z) {
         final path = camera.horizontalCirclePath(
           Vec3(0, BasketballCourt.rimHeight, z),

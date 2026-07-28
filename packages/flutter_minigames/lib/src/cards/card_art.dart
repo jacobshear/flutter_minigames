@@ -430,7 +430,8 @@ void _paintCourt(
       ..color = ink,
   );
   canvas.drawRRect(
-    RRect.fromRectAndRadius(panel.deflate(w * 0.036), Radius.circular(w * 0.03)),
+    RRect.fromRectAndRadius(
+        panel.deflate(w * 0.036), Radius.circular(w * 0.03)),
     Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = math.max(0.6, w * 0.008)
@@ -468,8 +469,8 @@ void _paintCourt(
     CardSuits.paint(
       canvas,
       Rect.fromCenter(
-        center: halfCentre +
-            Offset(panel.width * 0.30, glyphH * 0.20 + pip * 0.5),
+        center:
+            halfCentre + Offset(panel.width * 0.30, glyphH * 0.20 + pip * 0.5),
         width: pip,
         height: pip,
       ),

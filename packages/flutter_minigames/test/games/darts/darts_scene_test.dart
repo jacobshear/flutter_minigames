@@ -94,8 +94,10 @@ void main() {
 
     test('a tap above the horizon still resolves onto the board plane', () {
       final camera = DartsCamera.forSize(size);
-      expect(DartsCamera.screenToBoard(camera, const Offset(195, 10)), isNotNull);
-      expect(DartsCamera.screenToBoard(camera, const Offset(10, 580)), isNotNull);
+      expect(
+          DartsCamera.screenToBoard(camera, const Offset(195, 10)), isNotNull);
+      expect(
+          DartsCamera.screenToBoard(camera, const Offset(10, 580)), isNotNull);
     });
   });
 
@@ -123,7 +125,8 @@ void main() {
         const treble = 0.606 * DartsWorld.boardRadius;
         final x = math.sin(a) * treble;
         final y = math.cos(a) * treble;
-        final hit = DartsBoardGeometry.hitAt(x, y, radius: DartsWorld.boardRadius);
+        final hit =
+            DartsBoardGeometry.hitAt(x, y, radius: DartsWorld.boardRadius);
         expect(hit.multiplier, 3, reason: 'sector $i treble');
         // Dark beds carry red rings, cream beds green — a real board's rule.
         expect(family(sample(x, y)), i.isEven ? 'red' : 'green',
@@ -203,9 +206,8 @@ void main() {
           .project(DartsWorld.boardPoint(0, -DartsWorld.surroundRadius))
           .screen
           .dy;
-      final highest = changed
-          .map((i) => (i ~/ 4) ~/ size.width.round())
-          .reduce(math.min);
+      final highest =
+          changed.map((i) => (i ~/ 4) ~/ size.width.round()).reduce(math.min);
       expect(highest, greaterThan(bottom),
           reason: 'feedback strayed up onto the board');
     });

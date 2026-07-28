@@ -88,7 +88,8 @@ class _BasketballTilePainter extends CustomPainter {
       canvas,
       size,
       BasketballView(
-        hoopCentre: const Vec3(0, BasketballCourt.rimHeight, BasketballCourt.hoopZ),
+        hoopCentre:
+            const Vec3(0, BasketballCourt.rimHeight, BasketballCourt.hoopZ),
         balls: [BasketballBallView(position: Vec3(x, y, z), spin: u * 7.5)],
         netWobble: u > 0.97 ? 1 : 0,
         // A tighter, closer camera so the rig fills a small tile.

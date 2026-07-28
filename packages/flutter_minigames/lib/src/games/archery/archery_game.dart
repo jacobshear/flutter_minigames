@@ -74,7 +74,8 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
     if (radius <= 0) return ringValues.first;
     // ceil() makes the boundary belong to the inner ring; 1e-9 absorbs the
     // float noise a JSON round-trip can introduce on an exact-boundary hit.
-    final band = ((radius - 1e-9) / ringWidth).ceil().clamp(1, ringValues.length + 1);
+    final band =
+        ((radius - 1e-9) / ringWidth).ceil().clamp(1, ringValues.length + 1);
     return band > ringValues.length ? 0 : ringValues[band - 1];
   }
 
@@ -110,8 +111,8 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
 
   /// Conditions at target [index] (0-based) for [seed].
   static TargetConditions conditionsAt(int seed, int index) {
-    final distance =
-        _round(baseDistances[index] + (_unit(seed, index * 7 + 1) * 2 - 1) * 2.0, 0.5);
+    final distance = _round(
+        baseDistances[index] + (_unit(seed, index * 7 + 1) * 2 - 1) * 2.0, 0.5);
     final window = windWindows[index];
     final speed = _round(
       window.$1 + (window.$2 - window.$1) * _unit(seed, index * 7 + 2),
@@ -129,7 +130,8 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
     );
   }
 
-  static double _round(double v, double step) => (v / step).roundToDouble() * step;
+  static double _round(double v, double step) =>
+      (v / step).roundToDouble() * step;
 
   /// splitmix32 — a deterministic, well-mixed hash. Used instead of
   /// `math.Random(seed)` so the sequence is pinned to this file rather than to
@@ -226,7 +228,8 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
 
   @override
   ArcheryState decodeState(Map<String, dynamic> json, int version) {
-    final playerIds = (json['playerIds'] as List).map((e) => e as String).toList();
+    final playerIds =
+        (json['playerIds'] as List).map((e) => e as String).toList();
     final rawShots = Map<String, dynamic>.from(json['shots'] as Map);
     return ArcheryState(
       playerIds: playerIds,
@@ -488,8 +491,7 @@ class ArcheryState {
   List<ArrowShot> arrowsAt(String playerId, int targetIndex) {
     final list = shotsOf(playerId);
     final start = targetIndex * ArcheryGame.arrowsPerTarget;
-    final end =
-        math.min(start + ArcheryGame.arrowsPerTarget, list.length);
+    final end = math.min(start + ArcheryGame.arrowsPerTarget, list.length);
     if (start >= end) return const [];
     return list.sublist(start, end);
   }

@@ -60,6 +60,7 @@ class _MancalaBoardState extends State<MancalaBoard>
   /// Pit counts at the start of the active sow (before pickup).
   List<int> _fromPits = const [];
   int? _sowFrom;
+
   /// Each sow hop: hand travels as a cluster and drops one marble into [toCup].
   List<_HopStep> _hopSteps = const [];
   bool _sowExtra = false;
@@ -161,8 +162,7 @@ class _MancalaBoardState extends State<MancalaBoard>
       final hops = math.max(1, _hopSteps.length);
       final captureBeats = state.lastWasCapture ? 1 : 0;
       final sweepBeats = _sweepMoves.isEmpty ? 0 : 1;
-      final ms =
-          hops * hopMs + captureBeats * captureMs + sweepBeats * sweepMs;
+      final ms = hops * hopMs + captureBeats * captureMs + sweepBeats * sweepMs;
       _sowCtrl.duration = Duration(milliseconds: ms);
       _sowCtrl.forward(from: 0).whenComplete(() {
         if (!mounted) return;
@@ -283,8 +283,8 @@ class _MancalaBoardState extends State<MancalaBoard>
       state.currentPlayerId,
     )) {
       // GP-style "nope" on side pits only; stores are inert scenery.
-      final isSidePit = pit != MancalaState.southStore &&
-          pit != MancalaState.northStore;
+      final isSidePit =
+          pit != MancalaState.southStore && pit != MancalaState.northStore;
       if (isSidePit) {
         widget.style.sounds.onInvalid?.call();
         if (widget.style.haptics) HapticFeedback.lightImpact();
@@ -335,8 +335,8 @@ class _MancalaBoardState extends State<MancalaBoard>
       var pickup = false;
       var handAfter = hand;
       if (hand == 0) {
-        final isSide = cup != MancalaState.southStore &&
-            cup != MancalaState.northStore;
+        final isSide =
+            cup != MancalaState.southStore && cup != MancalaState.northStore;
         if (cup == ownStore) {
           // chain ends
         } else if (isSide && pits[cup] >= 2) {
@@ -481,9 +481,8 @@ class _MancalaBoardState extends State<MancalaBoard>
           ((pos - hopCount) / math.max(captureBeat, 1)).clamp(0.0, 1.0);
       final lastCup = hops.isNotEmpty ? hops.last.toCup : from;
       final opp = MancalaState.opposite(lastCup);
-      final moverStore = from <= 5
-          ? MancalaState.southStore
-          : MancalaState.northStore;
+      final moverStore =
+          from <= 5 ? MancalaState.southStore : MancalaState.northStore;
 
       if (capLocal > 0.04) {
         display[lastCup] = 0;
@@ -495,8 +494,7 @@ class _MancalaBoardState extends State<MancalaBoard>
       final cluster = _handClusterOffsets(nCap);
       for (var i = 0; i < nCap; i++) {
         final lag = i * 0.05;
-        final raw =
-            ((capLocal - lag) / math.max(0.5, 1 - lag)).clamp(0.0, 1.0);
+        final raw = ((capLocal - lag) / math.max(0.5, 1 - lag)).clamp(0.0, 1.0);
         if (raw <= 0) continue;
         final u = _hopCurve(raw);
         final fromCup = i == 0 ? lastCup : opp;
@@ -533,9 +531,8 @@ class _MancalaBoardState extends State<MancalaBoard>
       if (_sowCapture) {
         final lastCup = hops.isNotEmpty ? hops.last.toCup : from;
         final opp = MancalaState.opposite(lastCup);
-        final moverStore = from <= 5
-            ? MancalaState.southStore
-            : MancalaState.northStore;
+        final moverStore =
+            from <= 5 ? MancalaState.southStore : MancalaState.northStore;
         display[moverStore] += display[lastCup] + display[opp];
         display[lastCup] = 0;
         display[opp] = 0;
@@ -560,8 +557,7 @@ class _MancalaBoardState extends State<MancalaBoard>
           departed = true;
           final squash = raw > 0.8
               ? 1.0 -
-                  0.15 *
-                      math.sin(((raw - 0.8) / 0.2).clamp(0.0, 1.0) * math.pi)
+                  0.15 * math.sin(((raw - 0.8) / 0.2).clamp(0.0, 1.0) * math.pi)
               : 1.0;
           flyers.add(
             _Flyer(
@@ -740,65 +736,66 @@ class _MancalaBoardState extends State<MancalaBoard>
             child: CustomPaint(
               painter: _FeltPainter(table),
               child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _SidePlayer(
-                label: style.northLabel,
-                score: frame.pits[MancalaState.northStore],
-                color: north,
-                active: showOutcome == null &&
-                    state.currentPlayerId == state.northId,
-                winner: showOutcome?.isWin == true &&
-                    showOutcome!.winnerId == state.northId,
-              ),
-              const SizedBox(width: 8),
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  board,
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Center(
-                        // Single animating node. "AGAIN!" fires on consecutive
-                        // extra turns, so the message genuinely repeats inside
-                        // one exit — an AnimatedSwitcher keyed on the text put
-                        // two live 'AGAIN!' children in its Stack and threw.
-                        // No accent override: the seat colours are dark on the
-                        // notice's dark fill, so passing one to say *who* just
-                        // erased the underline that says *what*. The side
-                        // players already carry the seat.
-                        child: GameNotice(
-                          message: pillMsg,
-                          tone: showOutcome != null
-                              ? GameNoticeTone.win
-                              : GameNoticeTone.score,
-                          strong: showOutcome != null,
-                          // Sticky on a result; the extra-turn call retracts
-                          // itself, which is what the old _pillTimer did.
-                          autoDismiss: showOutcome != null
-                              ? null
-                              : const Duration(milliseconds: 900),
-                        ),
-                      ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    _SidePlayer(
+                      label: style.northLabel,
+                      score: frame.pits[MancalaState.northStore],
+                      color: north,
+                      active: showOutcome == null &&
+                          state.currentPlayerId == state.northId,
+                      winner: showOutcome?.isWin == true &&
+                          showOutcome!.winnerId == state.northId,
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 8),
-              _SidePlayer(
-                label: style.southLabel,
-                score: frame.pits[MancalaState.southStore],
-                color: south,
-                active: showOutcome == null &&
-                    state.currentPlayerId == state.southId,
-                winner: showOutcome?.isWin == true &&
-                    showOutcome!.winnerId == state.southId,
-              ),
-            ],
-          ),
+                    const SizedBox(width: 8),
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        board,
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Center(
+                              // Single animating node. "AGAIN!" fires on consecutive
+                              // extra turns, so the message genuinely repeats inside
+                              // one exit — an AnimatedSwitcher keyed on the text put
+                              // two live 'AGAIN!' children in its Stack and threw.
+                              // No accent override: the seat colours are dark on the
+                              // notice's dark fill, so passing one to say *who* just
+                              // erased the underline that says *what*. The side
+                              // players already carry the seat.
+                              child: GameNotice(
+                                message: pillMsg,
+                                tone: showOutcome != null
+                                    ? GameNoticeTone.win
+                                    : GameNoticeTone.score,
+                                strong: showOutcome != null,
+                                // Sticky on a result; the extra-turn call retracts
+                                // itself, which is what the old _pillTimer did.
+                                autoDismiss: showOutcome != null
+                                    ? null
+                                    : const Duration(milliseconds: 900),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+                    _SidePlayer(
+                      label: style.southLabel,
+                      score: frame.pits[MancalaState.southStore],
+                      color: south,
+                      active: showOutcome == null &&
+                          state.currentPlayerId == state.southId,
+                      winner: showOutcome?.isWin == true &&
+                          showOutcome!.winnerId == state.southId,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -818,10 +815,13 @@ const SowPhysics _kSow = SowPhysics();
 class _HopStep {
   final int fromCup;
   final int toCup;
+
   /// Stones in the hand while this hop is airborne (before the drop).
   final int handFlying;
+
   /// Nest index of the stone deposited into [toCup].
   final int nestIndex;
+
   /// After the drop, the whole stack at [toCup] was picked up to continue.
   final bool pickupAfter;
   final int handAfterPickup;
@@ -1229,10 +1229,8 @@ void _paintTray(Canvas canvas, _BoardGeom geom, Color board, Color pit) {
     _paintCarvedWell(canvas, _pitWellRRect(geom.cups[i]), geom, board, pit);
     _paintCarvedWell(canvas, _pitWellRRect(geom.cups[7 + i]), geom, board, pit);
   }
-  _paintCarvedWell(
-      canvas, _storeWellRRect(geom.northStore), geom, board, pit);
-  _paintCarvedWell(
-      canvas, _storeWellRRect(geom.southStore), geom, board, pit);
+  _paintCarvedWell(canvas, _storeWellRRect(geom.northStore), geom, board, pit);
+  _paintCarvedWell(canvas, _storeWellRRect(geom.southStore), geom, board, pit);
 }
 
 /// A scoop routed into the slab. Depth comes from three stacked cues: the
@@ -1525,8 +1523,8 @@ class _MancalaPainter extends CustomPainter {
         height: r * (0.48 + 0.30 * lift),
       ),
       Paint()
-        ..color = Colors.black
-            .withValues(alpha: (0.34 - 0.18 * lift) * f.opacity)
+        ..color =
+            Colors.black.withValues(alpha: (0.34 - 0.18 * lift) * f.opacity)
         ..maskFilter =
             MaskFilter.blur(BlurStyle.normal, r * (0.18 + 0.5 * lift)),
     );
@@ -1645,9 +1643,7 @@ class _MancalaPainter extends CustomPainter {
     final well = _well(cup);
     canvas.save();
     canvas.clipRRect(
-      isStore
-          ? _storeWellRRect(geom.cups[cup])
-          : _pitWellRRect(geom.cups[cup]),
+      isStore ? _storeWellRRect(geom.cups[cup]) : _pitWellRRect(geom.cups[cup]),
     );
     canvas.drawOval(
       Rect.fromCenter(
@@ -1658,8 +1654,7 @@ class _MancalaPainter extends CustomPainter {
       ),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.16)
-        ..maskFilter =
-            MaskFilter.blur(BlurStyle.normal, _baseMarbleR * 0.9),
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, _baseMarbleR * 0.9),
     );
 
     // 2 — crevice occlusion where stones touch. Drawn under the stones so it
@@ -1671,8 +1666,7 @@ class _MancalaPainter extends CustomPainter {
         c.radius,
         Paint()
           ..color = Colors.black.withValues(alpha: 0.42 * c.strength)
-          ..maskFilter =
-              MaskFilter.blur(BlurStyle.normal, c.radius * 0.55),
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, c.radius * 0.55),
       );
     }
     canvas.restore();

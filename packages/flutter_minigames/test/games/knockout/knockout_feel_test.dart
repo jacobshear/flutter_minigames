@@ -15,7 +15,8 @@ void main() {
         b.advance(0.1, 0, 0.5);
       }
       expect(b.angle.abs(), closeTo(a.angle.abs(), 1e-9));
-      expect(a.angle.abs(), closeTo(2 / 0.5 * KnockoutSlideSpin.turnsPerRadius, 1e-9));
+      expect(a.angle.abs(),
+          closeTo(2 / 0.5 * KnockoutSlideSpin.turnsPerRadius, 1e-9));
     });
 
     test('grows monotonically with further travel', () {
@@ -37,14 +38,16 @@ void main() {
     test('direction is stable per puck, and pucks differ', () {
       final ids = ['p1-0', 'p1-1', 'p1-2', 'p2-0', 'p2-1', 'p2-2'];
       final signs = {
-        for (final id in ids) (KnockoutSlideSpin(id)..advance(1, 0, 0.5)).angle.sign,
+        for (final id in ids)
+          (KnockoutSlideSpin(id)..advance(1, 0, 0.5)).angle.sign,
       };
       expect(signs.length, 2, reason: 'not every puck turns the same way');
     });
   });
 
   group('fall off a lip', () {
-    KnockoutFallingPuck at(double p, {double carry = 0, KnockoutFallEdge edge = KnockoutFallEdge.top}) =>
+    KnockoutFallingPuck at(double p,
+            {double carry = 0, KnockoutFallEdge edge = KnockoutFallEdge.top}) =>
         knockoutFallFrame(
           edge: edge,
           along: 0.5,

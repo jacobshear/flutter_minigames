@@ -838,8 +838,12 @@ class KnockoutScene extends FlameGame {
       // Exit speed perpendicular to the lip, normalized — a puck that dribbles
       // over topples slowly, one that is blasted off launches clear of it.
       final exit = switch (edge) {
-        KnockoutFallEdge.top || KnockoutFallEdge.bottom => (v.y / platform).abs(),
-        KnockoutFallEdge.left || KnockoutFallEdge.right => (v.x / platform).abs(),
+        KnockoutFallEdge.top ||
+        KnockoutFallEdge.bottom =>
+          (v.y / platform).abs(),
+        KnockoutFallEdge.left ||
+        KnockoutFallEdge.right =>
+          (v.x / platform).abs(),
       };
       _falling.add(_Falling(
         edge: edge,
@@ -1642,7 +1646,8 @@ void _paintImpact(Canvas canvas, Offset c, double r, KnockoutImpactRing i) {
   }
 }
 
-void _paintFallingPuck(Canvas canvas, Offset c, double r, KnockoutFallingPuck f) {
+void _paintFallingPuck(
+    Canvas canvas, Offset c, double r, KnockoutFallingPuck f) {
   if (r <= 0.3 || f.alpha <= 0.01) return;
   final bounds = Rect.fromCircle(center: c, radius: r * 3);
   canvas.saveLayer(

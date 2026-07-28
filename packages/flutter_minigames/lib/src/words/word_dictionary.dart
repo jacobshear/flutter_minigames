@@ -11,12 +11,16 @@ class WordDictionary {
   final List<String> _sorted;
 
   WordDictionary.fromWords(Iterable<String> words)
-      : _sorted = words.map((w) => w.toLowerCase().trim()).where((w) => w.isNotEmpty).toList()
+      : _sorted = words
+            .map((w) => w.toLowerCase().trim())
+            .where((w) => w.isNotEmpty)
+            .toList()
           ..sort();
 
   /// Loads the bundled ENABLE list. Call once and share the instance.
   static Future<WordDictionary> load() async {
-    final raw = await rootBundle.loadString('packages/flutter_minigames/assets/enable1.txt');
+    final raw = await rootBundle
+        .loadString('packages/flutter_minigames/assets/enable1.txt');
     return WordDictionary.fromWords(raw.split('\n'));
   }
 
@@ -56,8 +60,8 @@ class WordDictionary {
 
   /// All words of exactly [length] letters. Computed lazily and cached —
   /// used to pick anagram base words.
-  List<String> wordsOfLength(int length) =>
-      _byLength.putIfAbsent(length, () => _sorted.where((w) => w.length == length).toList());
+  List<String> wordsOfLength(int length) => _byLength.putIfAbsent(
+      length, () => _sorted.where((w) => w.length == length).toList());
   final Map<int, List<String>> _byLength = {};
 
   /// Deterministically picks a word of [length] letters from [seed] — both

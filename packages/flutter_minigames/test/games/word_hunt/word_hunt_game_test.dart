@@ -9,10 +9,22 @@ void main() {
   //   g x x x
   //   x x x x
   const letters = [
-    'c', 'a', 't', 's',
-    'o', 'd', 'e', 'r',
-    'g', 'x', 'x', 'x',
-    'x', 'x', 'x', 'x',
+    'c',
+    'a',
+    't',
+    's',
+    'o',
+    'd',
+    'e',
+    'r',
+    'g',
+    'x',
+    'x',
+    'x',
+    'x',
+    'x',
+    'x',
+    'x',
   ];
 
   final dict = WordDictionary.fromWords([
@@ -80,10 +92,22 @@ void main() {
 
     test('handles the two-letter qu tile', () {
       const quLetters = [
-        'qu', 'i', 't', 'x',
-        'x', 'x', 'x', 'x',
-        'x', 'x', 'x', 'x',
-        'x', 'x', 'x', 'x',
+        'qu',
+        'i',
+        't',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
+        'x',
       ];
       final quGame = WordHuntGame(
         dictionary: WordDictionary.fromWords(['quit']),
@@ -210,11 +234,15 @@ void main() {
       var s = freshState();
       s = g.applyMove(
         s,
-        const WordHuntMove([TracedWord('cat', [0, 1, 2])]),
+        const WordHuntMove([
+          TracedWord('cat', [0, 1, 2])
+        ]),
       );
       s = g.applyMove(
         s,
-        const WordHuntMove([TracedWord('ted', [2, 6, 5])]),
+        const WordHuntMove([
+          TracedWord('ted', [2, 6, 5])
+        ]),
       );
       expect(s.scoreOf('p1'), s.scoreOf('p2'));
       expect(g.outcome(s), const GameOutcome.draw());
@@ -249,7 +277,9 @@ void main() {
       var s = freshState();
       s = g.applyMove(
         s,
-        const WordHuntMove([TracedWord('cats', [0, 1, 2, 3])]),
+        const WordHuntMove([
+          TracedWord('cats', [0, 1, 2, 3])
+        ]),
       );
 
       final decodedMid = g.decodeState(g.encodeState(s), 1);

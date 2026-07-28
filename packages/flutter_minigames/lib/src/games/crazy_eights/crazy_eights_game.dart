@@ -57,7 +57,19 @@ abstract final class CrazyEightsCards {
       hand.fold(0, (sum, c) => sum + pipValue(c));
 
   static const List<String> rankLabels = [
-    'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K',
+    'A',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+    '10',
+    'J',
+    'Q',
+    'K',
   ];
   static const List<String> suitLabels = ['♠', '♥', '♦', '♣'];
 
@@ -360,8 +372,7 @@ class CrazyEightsGame extends TurnGame<CrazyEightsState, CrazyEightsMove> {
     if (state.stock.isNotEmpty || state.discard.length <= 1) return state;
     final top = state.discard.last;
     final recycled = state.discard.sublist(0, state.discard.length - 1);
-    _Prng(state.seed * 31 + (state.reshuffles + 1) * 1000003)
-        .shuffle(recycled);
+    _Prng(state.seed * 31 + (state.reshuffles + 1) * 1000003).shuffle(recycled);
     return CrazyEightsState(
       playerIds: state.playerIds,
       hands: state.hands,

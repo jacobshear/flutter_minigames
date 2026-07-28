@@ -37,8 +37,7 @@ class ConnectFourStyle {
   Color resolveP1(ColorScheme scheme) => player1Color ?? scheme.tertiary;
   Color resolveBoard(ColorScheme scheme) =>
       boardColor ?? const Color(0xFF2F5DA8);
-  Color resolveHole(ColorScheme scheme) =>
-      holeColor ?? const Color(0xFFF7F0E4);
+  Color resolveHole(ColorScheme scheme) => holeColor ?? const Color(0xFFF7F0E4);
 
   Color resolvePlayer(ColorScheme scheme, bool isPlayer0) =>
       isPlayer0 ? resolveP0(scheme) : resolveP1(scheme);

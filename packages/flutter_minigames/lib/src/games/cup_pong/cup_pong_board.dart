@@ -222,7 +222,8 @@ class _CupPongBoardState extends State<CupPongBoard>
       final next = _drop[id]! + step / _dropSeconds;
       // The ball keeps turning as it falls and is stilled by the beer, so the
       // spin decays with the drop rather than stopping the instant it is in.
-      _dropSpin[id] = (_dropSpin[id] ?? 0) + step * 9.0 * (1 - next).clamp(0.0, 1.0);
+      _dropSpin[id] =
+          (_dropSpin[id] ?? 0) + step * 9.0 * (1 - next).clamp(0.0, 1.0);
       if (next >= 1) {
         _drop[id] = 1;
       } else {
@@ -997,7 +998,8 @@ class _PlayerChip extends StatelessWidget {
               style: TextStyle(
                 color:
                     Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
-                fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
+                fontWeight:
+                    active || winner ? FontWeight.w800 : FontWeight.w600,
                 fontSize: 12.5,
               ),
             ),

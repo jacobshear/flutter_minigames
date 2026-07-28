@@ -195,12 +195,10 @@ class AnagramsGame extends TurnGame<AnagramsState, AnagramsMove> {
   AnagramsState decodeState(Map<String, dynamic> json, int version) =>
       AnagramsState(
         letters: json['letters'] as String,
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         submissions: {
           for (final e in (json['submissions'] as Map).entries)
-            e.key as String:
-                (e.value as List).map((w) => w as String).toList(),
+            e.key as String: (e.value as List).map((w) => w as String).toList(),
         },
       );
 

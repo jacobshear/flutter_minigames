@@ -300,7 +300,8 @@ class _Shape {
     final ct = math.cos(t);
     final st = math.sin(t);
     final ellipse = 1 / math.sqrt(ct * ct + (st * st) / (squash * squash));
-    return ellipse * (1 + a2 * math.cos(2 * t + p2) + a3 * math.cos(3 * t + p3));
+    return ellipse *
+        (1 + a2 * math.cos(2 * t + p2) + a3 * math.cos(3 * t + p3));
   }
 }
 
@@ -410,7 +411,8 @@ int _shade(_Material m, _Shape shape, double ux, double uy, double u) {
   // Not a specular. A frosted surface has no mirror direction, so what you get
   // is a wide, weak brightening toward the light with no core to it at all.
   // A `pow()` hotspot here would instantly read as polished glass.
-  out.addScaled(Colors.white, m.sheen * math.pow(_clamp01(ndl), 1.6).toDouble());
+  out.addScaled(
+      Colors.white, m.sheen * math.pow(_clamp01(ndl), 1.6).toDouble());
 
   return out.argb;
 }
@@ -568,9 +570,8 @@ ui.Picture _recordPebble(MarbleMaterial material, int variant) {
       // surface scatters, it does not sparkle. Balanced energy keeps the
       // stipple from bleaching the body it sits on.
       final light = j > 0.55;
-      pit.color = (light ? Colors.white : const Color(0xFF3E3D39))
-          .withValues(alpha: (light ? 0.05 + j * 0.07 : 0.05 + j * 0.11) *
-              m.frost);
+      pit.color = (light ? Colors.white : const Color(0xFF3E3D39)).withValues(
+          alpha: (light ? 0.05 + j * 0.07 : 0.05 + j * 0.11) * m.frost);
       canvas.drawCircle(
         Offset(math.cos(a) * rr, math.sin(a) * rr),
         _refR * (0.006 + j * 0.013),
@@ -581,7 +582,8 @@ ui.Picture _recordPebble(MarbleMaterial material, int variant) {
 
   // The broad sheen: one wide, soft, low-contrast wash toward the light. No
   // core, no hard edge — deliberately the opposite of a specular highlight.
-  final sc = Offset(kBoardLight.dx * _refR * 0.44, kBoardLight.dy * _refR * 0.44);
+  final sc =
+      Offset(kBoardLight.dx * _refR * 0.44, kBoardLight.dy * _refR * 0.44);
   canvas.drawCircle(
     sc,
     _refR * 0.66,

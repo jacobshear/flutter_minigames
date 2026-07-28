@@ -472,10 +472,8 @@ class _WordHuntBoardState extends State<WordHuntBoard>
               final geom = _GridGeom(c.maxWidth, state.size);
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPanStart: (d) =>
-                    _onPanStart(d.localPosition, geom, state),
-                onPanUpdate: (d) =>
-                    _onPanUpdate(d.localPosition, geom, state),
+                onPanStart: (d) => _onPanStart(d.localPosition, geom, state),
+                onPanUpdate: (d) => _onPanUpdate(d.localPosition, geom, state),
                 onPanEnd: (_) => _onPanEnd(state),
                 onPanCancel: () => _onPanEnd(state),
                 child: _buildGrid(state, geom, scheme),
@@ -806,9 +804,7 @@ class _WordHuntBoardState extends State<WordHuntBoard>
                     ),
                     decoration: BoxDecoration(
                       color: foundByAnyone.contains(word)
-                          ? _style
-                              .resolveValid(scheme)
-                              .withValues(alpha: 0.55)
+                          ? _style.resolveValid(scheme).withValues(alpha: 0.55)
                           : Colors.white.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(7),
                     ),
@@ -1074,7 +1070,8 @@ class _TracePainter extends CustomPainter {
       );
       return;
     }
-    final p = Path()..moveTo(geom.center(path.first).dx, geom.center(path.first).dy);
+    final p = Path()
+      ..moveTo(geom.center(path.first).dx, geom.center(path.first).dy);
     for (final cell in path.skip(1)) {
       final c = geom.center(cell);
       p.lineTo(c.dx, c.dy);

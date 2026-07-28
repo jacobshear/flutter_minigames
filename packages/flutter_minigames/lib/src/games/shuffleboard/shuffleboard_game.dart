@@ -200,8 +200,7 @@ class ShuffleboardGame extends TurnGame<ShuffleboardState, ShuffleboardMove> {
           for (final p in (json['pucks'] as List))
             ShuffleboardPuck.fromJson(Map<String, dynamic>.from(p as Map)),
         ],
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentPlayerId: json['currentPlayerId'] as String,
         remaining: {
           for (final e in (json['remaining'] as Map).entries)

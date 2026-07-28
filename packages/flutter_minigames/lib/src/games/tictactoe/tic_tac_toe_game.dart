@@ -88,9 +88,7 @@ class TicTacToeGame extends TurnGame<TicTacToeState, TicTacToeMove> {
   GameOutcome? outcome(TicTacToeState state) {
     for (final line in winningLines) {
       final a = state.cells[line[0]];
-      if (a != null &&
-          a == state.cells[line[1]] &&
-          a == state.cells[line[2]]) {
+      if (a != null && a == state.cells[line[1]] && a == state.cells[line[2]]) {
         return GameOutcome.win(a);
       }
     }
@@ -108,8 +106,7 @@ class TicTacToeGame extends TurnGame<TicTacToeState, TicTacToeMove> {
   TicTacToeState decodeState(Map<String, dynamic> json, int version) =>
       TicTacToeState(
         cells: (json['cells'] as List).map((e) => e as String?).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
       );
 
   @override

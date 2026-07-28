@@ -88,16 +88,12 @@ class _GameTileArtState extends State<GameTileArt>
               _ConnectFourTilePainter(t: t, script: _script),
             GameTileKind.dotsAndBoxes =>
               _DotsBoxesTilePainter(t: t, script: _script),
-            GameTileKind.reversi =>
-              _ReversiTilePainter(t: t, script: _script),
+            GameTileKind.reversi => _ReversiTilePainter(t: t, script: _script),
             GameTileKind.checkers =>
               _CheckersTilePainter(t: t, script: _script),
-            GameTileKind.mancala =>
-              _MancalaTilePainter(t: t, script: _script),
-            GameTileKind.gomoku =>
-              _GomokuTilePainter(t: t, script: _script),
-            GameTileKind.chess =>
-              _ChessTilePainter(t: t, script: _script),
+            GameTileKind.mancala => _MancalaTilePainter(t: t, script: _script),
+            GameTileKind.gomoku => _GomokuTilePainter(t: t, script: _script),
+            GameTileKind.chess => _ChessTilePainter(t: t, script: _script),
           },
         );
       },
@@ -586,6 +582,7 @@ class _DabScript {
   /// Claimed edges only. kind is 'h' or 'v'; (r,c) is the edge origin
   /// on a 4×4 dot grid (h: r 0..3, c 0..2; v: r 0..2, c 0..3).
   final List<(String kind, int r, int c, Color color)> edges;
+
   /// (boxRow, boxCol, closeStep, owner) — box indices 0..2 on the 3×3.
   final List<(int br, int bc, int closeStep, Color owner)> fills;
   final Color winColor;
@@ -1002,8 +999,7 @@ class _ReversiTilePainter extends CustomPainter {
 
       if (raw > 0.22) {
         // Sort flips by Manhattan distance so stagger is deterministic.
-        final sorted = [...flips]
-          ..sort((a, b) {
+        final sorted = [...flips]..sort((a, b) {
             final da = (a.$1 - pr).abs() + (a.$2 - pc).abs();
             final db = (b.$1 - pr).abs() + (b.$2 - pc).abs();
             return da.compareTo(db);
@@ -1545,9 +1541,7 @@ class _CheckersTilePainter extends CustomPainter {
             cell + 0.5,
           ),
           Paint()
-            ..color = dark
-                ? const Color(0xFF5D4037)
-                : const Color(0xFFD7CCC8),
+            ..color = dark ? const Color(0xFF5D4037) : const Color(0xFFD7CCC8),
         );
       }
     }
@@ -1651,9 +1645,8 @@ class _CheckersTilePainter extends CustomPainter {
       final (tr, tc) = movingTo;
       final ox = (tc - fc) * cell * moveP;
       final oy = (tr - fr) * cell * moveP;
-      final lift = (tr - fr).abs() == 2
-          ? math.sin(moveP * math.pi) * cell * 0.28
-          : 0.0;
+      final lift =
+          (tr - fr).abs() == 2 ? math.sin(moveP * math.pi) * cell * 0.28 : 0.0;
       paintMan(fr, fc, movingDark, ox: ox, oy: oy - lift);
     }
 
@@ -1879,7 +1872,8 @@ class _MancalaTilePainter extends CustomPainter {
       final n = count.clamp(0, 6);
       for (var i = 0; i < n; i++) {
         final a = -math.pi / 2 + i * (2 * math.pi / math.max(n, 1));
-        final p = c + Offset(math.cos(a), math.sin(a)) * r * (n > 1 ? 0.40 : 0.0);
+        final p =
+            c + Offset(math.cos(a), math.sin(a)) * r * (n > 1 ? 0.40 : 0.0);
         drawMarble(p, r * 0.18, idx * 2 + i * 5);
       }
     }
@@ -2006,15 +2000,31 @@ const _gmkScripts = <_GmkScript>[
   // Black horizontal on the middle row.
   _GmkScript(
     [
-      (4, 2), (2, 2), (4, 3), (3, 5), (4, 4), (5, 3), (4, 5), (6, 6), (4, 6),
+      (4, 2),
+      (2, 2),
+      (4, 3),
+      (3, 5),
+      (4, 4),
+      (5, 3),
+      (4, 5),
+      (6, 6),
+      (4, 6),
     ],
     [0, 2, 4, 6, 8],
   ),
   // White main diagonal.
   _GmkScript(
     [
-      (2, 6), (2, 2), (3, 2), (3, 3), (6, 3), (4, 4), (5, 6), (5, 5),
-      (7, 4), (6, 6),
+      (2, 6),
+      (2, 2),
+      (3, 2),
+      (3, 3),
+      (6, 3),
+      (4, 4),
+      (5, 6),
+      (5, 5),
+      (7, 4),
+      (6, 6),
     ],
     [1, 3, 5, 7, 9],
     blackWins: false,
@@ -2022,14 +2032,30 @@ const _gmkScripts = <_GmkScript>[
   // Black anti-diagonal climbing right.
   _GmkScript(
     [
-      (6, 2), (3, 2), (5, 3), (4, 2), (4, 4), (5, 6), (3, 5), (6, 6), (2, 6),
+      (6, 2),
+      (3, 2),
+      (5, 3),
+      (4, 2),
+      (4, 4),
+      (5, 6),
+      (3, 5),
+      (6, 6),
+      (2, 6),
     ],
     [0, 2, 4, 6, 8],
   ),
   // Black vertical on the right side.
   _GmkScript(
     [
-      (2, 6), (3, 3), (3, 6), (4, 4), (4, 6), (5, 5), (5, 6), (2, 3), (6, 6),
+      (2, 6),
+      (3, 3),
+      (3, 6),
+      (4, 4),
+      (4, 6),
+      (5, 5),
+      (5, 6),
+      (2, 3),
+      (6, 6),
     ],
     [0, 2, 4, 6, 8],
   ),
@@ -2070,7 +2096,8 @@ class _GomokuTilePainter extends CustomPainter {
     );
     final gap = board.width / (n - 1);
 
-    Offset at(int r, int c) => Offset(board.left + c * gap, board.top + r * gap);
+    Offset at(int r, int c) =>
+        Offset(board.left + c * gap, board.top + r * gap);
 
     final line = Paint()
       ..color = const Color(0xFF6B5233).withValues(alpha: 0.5)
@@ -2088,8 +2115,7 @@ class _GomokuTilePainter extends CustomPainter {
     void paintStone(int r, int c, bool isBlack, double p) {
       final rad = gap * 0.42 * p * presence;
       if (rad < 0.4) return;
-      final face =
-          isBlack ? const Color(0xFF26262B) : const Color(0xFFF2F1EC);
+      final face = isBlack ? const Color(0xFF26262B) : const Color(0xFFF2F1EC);
       final o = at(r, c);
       canvas.drawCircle(
         o.translate(0, rad * 0.14),
@@ -2164,13 +2190,11 @@ class _ChsScript {
 
 const _chsScripts = <_ChsScript>[
   // Scholar's mate.
-  _ChsScript(
-      ['e2e4', 'e7e5', 'f1c4', 'b8c6', 'd1h5', 'g8f6', 'h5f7']),
+  _ChsScript(['e2e4', 'e7e5', 'f1c4', 'b8c6', 'd1h5', 'g8f6', 'h5f7']),
   // Fool's mate — black delivers.
   _ChsScript(['f2f3', 'e7e5', 'g2g4', 'd8h4'], whiteWins: false),
   // Scholar's with the bishop line.
-  _ChsScript(
-      ['e2e4', 'e7e5', 'f1c4', 'f8c5', 'd1h5', 'g8f6', 'h5f7']),
+  _ChsScript(['e2e4', 'e7e5', 'f1c4', 'f8c5', 'd1h5', 'g8f6', 'h5f7']),
 ];
 
 class _ChessTilePainter extends CustomPainter {
@@ -2223,8 +2247,8 @@ class _ChessTilePainter extends CustomPainter {
     for (var r = 0; r < 8; r++) {
       for (var c = 0; c < 8; c++) {
         canvas.drawRect(
-          Rect.fromLTWH(
-              board.left + c * cell, board.top + r * cell, cell + 0.5, cell + 0.5),
+          Rect.fromLTWH(board.left + c * cell, board.top + r * cell, cell + 0.5,
+              cell + 0.5),
           Paint()
             ..color = (r + c).isOdd
                 ? const Color(0xFFB08A5F)

@@ -431,10 +431,10 @@ void _paintGreen(
   // is what stops the green reading as a striped carpet.
   final span = b.maxX - b.minX;
   final stripes = (span / 0.85).round().clamp(4, 16);
-  final toward = Color.lerp(felt, const Color(0xFFE8F5C8), 0.16)!
-      .withValues(alpha: 0.42);
-  final away = Color.lerp(felt, const Color(0xFF0E3A1E), 0.22)!
-      .withValues(alpha: 0.34);
+  final toward =
+      Color.lerp(felt, const Color(0xFFE8F5C8), 0.16)!.withValues(alpha: 0.42);
+  final away =
+      Color.lerp(felt, const Color(0xFF0E3A1E), 0.22)!.withValues(alpha: 0.34);
   for (var i = 0; i < stripes; i++) {
     final x0 = b.minX + span * i / stripes;
     final x1 = b.minX + span * (i + 1) / stripes;
@@ -455,8 +455,7 @@ void _paintGreen(
         c.screen,
         Paint()
           ..strokeWidth = 1.0
-          ..color = Colors.white
-              .withValues(alpha: i.isEven ? 0.045 : 0.015),
+          ..color = Colors.white.withValues(alpha: i.isEven ? 0.045 : 0.015),
       );
     }
   }
@@ -831,7 +830,8 @@ void _addRails(
           if (f.normal.dot(camera.eye - centre) <= 0) continue; // back-facing
           final path = _projectPolygon(camera, f.poly);
           if (path == null) continue;
-          canvas.drawPath(path, Paint()..color = _hazed(f.colour, at.depth, rough));
+          canvas.drawPath(
+              path, Paint()..color = _hazed(f.colour, at.depth, rough));
         }
         // Timber grain along the top cap — a plain flat band reads as plastic.
         final grainA = camera.project(Vec3(
@@ -972,9 +972,9 @@ void _paintBlock(
     final path = _projectPolygon(camera, poly);
     if (path == null) continue;
     // Faces turned toward the light (up-range and to the viewer's left) are lit.
-    final lit = (0.35 +
-            0.55 * (normals[i].x * -0.5 + normals[i].z * -0.85).abs())
-        .clamp(0.0, 1.0);
+    final lit =
+        (0.35 + 0.55 * (normals[i].x * -0.5 + normals[i].z * -0.85).abs())
+            .clamp(0.0, 1.0);
     canvas.drawPath(
       path,
       Paint()
@@ -991,7 +991,8 @@ void _paintBlock(
   if (top != null) {
     canvas.drawPath(
       top,
-      Paint()..color = _hazed(Color.lerp(base, Colors.white, 0.26)!, depth, rough),
+      Paint()
+        ..color = _hazed(Color.lerp(base, Colors.white, 0.26)!, depth, rough),
     );
     canvas.drawPath(
       top,
@@ -1075,7 +1076,8 @@ void _paintPost(
   if (cap != null) {
     canvas.drawPath(
       cap,
-      Paint()..color = _hazed(Color.lerp(base, Colors.white, 0.30)!, depth, rough),
+      Paint()
+        ..color = _hazed(Color.lerp(base, Colors.white, 0.30)!, depth, rough),
     );
     canvas.drawPath(
       cap,
@@ -1165,7 +1167,8 @@ void _paintBall(
   if (r > 2.5) {
     final axis = ball.roll.ay;
     // Two unit vectors spanning the plane perpendicular to the stripe's axis.
-    final helper = axis.x.abs() < 0.9 ? const Vec3(1, 0, 0) : const Vec3(0, 1, 0);
+    final helper =
+        axis.x.abs() < 0.9 ? const Vec3(1, 0, 0) : const Vec3(0, 1, 0);
     final u = _norm(_cross(axis, helper));
     final v = _norm(_cross(axis, u));
     Path? run;
@@ -1333,7 +1336,8 @@ void _paintAim(
       segments: 10,
     );
     if (ring != null) {
-      canvas.drawPath(ring, Paint()..color = Colors.white.withValues(alpha: 0.7));
+      canvas.drawPath(
+          ring, Paint()..color = Colors.white.withValues(alpha: 0.7));
     }
   }
 

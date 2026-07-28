@@ -35,8 +35,7 @@ class CheckersStyle {
       darkSquareColor ?? const Color(0xFF5D4037);
   Color resolveLightSquare(ColorScheme s) =>
       lightSquareColor ?? const Color(0xFFD7CCC8);
-  Color resolveSelect(ColorScheme s) =>
-      selectColor ?? const Color(0xFFFFCC00);
+  Color resolveSelect(ColorScheme s) => selectColor ?? const Color(0xFFFFCC00);
   Color resolveHint(ColorScheme s) =>
       hintColor ?? Colors.white.withValues(alpha: 0.45);
 }

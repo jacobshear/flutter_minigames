@@ -46,8 +46,7 @@ class CheckersState {
   String get darkId => playerIds[0];
   String get lightId => playerIds[1];
 
-  String opponentOf(String playerId) =>
-      playerId == darkId ? lightId : darkId;
+  String opponentOf(String playerId) => playerId == darkId ? lightId : darkId;
 
   /// Dark (p0) sits on the bottom and moves toward smaller row indices.
   int forwardDir(String playerId) => playerId == darkId ? -1 : 1;
@@ -55,8 +54,7 @@ class CheckersState {
   /// Last rank for crowning.
   int kingRow(String playerId) => playerId == darkId ? 0 : size - 1;
 
-  int pieceCount(String playerId) =>
-      cells.where((c) => c == playerId).length;
+  int pieceCount(String playerId) => cells.where((c) => c == playerId).length;
 
   static int index(int row, int col) => row * size + col;
 
@@ -126,8 +124,7 @@ class CheckersGame extends TurnGame<CheckersState, CheckersMove> {
   /// All legal moves for [playerId] (respects multi-jump lock; captures optional).
   List<CheckersMove> legalMoves(CheckersState state, String playerId) {
     // Mid multi-jump: only further captures from the locked piece.
-    if (state.mustContinueFrom != null &&
-        state.currentPlayerId == playerId) {
+    if (state.mustContinueFrom != null && state.currentPlayerId == playerId) {
       return _capturesFrom(state, state.mustContinueFrom!, playerId);
     }
 
@@ -314,8 +311,7 @@ class CheckersGame extends TurnGame<CheckersState, CheckersMove> {
       CheckersState(
         cells: (json['cells'] as List).map((e) => e as String?).toList(),
         isKing: (json['isKing'] as List).map((e) => e as bool).toList(),
-        playerIds:
-            (json['playerIds'] as List).map((e) => e as String).toList(),
+        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
         currentPlayerId: json['currentPlayerId'] as String,
         mustContinueFrom: json['mustContinueFrom'] as int?,
         lastFrom: json['lastFrom'] as int?,
