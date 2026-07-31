@@ -12,7 +12,25 @@ import 'filler_style.dart';
 class FillerTileArt extends StatefulWidget {
   final double phase;
 
-  const FillerTileArt({super.key, this.phase = 0});
+  /// The REAL board, when this tile is showing a live match rather than the
+  /// synthetic demo position.
+  ///
+  /// Filler's art was always a genuine [FillerState] render — it just built its
+  /// own mid-game board. Passing the match's state is the whole switch: same
+  /// grid, same palette, same territory breathing, just the position being
+  /// played.
+  final FillerState? state;
+
+  /// Freeze the territory breath. Live thumbnails (chat cards, rasterized map
+  /// bubbles) are stills and must not drive an animation controller.
+  final bool animate;
+
+  const FillerTileArt({
+    super.key,
+    this.phase = 0,
+    this.state,
+    this.animate = true,
+  });
 
   @override
   State<FillerTileArt> createState() => _FillerTileArtState();
@@ -23,9 +41,17 @@ class _FillerTileArtState extends State<FillerTileArt>
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 5200),
-  )..repeat();
+  );
 
-  late final FillerState _mid = _buildMidGame();
+  @override
+  void initState() {
+    super.initState();
+    if (widget.animate) _c.repeat();
+  }
+
+  late final FillerState _demo = _buildMidGame();
+
+  FillerState get _board => widget.state ?? _demo;
 
   /// Deterministic mid-game board: greedy-capture a few turns so two lively
   /// blobs read instantly as "Filler".
@@ -58,12 +84,18 @@ class _FillerTileArtState extends State<FillerTileArt>
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.animate) {
+      // A still: paint one frame, no controller, no rebuild pump.
+      return CustomPaint(
+        painter: _FillerTilePainter(state: _board, t: widget.phase % 1.0),
+      );
+    }
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
         final t = (_c.value + widget.phase) % 1.0;
         return CustomPaint(
-          painter: _FillerTilePainter(state: _mid, t: t),
+          painter: _FillerTilePainter(state: _board, t: t),
         );
       },
     );

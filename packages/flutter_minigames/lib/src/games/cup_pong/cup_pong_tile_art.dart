@@ -17,7 +17,24 @@ class CupPongTileArt extends StatefulWidget {
   /// Loop phase offset (the launcher staggers tiles by phase).
   final double phase;
 
-  const CupPongTileArt({super.key, this.phase = 0});
+  /// The cups still standing in the rack you are throwing AT, when this tile
+  /// shows a live match. The gaps are the cups already sunk — the rack is a
+  /// complete record of the game, so nothing else has to be drawn to say how
+  /// it is going.
+  ///
+  /// Cups carry their own table coordinates, so a live rack goes through the
+  /// exact same [paintCupPongTable] the board uses; only the list changes.
+  final List<CupPongCup>? liveCups;
+
+  /// Freeze the throw loop — a still has no ball in flight.
+  final bool animate;
+
+  const CupPongTileArt({
+    super.key,
+    this.phase = 0,
+    this.liveCups,
+    this.animate = true,
+  });
 
   @override
   State<CupPongTileArt> createState() => _CupPongTileArtState();
@@ -36,7 +53,8 @@ class _CupPongTileArtState extends State<CupPongTileArt>
     _c = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2600),
-    )..repeat();
+    );
+    if (widget.animate) _c.repeat();
     _arc = _buildArc();
   }
 
@@ -81,6 +99,16 @@ class _CupPongTileArtState extends State<CupPongTileArt>
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.animate) {
+      return CustomPaint(
+        painter: _CupPongTilePainter(
+          t: 0,
+          arc: _arc,
+          scheme: Theme.of(context).colorScheme,
+          liveCups: widget.liveCups,
+        ),
+      );
+    }
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) => CustomPaint(
@@ -88,6 +116,7 @@ class _CupPongTileArtState extends State<CupPongTileArt>
           t: (_c.value + widget.phase) % 1.0,
           arc: _arc,
           scheme: Theme.of(context).colorScheme,
+          liveCups: widget.liveCups,
         ),
       ),
     );
@@ -95,6 +124,9 @@ class _CupPongTileArtState extends State<CupPongTileArt>
 }
 
 class _CupPongTilePainter extends CustomPainter {
+  /// Non-null renders the live rack instead of a full one; see
+  /// [CupPongTileArt.liveCups].
+  final List<CupPongCup>? liveCups;
   final double t;
   final List<Vec3> arc;
   final ColorScheme scheme;
@@ -109,6 +141,7 @@ class _CupPongTilePainter extends CustomPainter {
     required this.t,
     required this.arc,
     required this.scheme,
+    this.liveCups,
   });
 
   @override
@@ -127,7 +160,9 @@ class _CupPongTilePainter extends CustomPainter {
     final idx = (flight * (arc.length - 1)).round();
     final pos = arc[idx];
 
-    final cups = CupPongGame.rackFor([for (var i = 0; i < 10; i++) i]);
+    // Live: only the cups still standing. Scripted: a full rack.
+    final cups =
+        liveCups ?? CupPongGame.rackFor([for (var i = 0; i < 10; i++) i]);
     final view = CupPongView(
       cups: [
         for (final c in cups)
@@ -139,11 +174,13 @@ class _CupPongTilePainter extends CustomPainter {
             height: CupPongWorld.cupHeight,
           ),
       ],
+      // A still keeps the ball in hand at the oche rather than frozen
+      // mid-flight, which would read as a stuck animation.
       ball: CupPongBallView(
-        position: pos,
+        position: liveCups == null ? pos : CupPongWorld.launchPoint,
         radius: CupPongWorld.ballRadius,
-        spin: flight * 26,
-        inHand: t < hold,
+        spin: liveCups == null ? flight * 26 : 0,
+        inHand: liveCups != null || t < hold,
       ),
     );
 
@@ -152,5 +189,6 @@ class _CupPongTilePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_CupPongTilePainter old) => old.t != t;
+  bool shouldRepaint(_CupPongTilePainter old) =>
+      old.t != t || old.liveCups != liveCups;
 }

@@ -788,29 +788,41 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       ),
       child: Column(
         children: [
+          // Three intrinsic-width chips with Spacers overflowed once the names
+          // were real ("Player 1" / "Player 2" either side of a two-line hole
+          // chip): a Spacer is a flex Expanded, so it takes the free space but
+          // cannot make its siblings give any back. Flexible chips + a
+          // spaceBetween row let the names ellipsize instead.
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _PlayerChip(
-                label: _labelFor(p1),
-                total: state.totalStrokes(p1),
-                accent: style.resolvePlayer1(scheme),
-                active: _outcome == null && state.currentPlayerId == p1,
-                winner: _outcome?.winnerId == p1,
+              Flexible(
+                child: _PlayerChip(
+                  label: _labelFor(p1),
+                  total: state.totalStrokes(p1),
+                  accent: style.resolvePlayer1(scheme),
+                  active: _outcome == null && state.currentPlayerId == p1,
+                  winner: _outcome?.winnerId == p1,
+                ),
               ),
-              const Spacer(),
-              _HoleChip(
-                hole: hole + 1,
-                holeCount: state.holeCount,
-                par: course.par,
-                shape: course.archetype.label,
+              const SizedBox(width: 6),
+              Flexible(
+                child: _HoleChip(
+                  hole: hole + 1,
+                  holeCount: state.holeCount,
+                  par: course.par,
+                  shape: course.archetype.label,
+                ),
               ),
-              const Spacer(),
-              _PlayerChip(
-                label: _labelFor(p2),
-                total: state.totalStrokes(p2),
-                accent: style.resolvePlayer2(scheme),
-                active: _outcome == null && state.currentPlayerId == p2,
-                winner: _outcome?.winnerId == p2,
+              const SizedBox(width: 6),
+              Flexible(
+                child: _PlayerChip(
+                  label: _labelFor(p2),
+                  total: state.totalStrokes(p2),
+                  accent: style.resolvePlayer2(scheme),
+                  active: _outcome == null && state.currentPlayerId == p2,
+                  winner: _outcome?.winnerId == p2,
+                ),
               ),
             ],
           ),
@@ -1237,16 +1249,27 @@ class _HoleChip extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            'Hole $hole/$holeCount · Par $par',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
+          // Never wrap: this line is the chip's identity, and breaking it after
+          // "Par" reads as a layout fault. The chip is Flexible in the header,
+          // so it may shrink — it scales the line down rather than folding it,
+          // and the player names either side ellipsize first.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              'Hole $hole/$holeCount · Par $par',
+              maxLines: 1,
+              softWrap: false,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
             ),
           ),
           Text(
             shape,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.55),
               fontWeight: FontWeight.w600,
@@ -1305,12 +1328,19 @@ class _PlayerChip extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
-              fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
-              fontSize: 13,
+          // The chip is Flexible in the header row, so the NAME is what gives
+          // way — the dot and the score stay whole.
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color:
+                    Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
+                fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
           ),
           const SizedBox(width: 8),

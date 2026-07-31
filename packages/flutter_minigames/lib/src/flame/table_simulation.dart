@@ -226,11 +226,25 @@ class TableSimulation {
 
   /// Launch [disc] with [impulse] and begin a settle run. Resets the settle
   /// detector, so calling it starts a fresh shot.
-  Future<SimOutcome> launch(DiscBody disc, Vector2 impulse) {
+  Future<SimOutcome> launch(DiscBody disc, Vector2 impulse) =>
+      launchAll([(disc, impulse)]);
+
+  /// Launch several discs at once and begin ONE settle run — the whole board
+  /// releases together and the run resolves when everything has come to rest.
+  ///
+  /// This is the simultaneous-release primitive: knockout winds up every puck
+  /// on both sides and then frees them in the same frame, so the impulses must
+  /// land before a single step is taken. Sequencing [launch] calls instead
+  /// would reset the settle detector between each one and start a fresh run
+  /// per puck. Discs already removed are skipped.
+  Future<SimOutcome> launchAll(Iterable<(DiscBody, Vector2)> shots) {
     _detector.reset();
     _running = true;
     _settleCompleter = Completer<SimOutcome>();
-    disc.body.applyLinearImpulse(impulse);
+    for (final (disc, impulse) in shots) {
+      if (disc.removed) continue;
+      disc.body.applyLinearImpulse(impulse);
+    }
     return _settleCompleter!.future;
   }
 

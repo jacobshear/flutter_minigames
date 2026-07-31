@@ -10,7 +10,31 @@ import 'crazy_eights_card_art.dart';
 class CrazyEightsTileArt extends StatefulWidget {
   final double phase;
 
-  const CrazyEightsTileArt({super.key, this.phase = 0});
+  /// The VIEWER's own hand, when this tile shows a live match. Rendered as the
+  /// bottom fan, face up.
+  ///
+  /// Showing it discloses nothing: these stills are painted client-side for
+  /// one viewer, so a player only ever sees the hand that is already theirs.
+  /// The opponent's hand is never passed here — their side stays the stock's
+  /// card backs, exactly as at the table.
+  final List<int>? liveHand;
+
+  /// The real card face up on the discard pile, and (for an eight) the suit
+  /// its player declared. Together they are the whole of "what is up".
+  final int? liveDiscardTop;
+  final int? liveDeclaredSuit;
+
+  /// Freeze the deal loop — a still has no card in flight.
+  final bool animate;
+
+  const CrazyEightsTileArt({
+    super.key,
+    this.phase = 0,
+    this.liveHand,
+    this.liveDiscardTop,
+    this.liveDeclaredSuit,
+    this.animate = true,
+  });
 
   @override
   State<CrazyEightsTileArt> createState() => _CrazyEightsTileArtState();

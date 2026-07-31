@@ -45,6 +45,15 @@ class AimToImpulse {
     return ((len - deadZone) / (maxDrag - deadZone)).clamp(0.0, 1.0);
   }
 
+  /// The 0..1 power an already-computed [impulse] represents — the inverse of
+  /// the magnitude mapping in [impulse]. Lets a banked wind-up redraw its own
+  /// power meter without keeping the original drag around.
+  double power01Of(Vector2 impulse) {
+    final len = impulse.length;
+    if (len <= minImpulse) return 0;
+    return ((len - minImpulse) / (maxImpulse - minImpulse)).clamp(0.0, 1.0);
+  }
+
   /// The launch impulse for [drag]. Zero (below [deadZone]) means "no shot".
   Vector2 impulse(Vector2 drag) {
     final len = drag.length;

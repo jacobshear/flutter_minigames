@@ -159,11 +159,20 @@ void main() {
     KnockoutState fresh() =>
         game.initialState(seed: 0, playerIds: const ['p1', 'p2']);
 
+    // A round only resolves on the SECOND commit, so these start from a state
+    // where the opener has already wound up (see knockout_game_test.dart).
+    List<KnockoutAim> aimsFor(KnockoutState s, String owner) => [
+          for (final p in s.pucksOf(owner))
+            KnockoutAim(puckId: p.id, ix: 0, iy: -1),
+        ];
+    KnockoutState opened(KnockoutState s, String opener) => game.applyMove(
+        s, KnockoutMove(owner: opener, aims: aimsFor(s, opener)));
+
     test('one fallen opponent puck: one elimination, counted once', () {
-      final before = fresh();
+      final before = opened(fresh(), 'p2');
       final move = KnockoutMove(
-        flickedPuckId: 'p1-0',
         owner: 'p1',
+        aims: aimsFor(before, 'p1'),
         positions: [
           for (final p in before.pucks)
             KnockoutPosition(
@@ -186,8 +195,8 @@ void main() {
       expect(after.pucks.where((p) => p.id == 'p2-1'), isEmpty);
       // And it cannot be knocked off a second time: it is no longer reportable.
       final replay = KnockoutMove(
-        flickedPuckId: 'p2-0',
         owner: 'p2',
+        aims: aimsFor(after, 'p2'),
         positions: [
           ...[
             for (final p in after.pucks)
@@ -202,11 +211,11 @@ void main() {
           reason: 'a dead puck cannot be reported as falling again');
     });
 
-    test('a flick that takes one of each counts each side once', () {
-      final before = fresh();
+    test('a release that takes one of each counts each side once', () {
+      final before = opened(fresh(), 'p2');
       final move = KnockoutMove(
-        flickedPuckId: 'p1-0',
         owner: 'p1',
+        aims: aimsFor(before, 'p1'),
         positions: [
           for (final p in before.pucks)
             KnockoutPosition(

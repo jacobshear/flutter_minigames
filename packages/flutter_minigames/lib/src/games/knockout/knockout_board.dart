@@ -24,6 +24,11 @@ import 'knockout_style.dart';
 /// [KnockoutMove], and hands it back so this widget can submit it through the
 /// controller. Hot-seat pass-and-play with perfect information — no handoff
 /// cover.
+///
+/// A turn is a round of flicks (see [KnockoutGame]): every puck you still have
+/// must be shot before the turn passes. Pucks already spent this round drop
+/// their flickable halo and sit back visually, so what is left to shoot reads at
+/// a glance without a separate mode indicator.
 class KnockoutBoard extends StatefulWidget {
   final MatchController<KnockoutState, KnockoutMove> controller;
   final KnockoutStyle style;
@@ -95,7 +100,8 @@ class _KnockoutBoardState extends State<KnockoutBoard>
     final scene = KnockoutScene(style: widget.style, scheme: _fallbackScheme)
       ..onLaunch = _onLaunch
       ..onCollision = _onCollision
-      ..onSettled = _onFlickSettled
+      ..onSettled = _onRoundSettled
+      ..onWindupChanged = _onWindupChanged
       ..onAimChanged = () => setState(() {});
     _scene = scene;
     _celebrated = false;
@@ -196,7 +202,35 @@ class _KnockoutBoardState extends State<KnockoutBoard>
     }
   }
 
-  void _onFlickSettled(KnockoutMove move, KnockoutShotResult result) {
+  /// A puck was wound up (or re-wound). When the whole set is in, the round
+  /// commits: the opener just publishes their aims, the responder releases.
+  void _onWindupChanged() {
+    if (!mounted) return;
+    setState(() {});
+    final scene = _scene;
+    final state = _state;
+    if (scene == null || state == null || _outcome != null) return;
+    if (!scene.isFullyWound) return;
+
+    if (state.awaitingResolution) {
+      // Both sides are wound up — release everything in the same frame. The
+      // settle handler submits the outcome.
+      scene.releaseRound(state.pendingAims);
+      return;
+    }
+
+    // Opening commit: nothing moves, so submit the wind-up and wait.
+    widget.controller.submitMove(KnockoutMove(
+      owner: scene.acting,
+      aims: [
+        for (final e in scene.aims.entries)
+          KnockoutAim(puckId: e.key, ix: e.value.x, iy: e.value.y),
+      ],
+    ));
+    setState(() => _showNotice('LOCKED IN', tone: GameNoticeTone.info));
+  }
+
+  void _onRoundSettled(KnockoutMove move, KnockoutShotResult result) {
     if (!mounted) return;
     final style = widget.style;
     if (result.oppKnocked > 0) {
@@ -225,7 +259,7 @@ class _KnockoutBoardState extends State<KnockoutBoard>
       text = 'NO CONTACT';
       tone = GameNoticeTone.warn;
     }
-    // Submit the settled outcome as the move.
+    // Submit the settled outcome as the resolving move.
     widget.controller.submitMove(move);
     if (!mounted) return;
     setState(() => _showNotice(
@@ -328,6 +362,24 @@ class _KnockoutBoardState extends State<KnockoutBoard>
         : widget.style.player2Label;
   }
 
+  /// The bottom hint. Every puck has to be shot before the turn passes, so the
+  /// count left in the round is the thing worth saying here — the aiming
+  /// instruction is only new information on the first shot of a match.
+  /// The bottom hint. A round is every puck at once, so what matters is how
+  /// many are still to wind up — and, once they all are, that the release is
+  /// waiting on the other player.
+  static String _windupHint(int windupsLeft, {required bool opponentWaiting}) {
+    if (windupsLeft == 0) {
+      return opponentWaiting
+          ? 'All set — releasing…'
+          : 'All set — waiting for the other player to wind up';
+    }
+    if (windupsLeft == 1) {
+      return 'One puck left to wind up — drag back from it to aim';
+    }
+    return '$windupsLeft pucks left to wind up — drag back from one to aim';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -343,6 +395,14 @@ class _KnockoutBoardState extends State<KnockoutBoard>
     final p1 = state.playerIds.first;
     final p2 = state.playerIds.last;
     const shell = Color(0xFF1B1E24);
+
+    // Wind-ups set so far this round vs still owed. Both come from the scene:
+    // a round's aims are local until it commits, so state cannot answer this.
+    final windupsLeft = _outcome == null ? scene.windupsRemaining : 0;
+    final spentLive = _outcome != null
+        ? 0
+        : state.pucksOf(state.currentPlayerId).length - windupsLeft;
+    final shotsLeft = windupsLeft;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -382,6 +442,7 @@ class _KnockoutBoardState extends State<KnockoutBoard>
               _PlayerChip(
                 label: _labelFor(p2),
                 remaining: state.liveCountOf(p2),
+                spent: state.currentPlayerId == p2 ? spentLive : 0,
                 pucksPerPlayer: state.pucksPerPlayer,
                 accent: style.resolvePlayer2(scheme),
                 active: _outcome == null && state.currentPlayerId == p2,
@@ -472,8 +533,11 @@ class _KnockoutBoardState extends State<KnockoutBoard>
             _outcome != null
                 ? 'Tap New game to play again'
                 : (scene.canAim
-                    ? 'Drag back from one of your pucks to aim, then release'
-                    : 'Sliding…'),
+                    ? _windupHint(
+                        shotsLeft,
+                        opponentWaiting: state.awaitingResolution,
+                      )
+                    : 'Releasing…'),
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white70,
@@ -488,6 +552,7 @@ class _KnockoutBoardState extends State<KnockoutBoard>
             child: _PlayerChip(
               label: _labelFor(p1),
               remaining: state.liveCountOf(p1),
+              spent: state.currentPlayerId == p1 ? spentLive : 0,
               pucksPerPlayer: state.pucksPerPlayer,
               accent: style.resolvePlayer1(scheme),
               active: _outcome == null && state.currentPlayerId == p1,
@@ -581,6 +646,32 @@ class KnockoutScene extends FlameGame {
   Offset? _aimStart;
   Offset? _aimNow;
 
+  /// Wind-ups the acting player has set this round, puckId -> impulse. A round
+  /// commits only when every live puck they own is in here, and re-aiming a
+  /// puck simply overwrites its entry.
+  final Map<String, Vector2> _aims = {};
+
+  Map<String, Vector2> get aims => Map.unmodifiable(_aims);
+
+  /// Whose wind-ups the scene is currently accepting.
+  String get acting => _acting;
+
+  /// Pucks the acting player still has to wind up before they can commit.
+  int get windupsRemaining {
+    final state = _state;
+    if (state == null) return 0;
+    return state
+        .pucksOf(_acting)
+        .where((p) => !_aims.containsKey(p.id))
+        .length;
+  }
+
+  bool get isFullyWound => _state != null && windupsRemaining == 0;
+
+  /// Fired when a puck is wound up (or re-wound), so the host can refresh the
+  /// hint and commit once the set is complete.
+  void Function()? onWindupChanged;
+
   void Function()? onLaunch;
 
   /// Puck-on-puck contact, with a 0..1 strength from the closing speed.
@@ -634,6 +725,7 @@ class KnockoutScene extends FlameGame {
     _shooter = null;
     _aimStart = null;
     _aimNow = null;
+    _aims.clear();
     _accum = 0;
     _sim = _buildSim(state);
     // Discs are re-seated from state here, so drop the roll baseline — the jump
@@ -656,17 +748,25 @@ class KnockoutScene extends FlameGame {
   ({double nx, double ny}) _toNorm(Vector2 p) =>
       (nx: p.x / platform + 0.5, ny: p.y / platform);
 
-  /// The acting player's live disc under [local] (board-pixel coords), or null.
+  /// The acting player's live, not-yet-spent disc under [local] (board-pixel
+  /// coords), or null. A puck already flicked this round is not grabbable.
   DiscBody? _ownPuckAt(Offset local) {
     if (size.x < 2 || size.y < 2) return null;
     final puckPx = (puckR / platform) * size.x;
     final hitR = math.max(puckPx * 1.7, 40.0);
+    // Same mapping the painter uses — see [knockoutPlatformRect].
+    final plat = knockoutPlatformRect(Size(size.x, size.y));
     DiscBody? best;
     var bestD = double.infinity;
     for (final d in _sim.discs) {
+      // Any of the acting player's live pucks is grabbable — including one
+      // already wound up, which re-aims it.
       if (d.removed || d.owner != _acting) continue;
       final n = _toNorm(d.position);
-      final center = Offset(n.nx * size.x, n.ny * size.y);
+      final center = Offset(
+        plat.left + n.nx * plat.width,
+        plat.top + n.ny * plat.height,
+      );
       final dist = (local - center).distance;
       if (dist <= hitR && dist < bestD) {
         best = d;
@@ -694,23 +794,52 @@ class KnockoutScene extends FlameGame {
     onAimChanged?.call();
   }
 
+  /// Bank the drag as this puck's wind-up. NOTHING moves here — a knockout
+  /// round releases every puck at once, only after both sides have committed
+  /// (see [releaseRound]).
   void endAim() {
     final start = _aimStart;
     final now = _aimNow;
     final shooter = _shooter;
     _aimStart = null;
     _aimNow = null;
+    _shooter = null;
     onAimChanged?.call();
     if (shooter == null || _launched || start == null || now == null) return;
     final drag = Vector2(now.dx - start.dx, now.dy - start.dy);
     final impulse = _aim.impulse(drag);
-    if (impulse.length2 == 0) {
-      _shooter = null; // dead zone: no shot, release the puck
-      return;
+    if (impulse.length2 == 0) return; // dead zone: no wind-up recorded
+    _aims[shooter.id] = impulse;
+    onWindupChanged?.call();
+  }
+
+  /// Release the whole round: the acting player's wind-ups plus [otherAims]
+  /// (the opener's, held in state), all launched in the same frame.
+  ///
+  /// Only the RESOLVING side calls this — it is the one holding both aim sets,
+  /// so it runs the simulation and serializes the outcome, the same trust seam
+  /// a single flick used before.
+  void releaseRound(List<KnockoutAim> otherAims) {
+    if (_launched || _state == null) return;
+    final shots = <(DiscBody, Vector2)>[];
+    for (final d in _sim.discs) {
+      if (d.removed) continue;
+      final mine = _aims[d.id];
+      if (mine != null) {
+        shots.add((d, mine));
+        continue;
+      }
+      for (final a in otherAims) {
+        if (a.puckId == d.id) {
+          shots.add((d, Vector2(a.ix, a.iy)));
+          break;
+        }
+      }
     }
+    if (shots.isEmpty) return;
     _launched = true;
     onLaunch?.call();
-    _sim.launch(shooter, impulse);
+    _sim.launchAll(shots);
   }
 
   // -- loop --
@@ -858,7 +987,6 @@ class KnockoutScene extends FlameGame {
   }
 
   void _handleSettled(SimOutcome outcome) {
-    final flickedId = _shooter?.id ?? '';
     final positions = <KnockoutPosition>[];
     for (final d in _sim.discs) {
       final n = _toNorm(d.position);
@@ -873,8 +1001,11 @@ class KnockoutScene extends FlameGame {
       );
     }
     final move = KnockoutMove(
-      flickedPuckId: flickedId,
       owner: _acting,
+      aims: [
+        for (final e in _aims.entries)
+          KnockoutAim(puckId: e.key, ix: e.value.x, iy: e.value.y),
+      ],
       positions: positions,
     );
     final result = _state == null
@@ -906,13 +1037,19 @@ class KnockoutScene extends FlameGame {
         math.min(n.nx, 1 - n.nx),
         math.min(n.ny, 1 - n.ny),
       );
+      // Spent only applies to the side currently shooting: the opponent's pucks
+      // are not owed flicks this round, so they must not read as used up.
+      // "spent" now means WOUND UP: the shot is set and waiting for the
+      // round to release. It still reads as the settled-looking puck.
+      final spent = owner == _acting && _aims.containsKey(d.id);
       pucks.add(
         KnockoutRenderPuck(
           nx: n.nx,
           ny: n.ny,
           radiusFrac: puckR / platform,
           color: style.colorFor(scheme, owner, playerIds),
-          flickable: highlightAll && owner == _acting,
+          flickable: highlightAll && owner == _acting && !spent,
+          spent: spent,
           isShooter: identical(d, _shooter),
           spin: (_spin[d.id]?.angle ?? 0) + d.angle,
           edgeT: (1 - margin / 0.16).clamp(0.0, 1.0),
@@ -920,7 +1057,23 @@ class KnockoutScene extends FlameGame {
       );
     }
 
-    KnockoutAimView? aim;
+    // Every wind-up already banked this round stays on screen — the player is
+    // setting all their shots before any of them fire, so they have to see the
+    // ones already set. The puck under the finger renders live on top.
+    final aims = <KnockoutAimView>[];
+    for (final d in _sim.discs) {
+      if (d.removed) continue;
+      if (identical(d, _shooter) && isAiming) continue;
+      final impulse = _aims[d.id];
+      if (impulse == null || impulse.length2 == 0) continue;
+      final n = _toNorm(d.position);
+      aims.add(KnockoutAimView(
+        nx: n.nx,
+        ny: n.ny,
+        dir: Offset(impulse.x, impulse.y) / impulse.length,
+        power: _aim.power01Of(impulse),
+      ));
+    }
     if (isAiming) {
       final n = _toNorm(_shooter!.position);
       final drag = Vector2(
@@ -932,7 +1085,7 @@ class KnockoutScene extends FlameGame {
       final dir = impulse.length2 == 0
           ? const Offset(0, -1)
           : Offset(impulse.x, impulse.y) / impulse.length;
-      aim = KnockoutAimView(nx: n.nx, ny: n.ny, dir: dir, power: power);
+      aims.add(KnockoutAimView(nx: n.nx, ny: n.ny, dir: dir, power: power));
     }
 
     final falling = <KnockoutFallingPuck>[];
@@ -966,7 +1119,7 @@ class KnockoutScene extends FlameGame {
       Size(size.x, size.y),
       KnockoutView(
         pucks: pucks,
-        aim: aim,
+        aims: aims,
         falling: falling,
         impacts: impacts,
       ),
@@ -1173,6 +1326,11 @@ class KnockoutRenderPuck {
   /// True for the acting player's pucks when a flick can start (soft halo).
   final bool flickable;
 
+  /// True for one of the acting player's pucks that has already been shot this
+  /// round. It sits back — no halo, a shade cooler and quieter — so what is
+  /// still owed a flick is the only thing wearing a highlight.
+  final bool spent;
+
   /// True for the puck currently being aimed (stronger halo).
   final bool isShooter;
 
@@ -1190,6 +1348,7 @@ class KnockoutRenderPuck {
     required this.radiusFrac,
     required this.color,
     this.flickable = false,
+    this.spent = false,
     this.isShooter = false,
     this.spin = 0,
     this.edgeT = 0,
@@ -1283,13 +1442,18 @@ class KnockoutFallingPuck {
 /// Everything one frame of the board needs.
 class KnockoutView {
   final List<KnockoutRenderPuck> pucks;
-  final KnockoutAimView? aim;
+
+  /// Every wind-up currently showing: the one being dragged, plus every puck
+  /// already wound up this round. A round is all pucks at once, so the aim
+  /// overlay is a list — the player has to see the shots they have already
+  /// set while lining up the next.
+  final List<KnockoutAimView> aims;
   final List<KnockoutFallingPuck> falling;
   final List<KnockoutImpactRing> impacts;
 
   const KnockoutView({
     required this.pucks,
-    this.aim,
+    this.aims = const [],
     this.falling = const [],
     this.impacts = const [],
   });
@@ -1318,19 +1482,7 @@ void paintKnockoutTable(
   final w = size.width;
   final full = Offset.zero & size;
 
-  // Platform inset so a ring of void shows all round — the cliff you fall off.
-  // Slightly tighter at the top than the bottom: the camera is above and in
-  // front, so more of the slab's near side is visible than its far side.
-  // The margin is deliberately generous: knocking pucks off IS this game, so
-  // the fall needs somewhere to happen. Too tight a ring of void and a puck
-  // leaves the canvas before it has finished tipping.
-  final margin = w * 0.135;
-  final platRect = Rect.fromLTRB(
-    margin,
-    margin * 0.82,
-    size.width - margin,
-    size.height - margin * 1.18,
-  );
+  final platRect = knockoutPlatformRect(size);
   final platRR = RRect.fromRectAndRadius(platRect, Radius.circular(w * 0.085));
 
   /// How thick the slab is, in pixels of its exposed side wall.
@@ -1449,8 +1601,7 @@ void paintKnockoutTable(
   }
 
   // Aim indicator.
-  final aim = view.aim;
-  if (aim != null) {
+  for (final aim in view.aims) {
     _paintAim(
         canvas, Offset(xOf(aim.nx), yOf(aim.ny)), aim, platRect.width, size);
   }
@@ -1859,7 +2010,19 @@ void _paintPuck(Canvas canvas, Offset c, double r, KnockoutRenderPuck p) {
         ..color = Colors.white.withValues(alpha: 0.75),
     );
   }
-  _paintPuckFace(canvas, c, r, p.color, p.spin);
+  // A puck already shot this round steps back: it keeps its seat colour (it is
+  // still very much in play and still knockable) but loses saturation and a
+  // little light, so the pucks still owed a flick are the ones that read.
+  _paintPuckFace(
+    canvas,
+    c,
+    r,
+    // Lerped, not alpha-faded: _paintPuckFace derives its whole gradient from
+    // this colour, and a translucent base would bleed the stone through the
+    // body instead of reading as a duller puck.
+    p.spent ? Color.lerp(p.color, const Color(0xFF6E7480), 0.45)! : p.color,
+    p.spin,
+  );
 }
 
 void _paintAim(
@@ -1909,6 +2072,10 @@ void _paintAim(
 class _PlayerChip extends StatelessWidget {
   final String label;
   final int remaining;
+
+  /// Of [remaining], how many have already been flicked in the current round.
+  /// Zero for the side not shooting.
+  final int spent;
   final int pucksPerPlayer;
   final Color accent;
   final bool active;
@@ -1917,6 +2084,7 @@ class _PlayerChip extends StatelessWidget {
   const _PlayerChip({
     required this.label,
     required this.remaining,
+    required this.spent,
     required this.pucksPerPlayer,
     required this.accent,
     required this.active,
@@ -1984,27 +2152,41 @@ class _PlayerChip extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          _Quiver(remaining: remaining, total: pucksPerPlayer, accent: accent),
+          _Quiver(
+            remaining: remaining,
+            spent: spent,
+            total: pucksPerPlayer,
+            accent: accent,
+          ),
         ],
       ),
     );
   }
 }
 
-/// Little row of dots showing pucks a player still has on the platform.
+/// Little row of dots showing pucks a player still has on the platform, and —
+/// while it is their turn — which of those still owe a flick this round.
+///
+/// Three reads, cheapest to most present: a dead puck is a faint dot, a puck
+/// already shot this round is a hollow ring in the seat colour, a puck still to
+/// shoot is filled. Dots are not bound to specific pucks, so the spent ones are
+/// grouped at the tail rather than tracking which puck was flicked.
 class _Quiver extends StatelessWidget {
   final int remaining;
+  final int spent;
   final int total;
   final Color accent;
 
   const _Quiver({
     required this.remaining,
+    required this.spent,
     required this.total,
     required this.accent,
   });
 
   @override
   Widget build(BuildContext context) {
+    final toShoot = (remaining - spent).clamp(0, remaining);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2016,9 +2198,14 @@ class _Quiver extends StatelessWidget {
               height: 6,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: i < remaining
+                color: i < toShoot
                     ? accent.withValues(alpha: 0.9)
-                    : Colors.white.withValues(alpha: 0.12),
+                    : (i < remaining
+                        ? Colors.transparent
+                        : Colors.white.withValues(alpha: 0.12)),
+                border: i >= toShoot && i < remaining
+                    ? Border.all(color: accent.withValues(alpha: 0.75), width: 1)
+                    : null,
               ),
             ),
           ),
@@ -2049,6 +2236,33 @@ class _Confetto {
     required this.phase,
     required this.round,
   });
+}
+
+/// The platform's pixel rect inside a [size] canvas — the ONE place the
+/// normalized puck space (nx/ny ∈ [0,1] over the platform) becomes pixels.
+///
+/// Both the painter and the touch hit test must agree on this. They did not:
+/// the painter drew pucks at `platRect.left + nx * platRect.width`, while
+/// `_ownPuckAt` resolved touches at a bare `nx * size.x` — ignoring the inset
+/// entirely. That put a puck's grab circle up to ~55px from where it was
+/// drawn, worst at the edges (the error is zero only at nx = 0.5), so the
+/// outer pucks could not be dragged at all and the middle ones only caught a
+/// touch aimed above them.
+///
+/// Platform inset so a ring of void shows all round — the cliff you fall off.
+/// Slightly tighter at the top than the bottom: the camera is above and in
+/// front, so more of the slab's near side is visible than its far side.
+/// The margin is deliberately generous: knocking pucks off IS this game, so
+/// the fall needs somewhere to happen. Too tight a ring of void and a puck
+/// leaves the canvas before it has finished tipping.
+Rect knockoutPlatformRect(Size size) {
+  final margin = size.width * 0.135;
+  return Rect.fromLTRB(
+    margin,
+    margin * 0.82,
+    size.width - margin,
+    size.height - margin * 1.18,
+  );
 }
 
 class _ConfettiPainter extends CustomPainter {

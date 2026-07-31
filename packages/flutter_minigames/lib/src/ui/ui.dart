@@ -7,3 +7,4 @@ library;
 
 export 'game_notice.dart';
 export 'game_pill.dart';
+export 'classic_game_tile_art.dart';
