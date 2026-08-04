@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
 import 'archery_style.dart';
 
 /// Launcher-tile miniature for Archery: a sunny range slab with a ringed face
@@ -47,10 +48,7 @@ class _ArcheryTilePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    final outer = tileSilhouette(size);
     canvas.save();
     canvas.clipRRect(outer);
 
@@ -78,8 +76,8 @@ class _ArcheryTilePainter extends CustomPainter {
         ).createShader(ground),
     );
     final lane = Path()
-      ..moveTo(size.width * 0.36, horizon)
-      ..lineTo(size.width * 0.64, horizon)
+      ..moveTo(size.width * 0.5 - size.shortestSide * 0.14, horizon)
+      ..lineTo(size.width * 0.5 + size.shortestSide * 0.14, horizon)
       ..lineTo(size.width * 1.02, size.height)
       ..lineTo(size.width * -0.02, size.height)
       ..close();
@@ -90,7 +88,7 @@ class _ArcheryTilePainter extends CustomPainter {
 
     // Target face, five rings, gold in the middle.
     final centre = Offset(size.width * 0.5, size.height * 0.45);
-    final r = size.width * 0.30;
+    final r = size.shortestSide * 0.30;
     // Flattened ground shadow — a full circle here reads as a hole in the turf.
     canvas.drawOval(
       Rect.fromCenter(
@@ -111,7 +109,7 @@ class _ArcheryTilePainter extends CustomPainter {
         r * (i + 1) / 5,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(0.6, size.width * 0.006)
+          ..strokeWidth = math.max(0.6, size.shortestSide * 0.006)
           ..color = ArcheryStyle.ringLine,
       );
     }
@@ -122,19 +120,19 @@ class _ArcheryTilePainter extends CustomPainter {
     final head = Offset.lerp(from, centre, fly)!;
     final dir = (centre - from);
     final unit = dir / dir.distance;
-    final shaft = size.width * (0.34 - 0.16 * fly);
+    final shaft = size.shortestSide * (0.34 - 0.16 * fly);
     final tail = head - unit * shaft;
 
     canvas.drawLine(
       tail,
       head,
       Paint()
-        ..strokeWidth = math.max(1.4, size.width * 0.028)
+        ..strokeWidth = math.max(1.4, size.shortestSide * 0.028)
         ..strokeCap = StrokeCap.round
         ..color = const Color(0xFFF1E6D2),
     );
     final normal = Offset(-unit.dy, unit.dx);
-    final vane = size.width * 0.075;
+    final vane = size.shortestSide * 0.075;
     for (final s in [-1.0, 1.0]) {
       canvas.drawPath(
         Path()

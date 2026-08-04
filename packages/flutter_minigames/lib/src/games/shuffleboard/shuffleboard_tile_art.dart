@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+
 /// Launcher-tile miniature for Shuffleboard: a warm maple mini-lane with cool
 /// scoring bands at the far end and a couple of red/blue weights, one gently
 /// sliding up-lane on a loop. Matches the rounded-slab look of the other tiles.
@@ -46,10 +48,11 @@ class _ShuffleboardTilePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    // Lane and weight metrics scale by the short side so a wide card window
+    // keeps the authored lane centered in the walnut frame rather than
+    // stretching it. Identical on square tiles (s == width).
+    final s = size.shortestSide;
+    final outer = tileSilhouette(size);
 
     // Walnut frame.
     canvas.drawRRect(
@@ -62,16 +65,16 @@ class _ShuffleboardTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    // Maple lane inset.
-    final margin = size.width * 0.16;
+    // Maple lane inset, centered horizontally. Authored square margin was
+    // 0.16 * side each side, i.e. a half-width of 0.34 * side from center.
+    final halfLane = s * 0.34;
     final lane = Rect.fromLTRB(
-      margin,
+      size.width / 2 - halfLane,
       size.height * 0.1,
-      size.width - margin,
+      size.width / 2 + halfLane,
       size.height * 0.9,
     );
-    final laneRR =
-        RRect.fromRectAndRadius(lane, Radius.circular(size.width * 0.05));
+    final laneRR = RRect.fromRectAndRadius(lane, Radius.circular(s * 0.05));
     canvas.save();
     canvas.clipRRect(laneRR);
     canvas.drawRRect(
@@ -103,10 +106,9 @@ class _ShuffleboardTilePainter extends CustomPainter {
         Offset(lane.right, yOf(b)),
         Paint()
           ..color = Colors.white.withValues(alpha: 0.5)
-          ..strokeWidth = math.max(0.8, size.width * 0.01),
+          ..strokeWidth = math.max(0.8, s * 0.01),
       );
-      _label(canvas, Offset(xOf(0.5), yOf((a + b) / 2)), '$label',
-          size.width * 0.12);
+      _label(canvas, Offset(xOf(0.5), yOf((a + b) / 2)), '$label', s * 0.12);
     }
 
     // Foul line.
@@ -115,10 +117,10 @@ class _ShuffleboardTilePainter extends CustomPainter {
       Offset(lane.right, yOf(0.62)),
       Paint()
         ..color = const Color(0xFF7A2E2E)
-        ..strokeWidth = math.max(1, size.width * 0.014),
+        ..strokeWidth = math.max(1, s * 0.014),
     );
 
-    final r = size.width * 0.075;
+    final r = s * 0.075;
 
     // A resting blue weight parked in zone 2.
     _weight(canvas, Offset(xOf(0.4), yOf(0.2)), r, const Color(0xFF2E6FB0),

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/cards/cards.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+
 /// Launcher-tile miniature for Gin Rummy: a felt tray with the stock and
 /// discard up top and a small hand below, where a run of three sits in its
 /// tray and a fourth card slides in to complete it — the loop shows what the
@@ -138,10 +140,9 @@ class _GinRummyTilePainter extends CustomPainter {
   }
 
   void _paintFelt(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    // Rounded square on launcher tiles, edge-to-edge on the chat card's wide
+    // art window. The gradients span whatever the canvas gives them.
+    final outer = tileSilhouette(size);
     canvas.drawRRect(
       outer,
       Paint()

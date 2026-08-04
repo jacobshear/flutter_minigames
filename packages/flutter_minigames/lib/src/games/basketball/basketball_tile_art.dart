@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
 import 'basketball_court.dart';
 import 'basketball_style.dart';
 import 'basketball_view.dart';
@@ -70,10 +71,7 @@ class _BasketballTilePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    final outer = tileSilhouette(size);
     canvas.save();
     canvas.clipRRect(outer);
 

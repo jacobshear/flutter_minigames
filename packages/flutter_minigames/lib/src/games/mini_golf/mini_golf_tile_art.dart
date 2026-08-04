@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+
 /// Launcher-tile miniature for Mini Golf: a striped green receding into the
 /// distance between raised rails, a flag in the cup at the far end, and a ball
 /// rolling away up the hole.
@@ -58,16 +60,17 @@ class _MiniGolfTilePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(w * 0.22),
-    );
+    // Course/ball/cup metrics scale by the short side so a wide card window
+    // reads as the square scene with a panoramic sky and rough, not a
+    // stretched fairway. Identical on square tiles (s == w).
+    final s = size.shortestSide;
+    final outer = tileSilhouette(size);
     final horizon = h * 0.30;
 
     // Projective mapping: screen y and half-width both go as 1/depth, which is
     // what makes the rails converge and the ball shrink as it rolls away.
     final ay = (h * 0.98 - horizon) * _dNear;
-    final bx = w * 0.42 * _dNear;
+    final bx = s * 0.42 * _dNear;
     double yAt(double d) => horizon + ay / d;
     double xAt(double u, double d) => w / 2 + u * bx / d;
     Offset at(double u, double d) => Offset(xAt(u, d), yAt(d));
@@ -179,7 +182,7 @@ class _MiniGolfTilePainter extends CustomPainter {
     // perspective.
     const cupD = 2.85;
     final cup = at(0.05, cupD);
-    final cupR = w * 0.085 / cupD * _dNear;
+    final cupR = s * 0.085 / cupD * _dNear;
     canvas.drawOval(
       Rect.fromCenter(center: cup, width: cupR * 2, height: cupR * 0.85),
       Paint()..color = const Color(0xFF0C1F13),
@@ -193,13 +196,13 @@ class _MiniGolfTilePainter extends CustomPainter {
       poleTop,
       Paint()
         ..color = const Color(0xFFE9EDF0)
-        ..strokeWidth = math.max(1.0, w * 0.018 / cupD)
+        ..strokeWidth = math.max(1.0, s * 0.018 / cupD)
         ..strokeCap = StrokeCap.round,
     );
     canvas.drawPath(
       Path()
         ..moveTo(poleTop.dx, poleTop.dy)
-        ..lineTo(poleTop.dx - w * 0.15 / cupD, poleTop.dy + poleH * 0.16)
+        ..lineTo(poleTop.dx - s * 0.15 / cupD, poleTop.dy + poleH * 0.16)
         ..lineTo(poleTop.dx, poleTop.dy + poleH * 0.32)
         ..close(),
       Paint()..color = const Color(0xFFE23B32),
@@ -209,7 +212,7 @@ class _MiniGolfTilePainter extends CustomPainter {
     final roll = Curves.easeInOut.transform(t.clamp(0.0, 1.0));
     final ballD = _dNear + 0.15 + (cupD - _dNear - 0.35) * roll;
     final ballPos = at(0.05 * roll - 0.10, ballD);
-    final ballR = w * 0.068 / ballD * _dNear;
+    final ballR = s * 0.068 / ballD * _dNear;
     canvas.drawOval(
       Rect.fromCenter(
         center: ballPos.translate(0, ballR * 0.55),

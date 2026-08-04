@@ -165,18 +165,23 @@ T _pick<T>(int script, List<T> options) => options[script % options.length];
 // ---------------------------------------------------------------------------
 
 /// True when the canvas is meaningfully non-square — a card's art window
-/// rather than a launcher tile.
-bool _isWide(Size size) =>
+/// rather than a square launcher tile. Public because every game's tile art
+/// makes the same square-vs-wide call, not just the classics.
+bool isWideTile(Size size) =>
     (size.width - size.height).abs() > size.shortestSide * 0.05;
 
-/// The tile's silhouette: the authored rounded-square on square canvases,
-/// edge-to-edge on wide ones. A wide consumer clips its own corners; keeping
-/// the tile's larger radius there would punch transparent notches into the
-/// card's art window.
-RRect _tileRRect(Size size) => RRect.fromRectAndRadius(
+/// The silhouette a tile painter's backdrop fills: the authored rounded-square
+/// on square canvases, edge-to-edge on wide ones. A wide consumer clips its
+/// own corners; keeping the tile's larger radius there would punch transparent
+/// notches into the card's art window.
+RRect tileSilhouette(Size size) => RRect.fromRectAndRadius(
       Offset.zero & size,
-      _isWide(size) ? Radius.zero : Radius.circular(size.width * 0.22),
+      isWideTile(size) ? Radius.zero : Radius.circular(size.width * 0.22),
     );
+
+bool _isWide(Size size) => isWideTile(size);
+
+RRect _tileRRect(Size size) => tileSilhouette(size);
 
 /// The centered square a scene draws in. Square canvases keep [fraction] of
 /// the side — each painter's authored inset. Wide canvases open up to

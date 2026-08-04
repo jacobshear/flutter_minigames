@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
 import 'eight_ball_style.dart';
 
 /// Launcher-tile miniature for 8-Ball: a green felt slab with a wood rail, a
@@ -48,10 +49,11 @@ class _EightBallTilePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    // Ball/pocket/rail metrics scale by the short side so a wide card window
+    // reads as the square scene on a wider table, not a stretched one.
+    // Identical on square tiles (s == width).
+    final s = size.shortestSide;
+    final outer = tileSilhouette(size);
 
     // Wood rail.
     canvas.drawRRect(
@@ -64,16 +66,17 @@ class _EightBallTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    // Felt inset.
-    final margin = size.width * 0.12;
+    // Felt inset. The rail thickness comes from the short side; the felt
+    // itself spans whatever the canvas gives it, so a wide card shows a wide
+    // table.
+    final margin = s * 0.12;
     final felt = Rect.fromLTRB(
       margin,
       margin,
       size.width - margin,
       size.height - margin,
     );
-    final feltRR =
-        RRect.fromRectAndRadius(felt, Radius.circular(size.width * 0.06));
+    final feltRR = RRect.fromRectAndRadius(felt, Radius.circular(s * 0.06));
     canvas.save();
     canvas.clipRRect(feltRR);
     canvas.drawRRect(
@@ -91,11 +94,16 @@ class _EightBallTilePainter extends CustomPainter {
         ).createShader(felt),
     );
 
-    double xOf(double nx) => felt.left + nx * felt.width;
+    // Ball placement keeps the authored square felt width (short side minus
+    // rails) so a wide canvas centres the racked cluster instead of stretching
+    // it across the table. Identical on square tiles, where the felt IS that
+    // wide.
+    final sceneW = s - 2 * margin;
+    double xOf(double nx) => size.width / 2 + (nx - 0.5) * sceneW;
     double yOf(double ny) => felt.top + ny * felt.height;
 
     // Pockets at the felt corners + side midpoints.
-    final pocketR = size.width * 0.052;
+    final pocketR = s * 0.052;
     final pockets = [
       felt.topLeft,
       felt.topRight,
@@ -111,12 +119,12 @@ class _EightBallTilePainter extends CustomPainter {
         pocketR,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(0.8, size.width * 0.006)
+          ..strokeWidth = math.max(0.8, s * 0.006)
           ..color = const Color(0xFFB98A3E).withValues(alpha: 0.55),
       );
     }
 
-    final r = size.width * 0.055;
+    final r = s * 0.055;
 
     // A small racked cluster near the top: 8 centre, a couple of mates.
     _ball(canvas, Offset(xOf(0.5), yOf(0.24)), r, 8);

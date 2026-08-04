@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
 import 'cup_pong_game.dart';
 import 'cup_pong_painter.dart';
 import 'cup_pong_sounds.dart';
@@ -147,12 +148,7 @@ class _CupPongTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save();
-    canvas.clipRRect(
-      RRect.fromRectAndRadius(
-        Offset.zero & size,
-        Radius.circular(size.width * 0.22),
-      ),
-    );
+    canvas.clipRRect(tileSilhouette(size));
 
     // Hold the ball in hand for the first fifth of the loop, then fly.
     const hold = 0.2;

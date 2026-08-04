@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
 import 'crazy_eights_card_art.dart';
 
 /// Launcher-tile miniature for Crazy 8s: a green felt tray with a small fan
@@ -159,10 +160,8 @@ class _CrazyEightsTilePainter extends CustomPainter {
   }
 
   void _paintFelt(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    // Full-bleed on wide card windows, authored rounded-square on tiles.
+    final outer = tileSilhouette(size);
     canvas.drawRRect(
       outer,
       Paint()
@@ -188,10 +187,10 @@ class _CrazyEightsTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
     canvas.drawRRect(
-      outer.deflate(size.width * 0.012),
+      outer.deflate(size.shortestSide * 0.012),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.014
+        ..strokeWidth = size.shortestSide * 0.014
         ..color = Colors.black.withValues(alpha: 0.12),
     );
   }

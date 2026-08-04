@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+
 /// Launcher-tile miniature for Sea Battle: a soft blue sea grid with a couple
 /// of gray hulls, hit pegs, miss dots, and a gently looping shot splash.
 /// Matches the rounded-slab look of the other launcher tiles.
@@ -54,11 +56,8 @@ class _SeaBattleTilePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Sea slab tile.
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    // Sea slab tile: authored rounded square, edge-to-edge on wide canvases.
+    final outer = tileSilhouette(size);
     canvas.drawRRect(
       outer,
       Paint()

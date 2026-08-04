@@ -54,15 +54,18 @@ class _WordBitesTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     // Kitchen-tile backdrop, full bleed (launcher tile clips its corners).
+    // Grout cells stay square — sized off the short side — and tile outward
+    // to cover wide canvases; on a square canvas this is the authored 5x5.
     canvas.drawRect(Offset.zero & size, Paint()..color = _grout);
     const grid = 5;
-    final cellW = size.width / grid;
-    final cellH = size.height / grid;
-    final inset = math.min(cellW, cellH) * 0.04;
-    final tileR = Radius.circular(math.min(cellW, cellH) * 0.14);
+    final cellS = size.shortestSide / grid;
+    final cols = (size.width / cellS).ceil();
+    final rows = (size.height / cellS).ceil();
+    final inset = cellS * 0.04;
+    final tileR = Radius.circular(cellS * 0.14);
     final tilePaint = Paint();
-    for (var r = 0; r < grid; r++) {
-      for (var c = 0; c < grid; c++) {
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
         tilePaint.color = Color.lerp(
           _board,
           Colors.white,
@@ -71,10 +74,10 @@ class _WordBitesTilePainter extends CustomPainter {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromLTWH(
-              c * cellW + inset,
-              r * cellH + inset,
-              cellW - inset * 2,
-              cellH - inset * 2,
+              c * cellS + inset,
+              r * cellS + inset,
+              cellS - inset * 2,
+              cellS - inset * 2,
             ),
             tileR,
           ),
@@ -105,17 +108,27 @@ class _WordBitesTilePainter extends CustomPainter {
     _piece(canvas, Offset(rowX + u * 2.15, rowY), u, 'T');
     _piece(canvas, Offset(rowX + u * 3.3, rowY), u, 'E');
 
-    // Stray vertical domino and single, bobbing gently.
+    // Stray vertical domino and single, bobbing gently. Anchored as
+    // offsets-from-center off the short side (0.71 and 0.16 of the authored
+    // square side), so they hug the word row instead of drifting to the
+    // edges of a wide canvas.
+    final s = size.shortestSide;
     _piece(
       canvas,
-      Offset(size.width * 0.71, size.height * 0.03 + bob * u * 0.07),
+      Offset(
+        size.width / 2 + s * 0.21,
+        size.height * 0.03 + bob * u * 0.07,
+      ),
       u * 0.88,
       'ON',
       vertical: true,
     );
     _piece(
       canvas,
-      Offset(size.width * 0.16, size.height * 0.74 + bob2 * u * 0.07),
+      Offset(
+        size.width / 2 - s * 0.34,
+        size.height * 0.74 + bob2 * u * 0.07,
+      ),
       u * 0.88,
       'S',
     );

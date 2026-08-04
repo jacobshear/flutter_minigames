@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/cards/cards.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+
 /// Launcher-tile miniature for Go Fish: a pond of backs up top and three
 /// sevens in a tray below, with the fourth seven sailing across from the
 /// opponent's side to close the book — the one beat the whole game is built
@@ -180,10 +182,9 @@ class _GoFishTilePainter extends CustomPainter {
   }
 
   void _paintFelt(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    // Rounded square on launcher tiles, edge-to-edge on the chat card's wide
+    // art window. The gradient spans whatever the canvas gives it.
+    final outer = tileSilhouette(size);
     canvas.drawRRect(
       outer,
       Paint()
@@ -200,16 +201,18 @@ class _GoFishTilePainter extends CustomPainter {
     );
     canvas.save();
     canvas.clipRRect(outer);
+    // Pond ripples ring the card stack, so they scale by the short side like
+    // the cards do — identical on square tiles.
     for (var i = 1; i <= 3; i++) {
       canvas.drawOval(
         Rect.fromCenter(
           center: Offset(size.width * 0.5, size.height * 0.36),
-          width: size.width * 0.30 * i,
+          width: size.shortestSide * 0.30 * i,
           height: size.height * 0.12 * i,
         ),
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = size.width * 0.008
+          ..strokeWidth = size.shortestSide * 0.008
           ..color = Colors.white.withValues(alpha: 0.07),
       );
     }

@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+
 /// Launcher-tile miniature for Anagrams: wooden letter tiles pop in one by
 /// one to spell a short word, a green "valid!" underline flashes, then the
 /// board clears and the next word begins. Matches the toy-diorama loop style
@@ -97,10 +99,7 @@ class _AnagramsTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     // Maroon felt slab (mini version of the in-game table).
-    final r = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    final r = tileSilhouette(size);
     canvas.drawRRect(
       r,
       Paint()
@@ -127,16 +126,16 @@ class _AnagramsTilePainter extends CustomPainter {
     );
     // Thin lip edge so the tile reads as a tray, not a flat stamp.
     canvas.drawRRect(
-      r.deflate(size.width * 0.012),
+      r.deflate(size.shortestSide * 0.012),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.014
+        ..strokeWidth = size.shortestSide * 0.014
         ..color = Colors.black.withValues(alpha: 0.12),
     );
 
     final n = word.length;
-    final tileSide = size.width * 0.205;
-    final gap = size.width * 0.032;
+    final tileSide = size.shortestSide * 0.205;
+    final gap = size.shortestSide * 0.032;
     final totalW = n * tileSide + (n - 1) * gap;
     final left = (size.width - totalW) / 2;
     final cy = size.height * 0.40;
@@ -164,8 +163,8 @@ class _AnagramsTilePainter extends CustomPainter {
 
     // Recessed rack sockets below — the tiles "rose" out of these.
     const socketCount = 6;
-    final sSide = size.width * 0.105;
-    final sGap = size.width * 0.028;
+    final sSide = size.shortestSide * 0.105;
+    final sGap = size.shortestSide * 0.028;
     final sTotal = socketCount * sSide + (socketCount - 1) * sGap;
     final sLeft = (size.width - sTotal) / 2;
     final sy = size.height * 0.72;
@@ -186,7 +185,7 @@ class _AnagramsTilePainter extends CustomPainter {
         Offset(size.width / 2 + half, y),
         Paint()
           ..color = const Color(0xFF34C759).withValues(alpha: 0.9 * presence)
-          ..strokeWidth = size.width * 0.028
+          ..strokeWidth = size.shortestSide * 0.028
           ..strokeCap = StrokeCap.round,
       );
       // Score spark above the word.
@@ -197,7 +196,7 @@ class _AnagramsTilePainter extends CustomPainter {
           style: TextStyle(
             color: const Color(0xFF34C759)
                 .withValues(alpha: (1 - celebrate * 0.4) * presence),
-            fontSize: size.width * 0.095,
+            fontSize: size.shortestSide * 0.095,
             fontWeight: FontWeight.w900,
           ),
         ),

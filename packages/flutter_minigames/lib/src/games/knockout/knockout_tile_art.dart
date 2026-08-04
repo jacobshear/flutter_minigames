@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+
 /// Launcher-tile miniature for Knockout: a raised light platform over a dark
 /// void with a couple of resting pucks and one flying off the lip on a loop.
 /// Matches the rounded-slab look of the other tiles.
@@ -46,10 +48,11 @@ class _KnockoutTilePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    // Puck/platform metrics scale by the short side so a wide card window
+    // reads as the square scene on a wider platform, not a stretched one.
+    // Identical on square tiles (s == width).
+    final s = size.shortestSide;
+    final outer = tileSilhouette(size);
 
     // Void backdrop.
     canvas.drawRRect(
@@ -62,22 +65,23 @@ class _KnockoutTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    // Raised platform slab.
-    final margin = size.width * 0.16;
+    // Raised platform slab. The void margin comes from the short side; the
+    // slab itself spans whatever the canvas gives it, so a wide card shows a
+    // wide platform.
+    final margin = s * 0.16;
     final plat = Rect.fromLTRB(
       margin,
       margin,
       size.width - margin,
       size.height - margin,
     );
-    final platRR =
-        RRect.fromRectAndRadius(plat, Radius.circular(size.width * 0.1));
+    final platRR = RRect.fromRectAndRadius(plat, Radius.circular(s * 0.1));
     // Slab shadow.
     canvas.drawRRect(
-      platRR.shift(Offset(0, size.width * 0.03)),
+      platRR.shift(Offset(0, s * 0.03)),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.5)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.03),
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.03),
     );
     canvas.save();
     canvas.clipRRect(platRR);
