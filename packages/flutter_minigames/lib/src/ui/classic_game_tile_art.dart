@@ -4,7 +4,6 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:flutter_minigames/games/chess.dart' show ChessPieceArt;
 
-
 // Fixed toy palette (iOS system hues), lifted verbatim from the demo app so
 // the dioramas read identically wherever the library is embedded.
 const Color _ink = Color(0xFF1C1C1E);
@@ -217,7 +216,9 @@ List<int>? _findRun(List<String?> cells, int cols, int rows, int need) {
           }
         }
         if (ok) {
-          return [for (var k = 0; k < need; k++) (r + dr * k) * cols + (c + dc * k)];
+          return [
+            for (var k = 0; k < need; k++) (r + dr * k) * cols + (c + dc * k)
+          ];
         }
       }
     }
@@ -366,7 +367,12 @@ class _TicTacToeTilePainter extends CustomPainter {
             ),
       ] else ...[
         for (var i = 0; i < s.moves.length; i++)
-          (s.moves[i].$1, s.moves[i].$2, s.moves[i].$3, _piece(t, i, s.moves.length)),
+          (
+            s.moves[i].$1,
+            s.moves[i].$2,
+            s.moves[i].$3,
+            _piece(t, i, s.moves.length)
+          ),
       ],
     ];
 
@@ -393,9 +399,10 @@ class _TicTacToeTilePainter extends CustomPainter {
       // winner's own mark color, full strength — a still has no celebrate ramp.
       final run = _findRun(liveBoard.cells, 3, 3, 3);
       if (run != null) {
-        final color = _isFirstSeat(liveBoard.cells[run.first]!, liveBoard.playerIds)
-            ? _coral
-            : _teal;
+        final color =
+            _isFirstSeat(liveBoard.cells[run.first]!, liveBoard.playerIds)
+                ? _coral
+                : _teal;
         canvas.drawLine(
           cellCenter(run.first % 3, run.first ~/ 3),
           cellCenter(run.last % 3, run.last ~/ 3),
@@ -982,8 +989,8 @@ class _DotsBoxesTilePainter extends CustomPainter {
             Radius.circular(step * 0.16),
           ),
           Paint()
-            ..color = _ownerColor(owner, liveBoard.playerIds)
-                .withValues(alpha: 0.32),
+            ..color =
+                _ownerColor(owner, liveBoard.playerIds).withValues(alpha: 0.32),
         );
       }
     }
@@ -1014,7 +1021,8 @@ class _DotsBoxesTilePainter extends CustomPainter {
     }
 
     final fillPad = step * 0.18;
-    for (final (br, bc, closeStep, owner) in (liveBoard == null ? s.fills : const <(int, int, int, Color)>[])) {
+    for (final (br, bc, closeStep, owner)
+        in (liveBoard == null ? s.fills : const <(int, int, int, Color)>[])) {
       final p = _piece(t, closeStep, s.edges.length, drawShare: 0.58);
       if (p < 0.85) continue;
       final local = Curves.easeOutCubic.transform(
@@ -1319,8 +1327,7 @@ class _ReversiTilePainter extends CustomPainter {
     final winP = _celebrate(t);
     if (winP > 0.001) {
       // Soft crown glow matching the winning face color.
-      final color =
-          scriptData.darkWins ? _ink : const Color(0xFFF5F5F7);
+      final color = scriptData.darkWins ? _ink : const Color(0xFFF5F5F7);
       canvas.drawCircle(
         Offset(size.width * 0.5, size.height * 0.10),
         size.width * 0.09 * winP,

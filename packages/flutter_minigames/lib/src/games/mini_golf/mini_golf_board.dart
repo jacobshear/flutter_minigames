@@ -1338,7 +1338,8 @@ class _PlayerChip extends StatelessWidget {
               style: TextStyle(
                 color:
                     Colors.white.withValues(alpha: active || winner ? 1 : 0.7),
-                fontWeight: active || winner ? FontWeight.w800 : FontWeight.w600,
+                fontWeight:
+                    active || winner ? FontWeight.w800 : FontWeight.w600,
                 fontSize: 13,
               ),
             ),

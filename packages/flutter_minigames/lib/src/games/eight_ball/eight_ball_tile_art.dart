@@ -126,12 +126,18 @@ class _EightBallTilePainter extends CustomPainter {
 
     final r = s * 0.055;
 
-    // A small racked cluster near the top: 8 centre, a couple of mates.
-    _ball(canvas, Offset(xOf(0.5), yOf(0.24)), r, 8);
-    _ball(canvas, Offset(xOf(0.5 - 0.09), yOf(0.19)), r, 1);
-    _ball(canvas, Offset(xOf(0.5 + 0.09), yOf(0.19)), r, 11);
-    _ball(canvas, Offset(xOf(0.5 - 0.045), yOf(0.30)), r, 3);
-    _ball(canvas, Offset(xOf(0.5 + 0.045), yOf(0.30)), r, 13);
+    // Racked cluster near the top: 8 centre, a 2-1-2 diamond around it.
+    // Spacing comes from the ball radius itself — neighbour offset (r, r√3)
+    // puts centres exactly one diameter apart, so the rack TOUCHES like a
+    // real one. (The old hand-tuned offsets overlapped the balls; invisible
+    // at launcher-tile size, glaring on the chat card.)
+    final rackC = Offset(xOf(0.5), yOf(0.24));
+    final rowDy = r * math.sqrt(3);
+    _ball(canvas, rackC, r, 8);
+    _ball(canvas, rackC.translate(-r, -rowDy), r, 1);
+    _ball(canvas, rackC.translate(r, -rowDy), r, 11);
+    _ball(canvas, rackC.translate(-r, rowDy), r, 3);
+    _ball(canvas, rackC.translate(r, rowDy), r, 13);
 
     // Cue rolling up the felt on the loop.
     final roll = Curves.easeInOut.transform((t % 1.0).clamp(0.0, 1.0));

@@ -234,7 +234,8 @@ class _DartsTilePainter extends CustomPainter {
       canvas.drawPath(
         Path()
           ..moveTo(tail.dx + perp.dx * finW, tail.dy + perp.dy * finW)
-          ..lineTo(tail.dx + unit.dx * len * 0.34, tail.dy + unit.dy * len * 0.34)
+          ..lineTo(
+              tail.dx + unit.dx * len * 0.34, tail.dy + unit.dy * len * 0.34)
           ..lineTo(tail.dx - perp.dx * finW, tail.dy - perp.dy * finW)
           ..lineTo(tail.dx, tail.dy)
           ..close(),
@@ -359,7 +360,5 @@ class _DartsTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DartsTilePainter old) =>
-      old.t != t ||
-      old.liveVisit != liveVisit ||
-      old.liveScore != liveScore;
+      old.t != t || old.liveVisit != liveVisit || old.liveScore != liveScore;
 }

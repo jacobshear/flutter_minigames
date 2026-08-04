@@ -660,10 +660,7 @@ class KnockoutScene extends FlameGame {
   int get windupsRemaining {
     final state = _state;
     if (state == null) return 0;
-    return state
-        .pucksOf(_acting)
-        .where((p) => !_aims.containsKey(p.id))
-        .length;
+    return state.pucksOf(_acting).where((p) => !_aims.containsKey(p.id)).length;
   }
 
   bool get isFullyWound => _state != null && windupsRemaining == 0;
@@ -2204,7 +2201,8 @@ class _Quiver extends StatelessWidget {
                         ? Colors.transparent
                         : Colors.white.withValues(alpha: 0.12)),
                 border: i >= toShoot && i < remaining
-                    ? Border.all(color: accent.withValues(alpha: 0.75), width: 1)
+                    ? Border.all(
+                        color: accent.withValues(alpha: 0.75), width: 1)
                     : null,
               ),
             ),
