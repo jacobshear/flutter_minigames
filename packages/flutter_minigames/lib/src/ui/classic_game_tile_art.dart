@@ -158,6 +158,69 @@ double _celebrate(double t) {
 T _pick<T>(int script, List<T> options) => options[script % options.length];
 
 // ---------------------------------------------------------------------------
+// Canvas-shape helpers — every tile painter was authored against a square
+// launcher tile, but the same painters also draw the chat card's wide art
+// window. These keep square rendering byte-for-byte authored while letting a
+// wide canvas fill edge-to-edge instead of pillarboxing a floating square.
+// ---------------------------------------------------------------------------
+
+/// True when the canvas is meaningfully non-square — a card's art window
+/// rather than a launcher tile.
+bool _isWide(Size size) =>
+    (size.width - size.height).abs() > size.shortestSide * 0.05;
+
+/// The tile's silhouette: the authored rounded-square on square canvases,
+/// edge-to-edge on wide ones. A wide consumer clips its own corners; keeping
+/// the tile's larger radius there would punch transparent notches into the
+/// card's art window.
+RRect _tileRRect(Size size) => RRect.fromRectAndRadius(
+      Offset.zero & size,
+      _isWide(size) ? Radius.zero : Radius.circular(size.width * 0.22),
+    );
+
+/// The centered square a scene draws in. Square canvases keep [fraction] of
+/// the side — each painter's authored inset. Wide canvases open up to
+/// [wideFraction] of the short side: the board is the point of a wide
+/// thumbnail, and the backdrop already fills the gutters.
+Rect _sceneSquare(Size size, double fraction, {double wideFraction = 0.92}) {
+  final side = size.shortestSide * (_isWide(size) ? wideFraction : fraction);
+  return Rect.fromCenter(
+    center: size.center(Offset.zero),
+    width: side,
+    height: side,
+  );
+}
+
+/// First run of [need] same-owner cells in a row-major [cols]x[rows] grid, as
+/// cell indices — the winning line of a finished live board. Checks →, ↓ and
+/// both diagonals, which covers tic-tac-toe, connect four and gomoku.
+List<int>? _findRun(List<String?> cells, int cols, int rows, int need) {
+  const dirs = [(1, 0), (0, 1), (1, 1), (1, -1)];
+  for (var r = 0; r < rows; r++) {
+    for (var c = 0; c < cols; c++) {
+      final owner = cells[r * cols + c];
+      if (owner == null) continue;
+      for (final (dc, dr) in dirs) {
+        final er = r + dr * (need - 1);
+        final ec = c + dc * (need - 1);
+        if (er < 0 || er >= rows || ec < 0 || ec >= cols) continue;
+        var ok = true;
+        for (var k = 1; k < need; k++) {
+          if (cells[(r + dr * k) * cols + (c + dc * k)] != owner) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) {
+          return [for (var k = 0; k < need; k++) (r + dr * k) * cols + (c + dc * k)];
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Tic-tac-toe
 // ---------------------------------------------------------------------------
 
@@ -249,12 +312,8 @@ class _TicTacToeTilePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _tttScripts);
 
-    final r = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
     canvas.drawRRect(
-      r,
+      _tileRRect(size),
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topLeft,
@@ -263,17 +322,11 @@ class _TicTacToeTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    final pad = size.width * 0.18;
-    final board = Rect.fromLTWH(
-      pad,
-      pad,
-      size.width - pad * 2,
-      size.height - pad * 2,
-    );
+    final board = _sceneSquare(size, 0.64);
     final cell = board.width / 3;
     final grid = Paint()
       ..color = _ink.withValues(alpha: 0.55)
-      ..strokeWidth = size.width * 0.028
+      ..strokeWidth = board.width * 0.044
       ..strokeCap = StrokeCap.round;
 
     for (var i = 1; i <= 2; i++) {
@@ -291,9 +344,13 @@ class _TicTacToeTilePainter extends CustomPainter {
 
     // Live board: every mark already placed, drawn at full strength. Scripted:
     // the authored draw-on. Both feed the same painter below.
+    //
+    // The spreads are load-bearing: without them the `else` dangles onto the
+    // INNER `if (cells[i] != null)`, which starved the scripted branch — the
+    // launcher tile animated an empty grid.
     final liveBoard = live;
     final placements = <(int col, int row, bool isX, double p)>[
-      if (liveBoard != null)
+      if (liveBoard != null) ...[
         for (var i = 0; i < liveBoard.cells.length && i < 9; i++)
           if (liveBoard.cells[i] != null)
             (
@@ -301,10 +358,11 @@ class _TicTacToeTilePainter extends CustomPainter {
               i ~/ 3,
               _isFirstSeat(liveBoard.cells[i]!, liveBoard.playerIds),
               1.0,
-            )
-      else
+            ),
+      ] else ...[
         for (var i = 0; i < s.moves.length; i++)
           (s.moves[i].$1, s.moves[i].$2, s.moves[i].$3, _piece(t, i, s.moves.length)),
+      ],
     ];
 
     for (final (col, row, isX, p) in placements) {
@@ -314,32 +372,49 @@ class _TicTacToeTilePainter extends CustomPainter {
         board.top + (row + 0.5) * cell,
       );
       if (isX) {
-        _drawX(canvas, c, cell * 0.22, size.width * 0.04, _coral, p);
+        _drawX(canvas, c, cell * 0.22, board.width * 0.062, _coral, p);
       } else {
-        _drawO(canvas, c, cell * 0.24, size.width * 0.04, _teal, p);
+        _drawO(canvas, c, cell * 0.24, board.width * 0.062, _teal, p);
       }
     }
 
-    final winP = liveBoard != null ? 0.0 : _celebrate(t);
+    Offset cellCenter(int col, int row) => Offset(
+          board.left + (col + 0.5) * cell,
+          board.top + (row + 0.5) * cell,
+        );
+
+    if (liveBoard != null) {
+      // A finished live board shows its win: strike the three-in-a-row in the
+      // winner's own mark color, full strength — a still has no celebrate ramp.
+      final run = _findRun(liveBoard.cells, 3, 3, 3);
+      if (run != null) {
+        final color = _isFirstSeat(liveBoard.cells[run.first]!, liveBoard.playerIds)
+            ? _coral
+            : _teal;
+        canvas.drawLine(
+          cellCenter(run.first % 3, run.first ~/ 3),
+          cellCenter(run.last % 3, run.last ~/ 3),
+          Paint()
+            ..color = color.withValues(alpha: 0.9)
+            ..strokeWidth = board.width * 0.078
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+      return;
+    }
+
+    final winP = _celebrate(t);
     final line = s.winLine;
     if (winP > 0.001 && line != null) {
       final (c0, r0, c1, r1) = line;
-      final a = Offset(
-        board.left + (c0 + 0.5) * cell,
-        board.top + (r0 + 0.5) * cell,
-      );
-      final b = Offset(
-        board.left + (c1 + 0.5) * cell,
-        board.top + (r1 + 0.5) * cell,
-      );
       final color = s.xWins ? _coral : _teal;
       // Draw full line, scale alpha with winP (clears with presence).
       canvas.drawLine(
-        a,
-        b,
+        cellCenter(c0, r0),
+        cellCenter(c1, r1),
         Paint()
           ..color = color.withValues(alpha: 0.9 * winP)
-          ..strokeWidth = size.width * 0.05 * (0.5 + 0.5 * winP)
+          ..strokeWidth = board.width * 0.078 * (0.5 + 0.5 * winP)
           ..strokeCap = StrokeCap.round,
       );
     }
@@ -392,7 +467,7 @@ class _TicTacToeTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_TicTacToeTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t || old.script != script || old.live != live;
 }
 
 // ---------------------------------------------------------------------------
@@ -512,12 +587,8 @@ class _ConnectFourTilePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _c4Scripts);
 
-    final r = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
     canvas.drawRRect(
-      r,
+      _tileRRect(size),
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
@@ -526,20 +597,16 @@ class _ConnectFourTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    final pad = size.width * 0.14;
-    final frame = Rect.fromLTWH(
-      pad,
-      pad * 1.15,
-      size.width - pad * 2,
-      size.height - pad * 2.1,
-    );
+    final frame = _sceneSquare(size, 0.72);
     canvas.drawRRect(
-      RRect.fromRectAndRadius(frame, Radius.circular(size.width * 0.08)),
+      RRect.fromRectAndRadius(frame, Radius.circular(frame.width * 0.11)),
       Paint()..color = const Color(0xFF1E5AAD),
     );
 
-    const cols = 5;
-    const rows = 4;
+    // The scripted diorama plays on a toy 5x4; a live match is the real 7x6
+    // (drawing 7-wide cells onto the toy grid put discs outside the frame).
+    final cols = live != null ? 7 : 5;
+    final rows = live != null ? 6 : 4;
     final cellW = frame.width / cols;
     final cellH = frame.height / rows;
     final holeR = math.min(cellW, cellH) * 0.32;
@@ -556,21 +623,24 @@ class _ConnectFourTilePainter extends CustomPainter {
 
     final liveBoard = live;
     final presence = liveBoard != null ? 1.0 : _boardPresence(t);
-    // Live: every disc resting in its own cell, full size, no fall. Scripted:
-    // the authored drop sequence.
+    // Live: every disc resting in its own cell, full size, no fall. State row
+    // 0 is the BOTTOM (gravity fills lowest index first); the painter draws
+    // row 0 at the top, so live rows flip. Scripted: the authored drops.
+    // The spreads are load-bearing: without them the `else` dangles onto the
+    // INNER `if (cells[i] != null)` and the scripted branch never runs.
     final drops = <(int col, int landRow, Color color, double p)>[
-      if (liveBoard != null)
+      if (liveBoard != null) ...[
         for (var i = 0; i < liveBoard.cells.length && i < 42; i++)
           if (liveBoard.cells[i] != null)
             (
               i % 7,
-              i ~/ 7,
+              rows - 1 - i ~/ 7,
               _isFirstSeat(liveBoard.cells[i]!, liveBoard.playerIds)
                   ? _coral
                   : _gold,
               1.0,
-            )
-      else
+            ),
+      ] else ...[
         for (var i = 0; i < s.drops.length; i++)
           (
             s.drops[i].$1,
@@ -578,6 +648,7 @@ class _ConnectFourTilePainter extends CustomPainter {
             s.drops[i].$3,
             _piece(t, i, s.drops.length, drawShare: 0.70),
           ),
+      ],
     ];
     for (final (col, landRow, color, p) in drops) {
       if (p <= 0.001) continue;
@@ -611,7 +682,32 @@ class _ConnectFourTilePainter extends CustomPainter {
       );
     }
 
-    final winP = liveBoard != null ? 0.0 : _celebrate(t);
+    if (liveBoard != null) {
+      // A finished live board strikes its four-in-a-row in the winner's disc
+      // color, full strength — a still has no celebrate ramp.
+      final run = _findRun(liveBoard.cells, 7, 6, 4);
+      if (run != null) {
+        final winColor =
+            _isFirstSeat(liveBoard.cells[run.first]!, liveBoard.playerIds)
+                ? _coral
+                : _gold;
+        Offset at(int i) => Offset(
+              frame.left + (i % 7 + 0.5) * cellW,
+              frame.top + (rows - 1 - i ~/ 7 + 0.5) * cellH,
+            );
+        canvas.drawLine(
+          at(run.first),
+          at(run.last),
+          Paint()
+            ..color = winColor.withValues(alpha: 0.9)
+            ..strokeWidth = math.min(cellW, cellH) * 0.28
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+      return;
+    }
+
+    final winP = _celebrate(t);
     final line = s.winLine;
     if (winP > 0.001 && line != null) {
       final (c0, r0, c1, r1) = line;
@@ -628,7 +724,7 @@ class _ConnectFourTilePainter extends CustomPainter {
         b,
         Paint()
           ..color = s.winColor.withValues(alpha: 0.9 * winP)
-          ..strokeWidth = size.width * 0.04 * winP
+          ..strokeWidth = math.min(cellW, cellH) * 0.28 * winP
           ..strokeCap = StrokeCap.round,
       );
     }
@@ -636,7 +732,7 @@ class _ConnectFourTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ConnectFourTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t || old.script != script || old.live != live;
 }
 
 // ---------------------------------------------------------------------------
@@ -794,12 +890,8 @@ class _DotsBoxesTilePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _dabScripts);
 
-    final r = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
     canvas.drawRRect(
-      r,
+      _tileRRect(size),
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topLeft,
@@ -810,12 +902,7 @@ class _DotsBoxesTilePainter extends CustomPainter {
 
     // Square playfield, explicitly centered in the tile (not pad-from-width
     // only — that drifts when the tile aspect isn't 1:1).
-    final side = size.shortestSide * 0.82;
-    final area = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: side,
-      height: side,
-    );
+    final area = _sceneSquare(size, 0.82);
     final step = area.width / (dots - 1);
 
     Offset d(int x, int y) => Offset(area.left + x * step, area.top + y * step);
@@ -968,7 +1055,7 @@ class _DotsBoxesTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DotsBoxesTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t || old.script != script || old.live != live;
 }
 
 // ---------------------------------------------------------------------------
@@ -1076,7 +1163,10 @@ class _ReversiTilePainter extends CustomPainter {
     this.live,
   });
 
-  static const int n = 6;
+  /// Scripted dioramas play on a toy 6x6; a live match is the real 8x8 —
+  /// seeding 64 cells through a 6-wide mapping scrambled the board.
+  int get n => live != null ? 8 : 6;
+
   static const _dirs = <(int, int)>[
     (-1, -1),
     (-1, 0),
@@ -1091,17 +1181,11 @@ class _ReversiTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final scriptData = _pick(script, _revScripts);
-    final presence = _boardPresence(t);
+    final presence = live != null ? 1.0 : _boardPresence(t);
 
     _paintFelt(canvas, size);
 
-    final pad = size.width * 0.10;
-    final board = Rect.fromLTWH(
-      pad,
-      pad,
-      size.width - pad * 2,
-      size.height - pad * 2,
-    );
+    final board = _sceneSquare(size, 0.80);
     final cell = board.width / n;
 
     _paintGrid(canvas, board, cell, size);
@@ -1252,10 +1336,7 @@ class _ReversiTilePainter extends CustomPainter {
   }
 
   void _paintFelt(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
+    final outer = _tileRRect(size);
     // Deep green felt matching the live board (≈ 0xFF2D8A4E).
     canvas.drawRRect(
       outer,
@@ -1288,10 +1369,10 @@ class _ReversiTilePainter extends CustomPainter {
     );
     // Thin lip edge so the tile reads as a tray, not a flat stamp.
     canvas.drawRRect(
-      outer.deflate(size.width * 0.012),
+      outer.deflate(size.shortestSide * 0.012),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.014
+        ..strokeWidth = size.shortestSide * 0.014
         ..color = Colors.black.withValues(alpha: 0.12),
     );
   }
@@ -1306,10 +1387,10 @@ class _ReversiTilePainter extends CustomPainter {
 
     final grid = Paint()
       ..color = Colors.black.withValues(alpha: 0.20)
-      ..strokeWidth = math.max(0.6, size.width * 0.007);
+      ..strokeWidth = math.max(0.6, size.shortestSide * 0.007);
     final gridHi = Paint()
       ..color = Colors.white.withValues(alpha: 0.07)
-      ..strokeWidth = math.max(0.4, size.width * 0.005);
+      ..strokeWidth = math.max(0.4, size.shortestSide * 0.005);
 
     for (var i = 0; i <= n; i++) {
       final o = i * cell;
@@ -1350,9 +1431,12 @@ class _ReversiTilePainter extends CustomPainter {
       }
     }
 
-    // Classic Othello star points near the center of the 6×6.
+    // Classic Othello star points — authored positions on the toy 6×6, the
+    // real ones on a live 8×8.
     final star = Paint()..color = Colors.black.withValues(alpha: 0.28);
-    for (final (r, c) in const [(1, 1), (1, 4), (4, 1), (4, 4)]) {
+    for (final (r, c) in n == 6
+        ? const [(1, 1), (1, 4), (4, 1), (4, 4)]
+        : const [(1, 1), (1, 6), (6, 1), (6, 6)]) {
       canvas.drawCircle(
         Offset(board.left + (c + 0.5) * cell, board.top + (r + 0.5) * cell),
         cell * 0.055,
@@ -1621,7 +1705,7 @@ class _ReversiTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ReversiTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t || old.script != script || old.live != live;
 }
 
 // ---------------------------------------------------------------------------
@@ -1670,10 +1754,16 @@ class _CheckersTilePainter extends CustomPainter {
   /// layout directly and skips the scripted moves — nothing is in flight on a
   /// still, so there is no sliding piece and no capture to animate.
   final LiveCells? live;
+
+  /// King flags, index-aligned with [live]'s cells. Kings get a small gold
+  /// ring so a live board reads truthfully; null draws every piece as a man.
+  final List<bool>? liveKings;
+
   _CheckersTilePainter({
     required this.t,
     required this.script,
     this.live,
+    this.liveKings,
   });
 
   static const int n = 8;
@@ -1681,14 +1771,10 @@ class _CheckersTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _chkScripts);
-    final presence = _boardPresence(t);
+    final presence = live != null ? 1.0 : _boardPresence(t);
 
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
     canvas.drawRRect(
-      outer,
+      _tileRRect(size),
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topLeft,
@@ -1697,12 +1783,7 @@ class _CheckersTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    final side = size.shortestSide * 0.86;
-    final board = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: side,
-      height: side,
-    );
+    final board = _sceneSquare(size, 0.86);
     final cell = board.width / n;
 
     // Squares
@@ -1826,6 +1907,26 @@ class _CheckersTilePainter extends CustomPainter {
       }
     }
 
+    // Kings wear a small gold ring — the one piece of live state the plain
+    // man-vs-man drawing would otherwise hide.
+    final kings = liveKings;
+    if (liveBoard != null && kings != null) {
+      for (var i = 0; i < kings.length && i < n * n; i++) {
+        if (!kings[i] || liveBoard.cells[i] == null) continue;
+        canvas.drawCircle(
+          Offset(
+            board.left + (i % n + 0.5) * cell,
+            board.top + (i ~/ n + 0.5) * cell,
+          ),
+          cell * 0.16,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = cell * 0.09
+            ..color = _gold.withValues(alpha: 0.95),
+        );
+      }
+    }
+
     if (movingFrom.$1 >= 0) {
       final (fr, fc) = movingFrom;
       final (tr, tc) = movingTo;
@@ -1852,7 +1953,10 @@ class _CheckersTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_CheckersTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t ||
+      old.script != script ||
+      old.live != live ||
+      old.liveKings != liveKings;
 }
 
 // ---------------------------------------------------------------------------
@@ -1897,13 +2001,9 @@ class _MancalaTilePainter extends CustomPainter {
     // A live board is a still: it never plays the clear-out phase.
     final presence = livePits != null ? 1.0 : _boardPresence(t);
 
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
     // Maroon felt table, matching the live board's backdrop.
     canvas.drawRRect(
-      outer,
+      _tileRRect(size),
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topLeft,
@@ -1913,11 +2013,13 @@ class _MancalaTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    // Vertical tray (portrait).
+    // Vertical tray (portrait), opened up a touch when the canvas is a wide
+    // card window rather than a square tile.
+    final trayScale = _isWide(size) ? 1.08 : 1.0;
     final board = Rect.fromCenter(
       center: Offset(size.width / 2, size.height / 2),
-      width: size.shortestSide * 0.72,
-      height: size.shortestSide * 0.88,
+      width: size.shortestSide * 0.72 * trayScale,
+      height: size.shortestSide * 0.88 * trayScale,
     );
     // Pale birch slab — static chrome; only the marbles clear with presence.
     canvas.drawRRect(
@@ -2185,7 +2287,7 @@ class _MancalaTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MancalaTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t || old.script != script || old.livePits != livePits;
 }
 
 // ---------------------------------------------------------------------------
@@ -2286,20 +2388,19 @@ class _GomokuTilePainter extends CustomPainter {
     this.liveSize = 15,
   });
 
-  static const int n = 9;
-
   @override
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _gmkScripts);
-    final presence = _boardPresence(t);
+    final presence = live != null ? 1.0 : _boardPresence(t);
+
+    // Scripted dioramas play on a toy 9-line board; a live match draws its
+    // real grid (placing liveSize-indexed stones on the toy grid painted most
+    // of a 15x15 game off the tile entirely).
+    final n = live != null ? liveSize : 9;
 
     // Birch slab tile.
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
     canvas.drawRRect(
-      outer,
+      _tileRRect(size),
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topLeft,
@@ -2308,12 +2409,7 @@ class _GomokuTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    final side = size.shortestSide * 0.80;
-    final board = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: side,
-      height: side,
-    );
+    final board = _sceneSquare(size, 0.80);
     final gap = board.width / (n - 1);
 
     Offset at(int r, int c) =>
@@ -2326,8 +2422,9 @@ class _GomokuTilePainter extends CustomPainter {
       canvas.drawLine(at(i, 0), at(i, n - 1), line);
       canvas.drawLine(at(0, i), at(n - 1, i), line);
     }
+    final mid = (n - 1) ~/ 2;
     canvas.drawCircle(
-      at(4, 4),
+      at(mid, mid),
       gap * 0.14,
       Paint()..color = const Color(0xFF6B5233).withValues(alpha: 0.6),
     );
@@ -2382,8 +2479,23 @@ class _GomokuTilePainter extends CustomPainter {
       }
     }
 
+    if (liveBoard != null) {
+      // A finished live board rings its winning five in gold, full strength.
+      final run = _findRun(liveBoard.cells, liveSize, liveSize, 5);
+      if (run != null) {
+        final ring = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1.4, gap * 0.14)
+          ..color = _gold.withValues(alpha: 0.9);
+        for (final i in run) {
+          canvas.drawCircle(at(i ~/ liveSize, i % liveSize), gap * 0.46, ring);
+        }
+      }
+      return;
+    }
+
     // Gold rings pop over the winning five.
-    final winP = liveBoard != null ? 0.0 : _celebrate(t);
+    final winP = _celebrate(t);
     if (winP > 0.001) {
       final ring = Paint()
         ..style = PaintingStyle.stroke
@@ -2408,7 +2520,10 @@ class _GomokuTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GomokuTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t ||
+      old.script != script ||
+      old.live != live ||
+      old.liveSize != liveSize;
 }
 
 // ---------------------------------------------------------------------------
@@ -2435,7 +2550,13 @@ const _chsScripts = <_ChsScript>[
 class _ChessTilePainter extends CustomPainter {
   final double t;
   final int script;
-  _ChessTilePainter({required this.t, required this.script});
+
+  /// The real position, when this tile shows a live match: 64 row-major cells
+  /// (row 0 = rank 8), each null or a piece letter in `ChessState.boardCells`
+  /// encoding (white upper-case). Non-null skips the scripted miniature.
+  final List<String?>? livePieces;
+
+  _ChessTilePainter({required this.t, required this.script, this.livePieces});
 
   static int _sq(String a) =>
       (8 - int.parse(a[1])) * 8 + (a.codeUnitAt(0) - 97);
@@ -2455,14 +2576,10 @@ class _ChessTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final s = _pick(script, _chsScripts);
-    final presence = _boardPresence(t);
+    final presence = livePieces != null ? 1.0 : _boardPresence(t);
 
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(size.width * 0.22),
-    );
     canvas.drawRRect(
-      outer,
+      _tileRRect(size),
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topLeft,
@@ -2471,12 +2588,7 @@ class _ChessTilePainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    final side = size.shortestSide * 0.86;
-    final board = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: side,
-      height: side,
-    );
+    final board = _sceneSquare(size, 0.86);
     final cell = board.width / 8;
 
     for (var r = 0; r < 8; r++) {
@@ -2497,9 +2609,12 @@ class _ChessTilePainter extends CustomPainter {
           board.top + (sq ~/ 8 + 0.5) * cell,
         );
 
-    // Apply committed moves; capture the in-flight one.
-    final cells = _startCells();
-    final moveCount = s.moves.length;
+    // Live: the real position, nothing in flight. Scripted: apply committed
+    // moves and capture the in-flight one.
+    final livePosition = livePieces;
+    final cells =
+        livePosition != null ? List<String?>.of(livePosition) : _startCells();
+    final moveCount = livePosition != null ? 0 : s.moves.length;
     String? flying;
     var flyFrom = -1, flyTo = -1;
     var flyP = 0.0;
@@ -2541,7 +2656,7 @@ class _ChessTilePainter extends CustomPainter {
       piece(fadingVictim, at(fadeAt),
           opacity: (1 - flyP).clamp(0.0, 1.0) * presence);
     }
-    for (var i = 0; i < 64; i++) {
+    for (var i = 0; i < cells.length && i < 64; i++) {
       final p = cells[i];
       if (p == null) continue;
       piece(p, at(i), opacity: presence);
@@ -2551,7 +2666,9 @@ class _ChessTilePainter extends CustomPainter {
       piece(flying, o, opacity: presence);
     }
 
-    final winP = _celebrate(t);
+    // The celebrate glow and mate ring are the script's; a live still ends
+    // at the position itself.
+    final winP = livePosition != null ? 0.0 : _celebrate(t);
     if (winP > 0.001) {
       final glow = s.whiteWins ? const Color(0xFFF4F1E8) : _ink;
       canvas.drawCircle(
@@ -2577,7 +2694,7 @@ class _ChessTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ChessTilePainter old) =>
-      old.t != t || old.script != script;
+      old.t != t || old.script != script || old.livePieces != livePieces;
 }
 
 /// One static frame of [kind]'s diorama, for thumbnails that cannot animate —
@@ -2615,6 +2732,13 @@ CustomPainter? classicGameStatePainter(
 
   /// Gomoku's row length — its board size is configurable, unlike the others.
   int gomokuSize = 15,
+
+  /// Checkers king flags, index-aligned with [cells]; kings get a gold ring.
+  List<bool>? checkersKings,
+
+  /// Chess: 64 row-major cells (row 0 = rank 8), null or a piece letter in
+  /// `ChessState.boardCells` encoding (white upper-case).
+  List<String?>? chessPieces,
 }) =>
     switch (kind) {
       GameTileKind.mancala when mancalaPits != null =>
@@ -2627,14 +2751,20 @@ CustomPainter? classicGameStatePainter(
         _ConnectFourTilePainter(t: 0, script: 0, live: cells),
       GameTileKind.reversi when cells != null =>
         _ReversiTilePainter(t: 0, script: 0, live: cells),
-      GameTileKind.checkers when cells != null =>
-        _CheckersTilePainter(t: 0, script: 0, live: cells),
+      GameTileKind.checkers when cells != null => _CheckersTilePainter(
+          t: 0,
+          script: 0,
+          live: cells,
+          liveKings: checkersKings,
+        ),
       GameTileKind.gomoku when cells != null => _GomokuTilePainter(
           t: 0,
           script: 0,
           live: cells,
           liveSize: gomokuSize,
         ),
+      GameTileKind.chess when chessPieces != null =>
+        _ChessTilePainter(t: 0, script: 0, livePieces: chessPieces),
       _ => null,
     };
 

@@ -103,9 +103,13 @@ class _DartsTilePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Wide canvases (the chat card's art window) paint edge-to-edge and open
+    // the board up — the consumer clips its own corners there. Square tiles
+    // keep the authored rounded silhouette.
+    final wide = (size.width - size.height).abs() > size.shortestSide * 0.05;
     final outer = RRect.fromRectAndRadius(
       Offset.zero & size,
-      Radius.circular(size.width * 0.22),
+      wide ? Radius.zero : Radius.circular(size.width * 0.22),
     );
     canvas.drawRRect(
       outer,
@@ -119,8 +123,9 @@ class _DartsTilePainter extends CustomPainter {
     canvas.save();
     canvas.clipRRect(outer);
 
-    final centre = Offset(size.width * 0.5, size.height * 0.47);
-    final r = size.width * 0.36;
+    final s = size.shortestSide;
+    final centre = Offset(size.width * 0.5, size.height * (wide ? 0.5 : 0.47));
+    final r = s * (wide ? 0.40 : 0.36);
 
     // Surround.
     canvas.drawCircle(
@@ -179,7 +184,7 @@ class _DartsTilePainter extends CustomPainter {
     // Wire spider.
     final wire = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(0.6, size.width * 0.006)
+      ..strokeWidth = math.max(0.6, s * 0.006)
       ..color = _wire.withValues(alpha: 0.85);
     for (final ratio in const [
       DartsBoardGeometry.outerBullRatio,
@@ -214,7 +219,7 @@ class _DartsTilePainter extends CustomPainter {
       // Come in from the lower right, foreshortened — a dart standing in the
       // board, not a pin lying on it.
       final unit = Offset(math.cos(angle), math.sin(angle));
-      final len = size.width * 0.22 * scale;
+      final len = s * 0.22 * scale;
       final tail = tip - unit * len;
       final perp = Offset(-unit.dy, unit.dx);
       canvas.drawLine(
@@ -222,10 +227,10 @@ class _DartsTilePainter extends CustomPainter {
         tip,
         Paint()
           ..strokeCap = StrokeCap.round
-          ..strokeWidth = math.max(1.2, size.width * 0.022 * scale)
+          ..strokeWidth = math.max(1.2, s * 0.022 * scale)
           ..color = const Color(0xFFD3D8DF),
       );
-      final finW = size.width * 0.045 * scale;
+      final finW = s * 0.045 * scale;
       canvas.drawPath(
         Path()
           ..moveTo(tail.dx + perp.dx * finW, tail.dy + perp.dy * finW)
@@ -286,13 +291,13 @@ class _DartsTilePainter extends CustomPainter {
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w800,
-              fontSize: size.width * 0.13,
+              fontSize: s * 0.13,
               height: 1.0,
             ),
           ),
           textDirection: TextDirection.ltr,
         )..layout();
-        final pad = size.width * 0.045;
+        final pad = s * 0.045;
         final box = RRect.fromRectAndRadius(
           Rect.fromLTWH(
             size.width * 0.5 - tp.width / 2 - pad,
@@ -300,7 +305,7 @@ class _DartsTilePainter extends CustomPainter {
             tp.width + pad * 2,
             tp.height + pad * 1.2,
           ),
-          Radius.circular(size.width * 0.05),
+          Radius.circular(s * 0.05),
         );
         canvas.drawRRect(box, Paint()..color = const Color(0xCC101014));
         tp.paint(
