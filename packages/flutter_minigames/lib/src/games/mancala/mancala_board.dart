@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show listEquals, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
@@ -33,10 +34,18 @@ class MancalaBoard extends StatefulWidget {
   final MatchController<MancalaState, MancalaMove> controller;
   final MancalaStyle style;
 
+  /// The rule set the match was created with. MUST match the
+  /// [MancalaGame.mode] the controller's game runs: the board replays each
+  /// sow locally to plan the marble animation, and a mismatched mode animates
+  /// a different game than the one being played — phantom avalanche relays,
+  /// or captures that never land.
+  final MancalaMode mode;
+
   const MancalaBoard({
     super.key,
     required this.controller,
     this.style = const MancalaStyle(),
+    this.mode = MancalaMode.capture,
   });
 
   @override
@@ -45,7 +54,10 @@ class MancalaBoard extends StatefulWidget {
 
 class _MancalaBoardState extends State<MancalaBoard>
     with TickerProviderStateMixin {
-  static const _logic = MancalaGame();
+  /// Mode-aware rules twin. Built from [MancalaBoard.mode] — a `const
+  /// MancalaGame()` here silently ran capture rules under an avalanche match
+  /// (and vice versa), so every local replay disagreed with the transport.
+  late final MancalaGame _logic = MancalaGame(mode: widget.mode);
 
   late AnimationController _entrance;
   late AnimationController _sowCtrl;
@@ -339,7 +351,12 @@ class _MancalaBoardState extends State<MancalaBoard>
             cup != MancalaState.southStore && cup != MancalaState.northStore;
         if (cup == ownStore) {
           // chain ends
-        } else if (isSide && pits[cup] >= 2) {
+        } else if (widget.mode == MancalaMode.avalanche &&
+            isSide &&
+            pits[cup] >= 2) {
+          // Relay pickup exists in avalanche only. Ungated, a capture-mode
+          // sow whose last stone landed in a non-empty pit animated a phantom
+          // relay the real state never played, then snapped to truth.
           hand = pits[cup];
           pits[cup] = 0;
           pickup = true;
@@ -361,8 +378,10 @@ class _MancalaBoardState extends State<MancalaBoard>
     }
 
     // Capture (mirrors MancalaGame.applyMove) so sweep detection sees the
-    // true post-move board.
-    if (before.ownsPit(playerId, cup) && pits[cup] == 1) {
+    // true post-move board. Capture mode only — avalanche never captures.
+    if (widget.mode == MancalaMode.capture &&
+        before.ownsPit(playerId, cup) &&
+        pits[cup] == 1) {
       final opp = MancalaState.opposite(cup);
       if (pits[opp] > 0) {
         pits[ownStore] += pits[opp] + 1;
@@ -400,7 +419,6 @@ class _MancalaBoardState extends State<MancalaBoard>
         pits: List<int>.of(state.pits),
         flyers: const [],
         highlight: -1,
-        captureFlash: false,
         // Post-sow "AGAIN!" is timer-driven (_showExtraPill), not sticky.
         extraFlash: false,
       );
@@ -431,7 +449,6 @@ class _MancalaBoardState extends State<MancalaBoard>
 
     final flyers = <_Flyer>[];
     var highlight = -1;
-    var captureFlash = false;
 
     if (pos < hopCount) {
       final hop = hops[beat];
@@ -522,7 +539,6 @@ class _MancalaBoardState extends State<MancalaBoard>
           ),
         );
       }
-      captureFlash = capLocal > 0.4;
       highlight = moverStore;
     } else if (_sweepMoves.isNotEmpty) {
       // Sweep beat: the losing-side board is empty, so the other side's
@@ -586,7 +602,6 @@ class _MancalaBoardState extends State<MancalaBoard>
         pits: List<int>.of(state.pits),
         flyers: const [],
         highlight: -1,
-        captureFlash: _sowCapture,
         extraFlash: _sowExtra,
       );
     }
@@ -595,7 +610,6 @@ class _MancalaBoardState extends State<MancalaBoard>
       pits: display,
       flyers: flyers,
       highlight: highlight,
-      captureFlash: captureFlash,
       extraFlash: _sowExtra && sowT > 0.9,
     );
   }
@@ -665,54 +679,58 @@ class _MancalaBoardState extends State<MancalaBoard>
           pillMsg = 'AGAIN!';
         }
 
-        final board = ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 560),
-          child: Transform.scale(
-            scale: 0.94 + 0.06 * enter,
-            child: Opacity(
-              opacity: enter.clamp(0.0, 1.0),
-              child: AspectRatio(
-                // Slim GP tray: ~3.1 units wide × ~10.3 tall.
-                aspectRatio: 0.31,
-                child: LayoutBuilder(
-                  builder: (context, c) {
-                    final geom = _BoardGeom(Size(c.maxWidth, c.maxHeight));
-                    _geom = geom;
-                    return GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapDown: (d) => _onTapDown(d.localPosition),
-                      child: Stack(
-                        children: [
-                          CustomPaint(
-                            size: Size(c.maxWidth, c.maxHeight),
-                            painter: _MancalaPainter(
-                              pits: frame.pits,
-                              geom: geom,
-                              boardColor: boardColor,
-                              pitColor: pitColor,
-                              legal: legal,
-                              highlight: frame.highlight,
-                              captureFlash: frame.captureFlash,
-                              flyers: frame.flyers,
-                              tick: _sowCtrl.value,
+        // RepaintBoundary: sow frames repaint the board in its own layer
+        // instead of dragging the felt stipple + side players into every
+        // 120Hz raster pass.
+        final board = RepaintBoundary(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 560),
+            child: Transform.scale(
+              scale: 0.94 + 0.06 * enter,
+              child: Opacity(
+                opacity: enter.clamp(0.0, 1.0),
+                child: AspectRatio(
+                  // Slim GP tray: ~3.1 units wide × ~10.3 tall.
+                  aspectRatio: 0.31,
+                  child: LayoutBuilder(
+                    builder: (context, c) {
+                      final geom = _BoardGeom(Size(c.maxWidth, c.maxHeight));
+                      _geom = geom;
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: (d) => _onTapDown(d.localPosition),
+                        child: Stack(
+                          children: [
+                            CustomPaint(
+                              size: Size(c.maxWidth, c.maxHeight),
+                              painter: _MancalaPainter(
+                                pits: frame.pits,
+                                geom: geom,
+                                boardColor: boardColor,
+                                pitColor: pitColor,
+                                legal: legal,
+                                highlight: frame.highlight,
+                                flyers: frame.flyers,
+                                dpr: MediaQuery.devicePixelRatioOf(context),
+                              ),
                             ),
-                          ),
-                          if (style.confetti && _confetti.isNotEmpty)
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: CustomPaint(
-                                  painter: _ConfettiPainter(
-                                    confetti: _confetti,
-                                    t: _confettiCtrl.value,
-                                    boardSize: c.maxWidth,
+                            if (style.confetti && _confetti.isNotEmpty)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: CustomPaint(
+                                    painter: _ConfettiPainter(
+                                      confetti: _confetti,
+                                      t: _confettiCtrl.value,
+                                      boardSize: c.maxWidth,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -740,12 +758,18 @@ class _MancalaBoardState extends State<MancalaBoard>
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
+                  // The host hands this widget tight full-width constraints
+                  // (Positioned.fill), which overrides mainAxisSize.min — and
+                  // an unset mainAxisAlignment then packs the chip-board-chip
+                  // cluster to the LEFT edge. Center it explicitly.
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     _SidePlayer(
                       label: style.northLabel,
                       score: frame.pits[MancalaState.northStore],
                       color: north,
+                      avatar: style.northAvatar,
                       active: showOutcome == null &&
                           state.currentPlayerId == state.northId,
                       winner: showOutcome?.isWin == true &&
@@ -789,6 +813,7 @@ class _MancalaBoardState extends State<MancalaBoard>
                       label: style.southLabel,
                       score: frame.pits[MancalaState.southStore],
                       color: south,
+                      avatar: style.southAvatar,
                       active: showOutcome == null &&
                           state.currentPlayerId == state.southId,
                       winner: showOutcome?.isWin == true &&
@@ -892,14 +917,12 @@ class _SowFrame {
   final List<int> pits;
   final List<_Flyer> flyers;
   final int highlight;
-  final bool captureFlash;
   final bool extraFlash;
 
   const _SowFrame({
     required this.pits,
     required this.flyers,
     required this.highlight,
-    required this.captureFlash,
     required this.extraFlash,
   });
 }
@@ -1421,9 +1444,10 @@ class _MancalaPainter extends CustomPainter {
   final Color pitColor;
   final Set<int> legal;
   final int highlight;
-  final bool captureFlash;
   final List<_Flyer> flyers;
-  final double tick;
+
+  /// Device pixel ratio the resting-board raster is baked at.
+  final double dpr;
 
   _MancalaPainter({
     required this.pits,
@@ -1432,17 +1456,45 @@ class _MancalaPainter extends CustomPainter {
     required this.pitColor,
     required this.legal,
     required this.highlight,
-    required this.captureFlash,
     required this.flyers,
-    required this.tick,
+    required this.dpr,
   });
 
   double get _baseMarbleR => geom.pitD * 0.145;
 
   @override
   void paint(Canvas canvas, Size size) {
-    // The carved slab never moves: grain, wells and rims come from one cached
-    // picture, leaving only the state rings and the stones per frame.
+    // Everything at rest — tray, state rings, piled stones, count badges —
+    // comes from one rasterized image. The resting board only changes on a
+    // drop or a hand-over (a few times per second at most), but this painter
+    // repaints every frame of a sow; painting the piles live meant ~140
+    // MaskFilter.blur shadow draws re-rasterized per frame at up to 120Hz,
+    // which is where the device heat came from. Now those blurs are paid once
+    // per state change (toImageSync) and each frame blits one GPU-resident
+    // image, leaving only the airborne stones to draw live.
+    final resting = _restingImageFor(size);
+    canvas.drawImageRect(
+      resting,
+      Rect.fromLTWH(
+        0,
+        0,
+        resting.width.toDouble(),
+        resting.height.toDouble(),
+      ),
+      Offset.zero & size,
+      Paint()..filterQuality = FilterQuality.low,
+    );
+    for (final f in flyers) {
+      if (f.ballistic) {
+        _paintSownStone(canvas, f);
+      } else {
+        _paintArcedStone(canvas, f);
+      }
+    }
+  }
+
+  /// Draws the full resting board (no flyers) in logical coordinates.
+  void _paintResting(Canvas canvas, Size size) {
     canvas.drawPicture(_trayFor(size, geom, boardColor, pitColor));
     for (var i = 0; i < 6; i++) {
       _paintWellRing(canvas, _pitWellRRect(geom.cups[i]),
@@ -1464,13 +1516,39 @@ class _MancalaPainter extends CustomPainter {
     for (var i = 0; i < 14; i++) {
       _paintCountBadge(canvas, i, pits[i]);
     }
-    for (final f in flyers) {
-      if (f.ballistic) {
-        _paintSownStone(canvas, f);
-      } else {
-        _paintArcedStone(canvas, f);
-      }
+  }
+
+  String _restingKey(Size size) => '${pits.join(',')}'
+      '|$highlight'
+      '|${(legal.toList()..sort()).join(',')}'
+      '|${size.width}x${size.height}'
+      '|$dpr'
+      // ignore: deprecated_member_use
+      '|${boardColor.value}'
+      // ignore: deprecated_member_use
+      '|${pitColor.value}';
+
+  ui.Image _restingImageFor(Size size) {
+    final key = _restingKey(size);
+    for (final r in _restingImages) {
+      if (r.key == key) return r.image;
     }
+    final recorder = ui.PictureRecorder();
+    final c = Canvas(recorder)..scale(dpr);
+    _paintResting(c, size);
+    final picture = recorder.endRecording();
+    final image = picture.toImageSync(
+      (size.width * dpr).ceil(),
+      (size.height * dpr).ceil(),
+    );
+    picture.dispose();
+    _restingImages.insert(0, _RestingImage(key, image));
+    // Two entries: the current state plus the one a mid-hop drop just
+    // replaced, so a repaint race never re-records twice in one frame.
+    while (_restingImages.length > 2) {
+      _restingImages.removeLast().image.dispose();
+    }
+    return image;
   }
 
   /// A stone in the hand, or falling out of it into a pit.
@@ -1765,14 +1843,28 @@ class _MancalaPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MancalaPainter old) =>
-      old.pits != pits ||
+      // Content equality, not identity: `_frame()` builds fresh lists every
+      // rebuild, so identity compares forced a full repaint on every setState
+      // even when nothing on the board had changed.
+      flyers.isNotEmpty ||
+      old.flyers.isNotEmpty ||
       old.highlight != highlight ||
-      old.captureFlash != captureFlash ||
-      old.legal != legal ||
-      old.flyers != flyers ||
-      old.tick != tick ||
-      old.boardColor != boardColor;
+      old.boardColor != boardColor ||
+      old.pitColor != pitColor ||
+      old.dpr != dpr ||
+      !listEquals(old.pits, pits) ||
+      !setEquals(old.legal, legal);
 }
+
+/// Rasterized resting board, keyed on state + palette + size + dpr.
+class _RestingImage {
+  final String key;
+  final ui.Image image;
+
+  _RestingImage(this.key, this.image);
+}
+
+final List<_RestingImage> _restingImages = [];
 
 // ---------------------------------------------------------------------------
 // Side players
@@ -1785,12 +1877,18 @@ class _SidePlayer extends StatelessWidget {
   final bool active;
   final bool winner;
 
+  /// The player's face, clipped into the seat chip. Null keeps the plain
+  /// seat-colored disc; when set, the seat color moves to the chip's ring so
+  /// red-vs-black identity survives the avatar taking the fill.
+  final Widget? avatar;
+
   const _SidePlayer({
     required this.label,
     required this.score,
     required this.color,
     required this.active,
     required this.winner,
+    this.avatar,
   });
 
   @override
@@ -1810,15 +1908,20 @@ class _SidePlayer extends StatelessWidget {
               height: 42,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  center: const Alignment(-0.3, -0.3),
-                  colors: [Color.lerp(color, Colors.white, 0.35)!, color],
-                ),
+                gradient: avatar != null
+                    ? null
+                    : RadialGradient(
+                        center: const Alignment(-0.3, -0.3),
+                        colors: [Color.lerp(color, Colors.white, 0.35)!, color],
+                      ),
+                color: avatar != null ? color : null,
                 border: Border.all(
                   color: winner
                       ? const Color(0xFFF4B740)
-                      : (active ? Colors.white70 : Colors.white24),
-                  width: winner || active ? 2.5 : 1.5,
+                      : (avatar != null
+                          ? color
+                          : (active ? Colors.white70 : Colors.white24)),
+                  width: winner || active ? 2.5 : (avatar != null ? 2.0 : 1.5),
                 ),
                 boxShadow: active
                     ? [
@@ -1829,6 +1932,9 @@ class _SidePlayer extends StatelessWidget {
                       ]
                     : const [],
               ),
+              child: avatar == null
+                  ? null
+                  : ClipOval(child: SizedBox.expand(child: avatar)),
             ),
             const SizedBox(height: 6),
             Text(

@@ -17,6 +17,13 @@ class MancalaStyle {
   final String southLabel;
   final String northLabel;
 
+  /// Player faces rendered inside the seat chips beside the board. Null keeps
+  /// the plain seat-colored disc; when set, the seat accent moves to the
+  /// chip's ring. The host owns what the widget is (an image, an initial, a
+  /// full avatar component) — the board only clips it into the circle.
+  final Widget? southAvatar;
+  final Widget? northAvatar;
+
   final bool haptics;
   final bool confetti;
   final MancalaSounds sounds;
@@ -33,6 +40,8 @@ class MancalaStyle {
     this.tableColor,
     this.southLabel = 'Player 1',
     this.northLabel = 'Player 2',
+    this.southAvatar,
+    this.northAvatar,
     this.haptics = true,
     this.confetti = true,
     this.sounds = MancalaSounds.silent,
