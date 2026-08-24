@@ -288,6 +288,27 @@ void main() {
   });
 
   group('framing across a putt', () {
+    test('a tall phone uses its height without pulling the course away', () {
+      const tall = Size(420, 798);
+      final course = MiniGolfCourse.forHole(0, 0);
+      final rig = MiniGolfCamera.settledOnTarget(
+        viewport: tall,
+        course: course,
+        ball: course.tee,
+      );
+      final camera = rig.toCamera(tall);
+      final visible = [
+        for (final point in course.outline)
+          camera.project(Vec3(point.dx, 0, point.dy)),
+      ].where((point) => point.visible).toList();
+      final top = visible.map((point) => point.screen.dy).reduce(math.min);
+      final bottom = visible.map((point) => point.screen.dy).reduce(math.max);
+
+      expect(bottom - top, greaterThan(tall.height * 0.60));
+      expect(top, greaterThan(tall.height * 0.04));
+      expect(bottom, lessThan(tall.height * 0.96));
+    });
+
     /// Replays the board's camera machine over a recorded putt and reports the
     /// extreme screen positions the ball reached.
     ({double minX, double maxX, double minY, double maxY, double minBack})

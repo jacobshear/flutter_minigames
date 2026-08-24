@@ -1,5 +1,7 @@
+import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_minigames/src/core/core.dart';
 import 'package:flutter_minigames/src/games/knockout/knockout.dart';
 
 /// Presentation-layer behaviour: the parts of "feel" that are assertable
@@ -7,6 +9,53 @@ import 'package:flutter_minigames/src/games/knockout/knockout.dart';
 /// a puck tips over a lip and falls into the void. Knocking pucks off is the
 /// whole game, so the fall gets the most coverage here.
 void main() {
+  group('tall viewport camera', () {
+    testWidgets('gives the scene more height on a tall phone', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(420, 798));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller =
+          await MatchController.create<KnockoutState, KnockoutMove>(
+        game: const KnockoutGame(),
+        transport: LocalTransport(),
+        matchId: 'tall-viewport',
+        playerIds: const ['p1', 'p2'],
+        localPlayerId: 'p1',
+        hotSeat: true,
+        seed: 0,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: KnockoutBoard(controller: controller)),
+        ),
+      );
+      await tester.pump();
+
+      final gameWidget =
+          find.byWidgetPredicate((widget) => widget is GameWidget);
+      final sceneSize = tester.getSize(gameWidget);
+      expect(sceneSize.aspectRatio, closeTo(0.8, 1e-9));
+      expect(sceneSize.width, greaterThan(380));
+      expect(tester.takeException(), isNull);
+
+      // MatchController.dispose() cannot complete inside the fake-async zone;
+      // unmounting is the teardown this widget needs to exercise.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    test('zooms a square platform by cropping only the outer void', () {
+      const viewport = Size(420, 525);
+      final platform = knockoutPlatformRect(viewport);
+
+      expect(platform.width, closeTo(platform.height, 1e-9));
+      expect(platform.width, greaterThan(viewport.width * 0.82));
+      expect(platform.left, greaterThan(viewport.width * 0.07));
+      expect(platform.right, lessThan(viewport.width * 0.93));
+    });
+  });
+
   group('KnockoutSlideSpin', () {
     test('accumulates with distance travelled, not with number of steps', () {
       final a = KnockoutSlideSpin('p1-0')..advance(2, 0, 0.5);

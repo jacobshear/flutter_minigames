@@ -467,65 +467,67 @@ class _KnockoutBoardState extends State<KnockoutBoard>
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: Center(
-              child: ConstrainedBox(
-                // Was 340, which left a 34pt margin of empty shell on a
-                // 402pt phone for no reason. The tablet ceiling still applies.
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: AspectRatio(
-                  aspectRatio: 1, // square platform
-                  // Clipped like every other board here: unclipped, the scene's
-                  // own black backdrop met the shell in a hard rectangle.
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onPanStart: _panStart,
-                            onPanUpdate: _panUpdate,
-                            onPanEnd: _panEnd,
-                            child: GameWidget(game: scene),
-                          ),
-                        ),
-                        if (style.confetti && _confetti.isNotEmpty)
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = math.min(420.0, constraints.maxWidth);
+                final height = math.min(constraints.maxHeight, width * 1.25);
+                return Center(
+                  child: SizedBox(
+                    width: width,
+                    height: height,
+                    // The camera may crop the outer void on a tall phone, but
+                    // knockoutPlatformRect keeps the physical slab square.
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Stack(
+                        children: [
                           Positioned.fill(
-                            child: IgnorePointer(
-                              child: AnimatedBuilder(
-                                animation: _confettiCtrl,
-                                builder: (context, _) => LayoutBuilder(
-                                  builder: (context, c) => CustomPaint(
-                                    painter: _ConfettiPainter(
-                                      confetti: _confetti,
-                                      t: _confettiCtrl.value,
-                                      boardSize: c.maxWidth,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onPanStart: _panStart,
+                              onPanUpdate: _panUpdate,
+                              onPanEnd: _panEnd,
+                              child: GameWidget(game: scene),
+                            ),
+                          ),
+                          if (style.confetti && _confetti.isNotEmpty)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: AnimatedBuilder(
+                                  animation: _confettiCtrl,
+                                  builder: (context, _) => LayoutBuilder(
+                                    builder: (context, c) => CustomPaint(
+                                      painter: _ConfettiPainter(
+                                        confetti: _confetti,
+                                        t: _confettiCtrl.value,
+                                        boardSize: c.maxWidth,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Center(
-                              child: GameNotice(
-                                message: _notice,
-                                tone: _noticeTone,
-                                accent: _noticeAccent,
-                                strong: _noticeSticky,
-                                autoDismiss: _noticeSticky
-                                    ? null
-                                    : const Duration(milliseconds: 1700),
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: Center(
+                                child: GameNotice(
+                                  message: _notice,
+                                  tone: _noticeTone,
+                                  accent: _noticeAccent,
+                                  strong: _noticeSticky,
+                                  autoDismiss: _noticeSticky
+                                      ? null
+                                      : const Duration(milliseconds: 1700),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 8),
@@ -2254,12 +2256,19 @@ class _Confetto {
 /// the fall needs somewhere to happen. Too tight a ring of void and a puck
 /// leaves the canvas before it has finished tipping.
 Rect knockoutPlatformRect(Size size) {
-  final margin = size.width * 0.135;
+  // Treat the painter as a square camera that can zoom into a taller viewport.
+  // Only the outer void is cropped; the normalized physics slab stays square,
+  // and this same rect remains the single painter/hit-test mapping.
+  const cameraZoom = 1.15;
+  final cameraSide = math.min(size.height, size.width * cameraZoom);
+  final cameraLeft = (size.width - cameraSide) / 2;
+  final cameraTop = (size.height - cameraSide) / 2;
+  final margin = cameraSide * 0.135;
   return Rect.fromLTRB(
-    margin,
-    margin * 0.82,
-    size.width - margin,
-    size.height - margin * 1.18,
+    cameraLeft + margin,
+    cameraTop + margin * 0.82,
+    cameraLeft + cameraSide - margin,
+    cameraTop + cameraSide - margin * 1.18,
   );
 }
 

@@ -118,6 +118,11 @@ class MiniGolfCamera {
   /// broad to fill the canvas vertically.
   static const double aimMidFraction = 0.60;
 
+  /// Tall phones may crop peripheral rough instead of pulling the whole course
+  /// away. Below this aspect the useful shot corridor keeps a phone-width
+  /// framing, while the actual projection still clips against the real canvas.
+  static const double _minFramingAspect = 0.68;
+
   /// FLIGHT: the ball itself is pinned here, low-ish in frame so most of the
   /// canvas is the direction of travel.
   static const double flightBallFraction = 0.64;
@@ -379,8 +384,9 @@ class MiniGolfCamera {
     final tauMid = tauFor(aimMidFraction);
     final spread = math.max(0.5, tauFar - tauNear);
 
-    final aspect =
-        viewport.height <= 0 ? 1.0 : viewport.width / viewport.height;
+    final aspect = viewport.height <= 0
+        ? 1.0
+        : math.max(_minFramingAspect, viewport.width / viewport.height);
     final tanX = math.max(0.30, aspect * tanY);
 
     // Everything that has to stay on canvas: the ball, the point it's being
@@ -465,8 +471,9 @@ class MiniGolfCamera {
     final rBall = (0.5 - flightBallFraction) * 2 * tanY;
     final tauBall = (rBall * s + c) / (s - rBall * c);
 
-    final aspect =
-        viewport.height <= 0 ? 1.0 : viewport.width / viewport.height;
+    final aspect = viewport.height <= 0
+        ? 1.0
+        : math.max(_minFramingAspect, viewport.width / viewport.height);
     final tanX = math.max(0.30, aspect * tanY);
 
     final focusX = focus.dx + _openBias(course, ball);
