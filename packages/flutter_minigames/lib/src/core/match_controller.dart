@@ -35,6 +35,16 @@ class MatchController<S, M> {
   StreamSubscription<Match>? _sub;
   Match? _match;
 
+  /// The authoritative snapshot held back while a replay is pending — see
+  /// [connect]. Null whenever no replay is in flight.
+  Match? _replayTarget;
+  Timer? _replayTimer;
+
+  /// How long [connect] shows the previous snapshot before landing the real
+  /// one when `replayLastTurn` is set. Long enough for a board's entrance
+  /// animation to finish so the replayed move reads as a move, not a flash.
+  static const Duration replayDelay = Duration(milliseconds: 700);
+
   /// Emits the decoded game state on every change.
   Stream<S> get stateStream => _stateController.stream;
 
@@ -56,7 +66,7 @@ class MatchController<S, M> {
   /// Whether it's this client's move (always true in [hotSeat] while open).
   bool get canActLocally {
     final m = _match;
-    if (m == null || !m.isOpen) return false;
+    if (m == null || !m.isOpen || isReplayingLastTurn) return false;
     return hotSeat || m.currentPlayerId == localPlayerId;
   }
 
@@ -66,11 +76,63 @@ class MatchController<S, M> {
       _match!.isOpen &&
       _match!.currentPlayerId == localPlayerId;
 
+  /// True while [connect] is holding the previous snapshot and the real one
+  /// has not landed yet.
+  bool get isReplayingLastTurn => _replayTarget != null;
+
   /// Load the current snapshot (if any) and start listening for updates.
-  Future<void> connect() async {
+  ///
+  /// With [replayLastTurn], a match whose most recent turn was taken by
+  /// someone other than [localPlayerId] is first exposed as it stood BEFORE
+  /// that turn ([Match.previousTurn]); after [replayDelay] the real snapshot
+  /// lands through [stateStream] exactly as a live turn would. Boards diff
+  /// consecutive states to animate a move, so this makes a cold open replay
+  /// the opponent's move with no board-level support. A snapshot that
+  /// arrives from the transport during the window either duplicates the held
+  /// one (swallowed — the timer lands it) or supersedes it (a newer turn:
+  /// the replay is abandoned and the newer snapshot wins). While the window
+  /// is open [canActLocally] is false and [submitMove] refuses, since the
+  /// visible board is not the one a move would be validated against.
+  Future<void> connect({bool replayLastTurn = false}) async {
     final existing = await transport.loadMatch(matchId);
-    if (existing != null) _emit(existing);
-    _sub = transport.watchMatch(matchId).listen(_emit);
+    if (existing != null) {
+      final previous = replayLastTurn && existing.lastMoverId != localPlayerId
+          ? existing.previousTurn
+          : null;
+      if (previous != null) {
+        _replayTarget = existing;
+        _emit(previous);
+        _replayTimer = Timer(replayDelay, _landReplay);
+      } else {
+        _emit(existing);
+      }
+    }
+    _sub = transport.watchMatch(matchId).listen(_onTransportMatch);
+  }
+
+  void _onTransportMatch(Match m) {
+    final target = _replayTarget;
+    if (target != null) {
+      // Same turn we're already holding back (RTDB replays the current value
+      // on subscribe): let the timer land it.
+      if (m.turnCount <= target.turnCount && m.status == target.status) {
+        return;
+      }
+      _abandonReplay();
+    }
+    _emit(m);
+  }
+
+  void _landReplay() {
+    final target = _replayTarget;
+    _abandonReplay();
+    if (target != null) _emit(target);
+  }
+
+  void _abandonReplay() {
+    _replayTimer?.cancel();
+    _replayTimer = null;
+    _replayTarget = null;
   }
 
   void _emit(Match m) {
@@ -86,7 +148,7 @@ class MatchController<S, M> {
   /// legal move, or it isn't this client's turn.
   Future<bool> submitMove(M move) async {
     final m = _match;
-    if (m == null || !m.isOpen) return false;
+    if (m == null || !m.isOpen || isReplayingLastTurn) return false;
 
     final current = game.decodeState(m.state, m.schemaVersion);
     final acting = hotSeat ? game.currentPlayer(current) : localPlayerId;
@@ -107,6 +169,8 @@ class MatchController<S, M> {
       schemaVersion: game.stateSchemaVersion,
       winnerId: outcome?.winnerId,
       isDraw: outcome?.isDraw ?? false,
+      prevState: m.state,
+      lastMoverId: acting,
     );
 
     await transport.submitTurn(updated);
@@ -148,6 +212,7 @@ class MatchController<S, M> {
   }
 
   Future<void> dispose() async {
+    _abandonReplay();
     await _sub?.cancel();
     await _stateController.close();
   }

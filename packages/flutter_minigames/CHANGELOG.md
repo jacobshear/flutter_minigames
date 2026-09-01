@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- `Match` gains `prevState` and `lastMoverId`, plus a `previousTurn` getter
+  that reconstructs the match as it stood before the most recent turn
+  (metadata rolled back too — turn count, mover, open status).
+  `MatchController.submitMove` now writes both fields alongside the new
+  state.
+- `MatchController.connect` takes a `replayLastTurn` flag. When true and the
+  stored match's last move was made by someone other than the local player,
+  `connect` first emits `previousTurn`, then lands the real snapshot through
+  `stateStream` after `MatchController.replayDelay` (700ms) — so a cold open
+  can animate the opponent's move instead of showing it as a fait accompli.
+- While a replay is pending, `isReplayingLastTurn` is true and both
+  `canActLocally` and `submitMove` are gated off. A newer turn arriving from
+  the transport during the window abandons the replay and lands immediately;
+  a duplicate of the held snapshot (e.g. a transport's replay-on-subscribe)
+  is swallowed and left to the replay timer.
+
 ## 0.1.0
 
 First release.

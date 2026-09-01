@@ -37,6 +37,20 @@ class Match {
   /// Whether the ended match was a draw.
   final bool isDraw;
 
+  /// The encoded state as it stood BEFORE the most recent turn, or `null` on
+  /// a fresh match. Written by [MatchController.submitMove] alongside [state]
+  /// so a client that opens the match cold can replay the last turn
+  /// (see `MatchController.connect(replayLastTurn:)`) — the board is shown
+  /// this snapshot first, then [state] lands through the normal stream path
+  /// and animates exactly as it would have live.
+  final Map<String, dynamic>? prevState;
+
+  /// Who submitted the most recent turn, or `null` on a fresh match. Paired
+  /// with [prevState]: a replay only makes sense for a turn someone ELSE
+  /// took, and in games with extra turns [currentPlayerId] alone can't say
+  /// who moved last.
+  final String? lastMoverId;
+
   const Match({
     required this.id,
     required this.gameId,
@@ -48,6 +62,8 @@ class Match {
     required this.schemaVersion,
     this.winnerId,
     this.isDraw = false,
+    this.prevState,
+    this.lastMoverId,
   });
 
   bool get isOpen => status == MatchStatus.open;
@@ -60,6 +76,8 @@ class Match {
     Map<String, dynamic>? state,
     String? winnerId,
     bool? isDraw,
+    Map<String, dynamic>? prevState,
+    String? lastMoverId,
   }) {
     return Match(
       id: id,
@@ -72,6 +90,29 @@ class Match {
       schemaVersion: schemaVersion,
       winnerId: winnerId ?? this.winnerId,
       isDraw: isDraw ?? this.isDraw,
+      prevState: prevState ?? this.prevState,
+      lastMoverId: lastMoverId ?? this.lastMoverId,
+    );
+  }
+
+  /// The match as it stood before the most recent turn, or `null` when no
+  /// turn has been recorded with a [prevState]. Metadata is rolled back too
+  /// (turn count, mover, open status) so a consumer holding this snapshot
+  /// sees a coherent "their move is pending" match, not the current
+  /// outcome with an older board.
+  Match? get previousTurn {
+    final prev = prevState;
+    final mover = lastMoverId;
+    if (prev == null || mover == null || turnCount == 0) return null;
+    return Match(
+      id: id,
+      gameId: gameId,
+      playerIds: playerIds,
+      currentPlayerId: mover,
+      status: MatchStatus.open,
+      turnCount: turnCount - 1,
+      state: prev,
+      schemaVersion: schemaVersion,
     );
   }
 
@@ -86,6 +127,8 @@ class Match {
         'schemaVersion': schemaVersion,
         'winnerId': winnerId,
         'isDraw': isDraw,
+        'prevState': prevState,
+        'lastMoverId': lastMoverId,
       };
 
   factory Match.fromJson(Map<String, dynamic> json) => Match(
@@ -99,5 +142,9 @@ class Match {
         schemaVersion: json['schemaVersion'] as int,
         winnerId: json['winnerId'] as String?,
         isDraw: json['isDraw'] as bool? ?? false,
+        prevState: json['prevState'] == null
+            ? null
+            : Map<String, dynamic>.from(json['prevState'] as Map),
+        lastMoverId: json['lastMoverId'] as String?,
       );
 }
