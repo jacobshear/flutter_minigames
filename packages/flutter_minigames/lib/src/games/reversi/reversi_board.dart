@@ -17,9 +17,11 @@ class ReversiBoard extends StatefulWidget {
   final MatchController<ReversiState, ReversiMove> controller;
   final ReversiStyle style;
 
-  /// Whether the board draws its own turn / result banner above the grid.
+  /// Whether the banner above the grid says whose turn it is and who won.
   /// Hosts that render turn ownership and the outcome in their own chrome
-  /// pass false so the state isn't said twice.
+  /// pass false so the state isn't said twice. On this board the banner
+  /// also carries the score chips and a gameplay toast; those stay either
+  /// way — only the turn / result text goes quiet.
   final bool showStatusBanner;
 
   const ReversiBoard({
@@ -247,16 +249,15 @@ class _ReversiBoardState extends State<ReversiBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (widget.showStatusBanner) ...[
-          _StatusBanner(
-            state: state,
-            outcome: _outcome,
-            dark: dark,
-            light: light,
-            passToast: _passToast.value,
-          ),
-          const SizedBox(height: 12),
-        ],
+        _StatusBanner(
+          showTurnText: widget.showStatusBanner,
+          state: state,
+          outcome: _outcome,
+          dark: dark,
+          light: light,
+          passToast: _passToast.value,
+        ),
+        const SizedBox(height: 12),
         // 8×8 reads huge at the shared 400 cap used by sparser boards —
         // keep classic rules, just give the green tray less screen real estate.
         ConstrainedBox(
@@ -327,6 +328,8 @@ class _ReversiBoardState extends State<ReversiBoard>
 // ---------------------------------------------------------------------------
 
 class _StatusBanner extends StatelessWidget {
+  /// False hides the turn and result text; scores and toasts still render.
+  final bool showTurnText;
   final ReversiState state;
   final GameOutcome? outcome;
   final Color dark;
@@ -334,6 +337,7 @@ class _StatusBanner extends StatelessWidget {
   final double passToast;
 
   const _StatusBanner({
+    required this.showTurnText,
     required this.state,
     required this.outcome,
     required this.dark,
@@ -360,6 +364,8 @@ class _StatusBanner extends StatelessWidget {
           opacity: fade.clamp(0.0, 1.0),
           child: Text('Pass', style: textStyle),
         );
+      } else if (!showTurnText) {
+        center = const SizedBox.shrink(key: ValueKey('quiet'));
       } else {
         final isDark = state.currentPlayerId == state.darkId;
         center = Row(
@@ -372,6 +378,8 @@ class _StatusBanner extends StatelessWidget {
           ],
         );
       }
+    } else if (!showTurnText) {
+      center = const SizedBox.shrink(key: ValueKey('quiet'));
     } else if (outcome!.isDraw) {
       center = Text('Dead heat', key: const ValueKey('draw'), style: textStyle);
     } else {

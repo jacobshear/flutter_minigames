@@ -18,9 +18,11 @@ class DotsAndBoxesBoard extends StatefulWidget {
   final MatchController<DotsAndBoxesState, DotsAndBoxesMove> controller;
   final DotsAndBoxesStyle style;
 
-  /// Whether the board draws its own turn / result banner above the grid.
+  /// Whether the banner above the grid says whose turn it is and who won.
   /// Hosts that render turn ownership and the outcome in their own chrome
-  /// pass false so the state isn't said twice.
+  /// pass false so the state isn't said twice. On this board the banner
+  /// also carries the score chips and a gameplay toast; those stay either
+  /// way — only the turn / result text goes quiet.
   final bool showStatusBanner;
 
   const DotsAndBoxesBoard({
@@ -277,17 +279,16 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (widget.showStatusBanner) ...[
-          _StatusBanner(
-            state: state,
-            outcome: _outcome,
-            p0: p0,
-            p1: p1,
-            showAgain: _showAgain,
-            againT: _againCtrl.value,
-          ),
-          const SizedBox(height: 14),
-        ],
+        _StatusBanner(
+          showTurnText: widget.showStatusBanner,
+          state: state,
+          outcome: _outcome,
+          p0: p0,
+          p1: p1,
+          showAgain: _showAgain,
+          againT: _againCtrl.value,
+        ),
+        const SizedBox(height: 14),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
           child: AspectRatio(
@@ -405,6 +406,8 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
 // ---------------------------------------------------------------------------
 
 class _StatusBanner extends StatelessWidget {
+  /// False hides the turn and result text; scores and toasts still render.
+  final bool showTurnText;
   final DotsAndBoxesState state;
   final GameOutcome? outcome;
   final Color p0;
@@ -413,6 +416,7 @@ class _StatusBanner extends StatelessWidget {
   final double againT;
 
   const _StatusBanner({
+    required this.showTurnText,
     required this.state,
     required this.outcome,
     required this.p0,
@@ -450,6 +454,8 @@ class _StatusBanner extends StatelessWidget {
             ),
           ),
         );
+      } else if (!showTurnText) {
+        center = const SizedBox.shrink(key: ValueKey('quiet'));
       } else {
         final isP0 = state.playerIds.indexOf(state.currentPlayerId) == 0;
         final color = isP0 ? p0 : p1;
@@ -463,6 +469,8 @@ class _StatusBanner extends StatelessWidget {
           ],
         );
       }
+    } else if (!showTurnText) {
+      center = const SizedBox.shrink(key: ValueKey('quiet'));
     } else if (outcome!.isDraw) {
       final ink = Theme.of(context).colorScheme.onSurface;
       center = _ResultPill(
