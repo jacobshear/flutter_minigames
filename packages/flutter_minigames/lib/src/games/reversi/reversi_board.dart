@@ -17,10 +17,16 @@ class ReversiBoard extends StatefulWidget {
   final MatchController<ReversiState, ReversiMove> controller;
   final ReversiStyle style;
 
+  /// Whether the board draws its own turn / result banner above the grid.
+  /// Hosts that render turn ownership and the outcome in their own chrome
+  /// pass false so the state isn't said twice.
+  final bool showStatusBanner;
+
   const ReversiBoard({
     super.key,
     required this.controller,
     this.style = const ReversiStyle(),
+    this.showStatusBanner = true,
   });
 
   @override
@@ -241,14 +247,16 @@ class _ReversiBoardState extends State<ReversiBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _StatusBanner(
-          state: state,
-          outcome: _outcome,
-          dark: dark,
-          light: light,
-          passToast: _passToast.value,
-        ),
-        const SizedBox(height: 12),
+        if (widget.showStatusBanner) ...[
+          _StatusBanner(
+            state: state,
+            outcome: _outcome,
+            dark: dark,
+            light: light,
+            passToast: _passToast.value,
+          ),
+          const SizedBox(height: 12),
+        ],
         // 8×8 reads huge at the shared 400 cap used by sparser boards —
         // keep classic rules, just give the green tray less screen real estate.
         ConstrainedBox(

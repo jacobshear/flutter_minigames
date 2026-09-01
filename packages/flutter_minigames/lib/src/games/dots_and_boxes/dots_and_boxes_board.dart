@@ -18,10 +18,16 @@ class DotsAndBoxesBoard extends StatefulWidget {
   final MatchController<DotsAndBoxesState, DotsAndBoxesMove> controller;
   final DotsAndBoxesStyle style;
 
+  /// Whether the board draws its own turn / result banner above the grid.
+  /// Hosts that render turn ownership and the outcome in their own chrome
+  /// pass false so the state isn't said twice.
+  final bool showStatusBanner;
+
   const DotsAndBoxesBoard({
     super.key,
     required this.controller,
     this.style = const DotsAndBoxesStyle(),
+    this.showStatusBanner = true,
   });
 
   @override
@@ -271,15 +277,17 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _StatusBanner(
-          state: state,
-          outcome: _outcome,
-          p0: p0,
-          p1: p1,
-          showAgain: _showAgain,
-          againT: _againCtrl.value,
-        ),
-        const SizedBox(height: 14),
+        if (widget.showStatusBanner) ...[
+          _StatusBanner(
+            state: state,
+            outcome: _outcome,
+            p0: p0,
+            p1: p1,
+            showAgain: _showAgain,
+            againT: _againCtrl.value,
+          ),
+          const SizedBox(height: 14),
+        ],
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
           child: AspectRatio(

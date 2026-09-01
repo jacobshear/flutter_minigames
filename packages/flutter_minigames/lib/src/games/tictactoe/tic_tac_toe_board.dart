@@ -22,10 +22,16 @@ class TicTacToeBoard extends StatefulWidget {
   final MatchController<TicTacToeState, TicTacToeMove> controller;
   final TicTacToeStyle style;
 
+  /// Whether the board draws its own turn / result banner above the grid.
+  /// Hosts that render turn ownership and the outcome in their own chrome
+  /// pass false so the state isn't said twice.
+  final bool showStatusBanner;
+
   const TicTacToeBoard({
     super.key,
     required this.controller,
     this.style = const TicTacToeStyle(),
+    this.showStatusBanner = true,
   });
 
   @override
@@ -201,14 +207,16 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _StatusBanner(
-          state: state,
-          outcome: _outcome,
-          winnerIsX: winnerIsX,
-          xColor: xColor,
-          oColor: oColor,
-        ),
-        const SizedBox(height: 22),
+        if (widget.showStatusBanner) ...[
+          _StatusBanner(
+            state: state,
+            outcome: _outcome,
+            winnerIsX: winnerIsX,
+            xColor: xColor,
+            oColor: oColor,
+          ),
+          const SizedBox(height: 22),
+        ],
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 380),
           child: AspectRatio(

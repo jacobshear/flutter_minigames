@@ -22,10 +22,16 @@ class ConnectFourBoard extends StatefulWidget {
   final MatchController<ConnectFourState, ConnectFourMove> controller;
   final ConnectFourStyle style;
 
+  /// Whether the board draws its own turn / result banner above the grid.
+  /// Hosts that render turn ownership and the outcome in their own chrome
+  /// pass false so the state isn't said twice.
+  final bool showStatusBanner;
+
   const ConnectFourBoard({
     super.key,
     required this.controller,
     this.style = const ConnectFourStyle(),
+    this.showStatusBanner = true,
   });
 
   @override
@@ -277,14 +283,16 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _StatusBanner(
-          state: state,
-          outcome: _outcome,
-          winnerIsP0: winnerIsP0,
-          p0: p0,
-          p1: p1,
-        ),
-        const SizedBox(height: 16),
+        if (widget.showStatusBanner) ...[
+          _StatusBanner(
+            state: state,
+            outcome: _outcome,
+            winnerIsP0: winnerIsP0,
+            p0: p0,
+            p1: p1,
+          ),
+          const SizedBox(height: 16),
+        ],
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
           child: AspectRatio(

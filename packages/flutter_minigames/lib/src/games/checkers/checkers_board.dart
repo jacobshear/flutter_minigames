@@ -17,10 +17,16 @@ class CheckersBoard extends StatefulWidget {
   final MatchController<CheckersState, CheckersMove> controller;
   final CheckersStyle style;
 
+  /// Whether the board draws its own turn / result banner above the grid.
+  /// Hosts that render turn ownership and the outcome in their own chrome
+  /// pass false so the state isn't said twice.
+  final bool showStatusBanner;
+
   const CheckersBoard({
     super.key,
     required this.controller,
     this.style = const CheckersStyle(),
+    this.showStatusBanner = true,
   });
 
   @override
@@ -231,13 +237,15 @@ class _CheckersBoardState extends State<CheckersBoard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _StatusBanner(
-          state: state,
-          outcome: _outcome,
-          dark: darkP,
-          light: lightP,
-        ),
-        const SizedBox(height: 10),
+        if (widget.showStatusBanner) ...[
+          _StatusBanner(
+            state: state,
+            outcome: _outcome,
+            dark: darkP,
+            light: lightP,
+          ),
+          const SizedBox(height: 10),
+        ],
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 312),
           child: AspectRatio(
