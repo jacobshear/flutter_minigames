@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Whole-turn replay. `TurnGame.replayStepDelay(from, to)` (default `null`)
+  lets a game opt into chaining consecutive sub-moves by one player into a
+  single recorded turn: `Match.prevState` then holds the board before the
+  FIRST sub-move and the new `Match.turnSteps` the snapshots in between,
+  and a replay lands every frame in order, waiting the returned duration
+  after each. Checkers (multi-jumps), dots-and-boxes (box chains) and
+  mancala (extra turns, sized from the sow that just landed) opt in; a
+  cold open of a checkers double jump previously replayed only the last
+  leg. `Match.replayFrames` lists the frames; `previousTurn` rolls the
+  turn count back past every step.
+- `MatchController.replayLastTurn()` re-watches the last recorded turn on
+  demand, with `canReplayLastTurn` to gate the affordance. It rewinds
+  `state`/`match` WITHOUT emitting on `stateStream` (a mounted board must
+  not animate backwards) — rebuild the board widget after calling so it
+  mounts against the rewound snapshot; the frames then land as on a cold
+  open. `isReplayingLastTurn` / `canActLocally` / `submitMove` gate the
+  same way as the connect-time replay.
+
+## Unreleased
+
 - `Match` gains `prevState` and `lastMoverId`, plus a `previousTurn` getter
   that reconstructs the match as it stood before the most recent turn
   (metadata rolled back too — turn count, mover, open status).

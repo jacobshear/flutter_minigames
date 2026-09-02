@@ -278,6 +278,13 @@ class CheckersGame extends TurnGame<CheckersState, CheckersMove> {
     );
   }
 
+  /// A multi-jump is several [applyMove]s locked to one piece; replay the
+  /// whole turn leg by leg. The board's slide runs 280ms — a beat past it so
+  /// each landing reads before the next leg lifts.
+  @override
+  Duration? replayStepDelay(CheckersState from, CheckersState to) =>
+      const Duration(milliseconds: 600);
+
   @override
   GameOutcome? outcome(CheckersState state) {
     final a = state.darkId;

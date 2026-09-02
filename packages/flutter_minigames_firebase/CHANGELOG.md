@@ -1,5 +1,13 @@
 ## Unreleased
 
+- `FirebaseGameTransport` stores `Match.turnSteps` as one JSON-encoded string
+  (the list of intermediate snapshots of a multi-step turn) and decodes it
+  on read, mirroring `state` / `prevState`. Needed for the core library's
+  whole-turn replay. Backends with schema validation must allow the new
+  `turnSteps` string child on the match node.
+
+## Unreleased
+
 - `FirebaseGameTransport` now stores `Match.prevState` the same way it stores
   `state`: JSON-encoded to an opaque string on write, decoded back to a map
   on read, and omitted entirely when null. Supports the core library's new

@@ -66,6 +66,65 @@ class _CounterGame extends TurnGame<_CounterState, _CounterMove> {
   _CounterMove decodeMove(Map<String, dynamic> json) => const _CounterMove();
 }
 
+/// A player takes TWO consecutive sub-moves before the turn passes (like a
+/// checkers multi-jump or a mancala extra turn): a, a, b, b, a, a … The game
+/// ends after six sub-moves. [stepDelay] is what it reports as
+/// [TurnGame.replayStepDelay]; null leaves sub-moves unchained.
+class _RunGame extends TurnGame<_CounterState, _CounterMove> {
+  final Duration? stepDelay;
+  const _RunGame({required this.stepDelay});
+
+  @override
+  String get id => 'run';
+
+  @override
+  _CounterState initialState({
+    required int seed,
+    required List<String> playerIds,
+  }) =>
+      _CounterState(0, List.of(playerIds), null);
+
+  @override
+  String currentPlayer(_CounterState state) =>
+      state.playerIds[(state.count ~/ 2) % state.playerIds.length];
+
+  @override
+  bool validateMove(_CounterState state, _CounterMove move, String playerId) =>
+      outcome(state) == null && currentPlayer(state) == playerId;
+
+  @override
+  _CounterState applyMove(_CounterState state, _CounterMove move) =>
+      _CounterState(state.count + 1, state.playerIds, currentPlayer(state));
+
+  @override
+  GameOutcome? outcome(_CounterState state) =>
+      state.count >= 6 ? GameOutcome.win(state.lastMover!) : null;
+
+  @override
+  Duration? replayStepDelay(_CounterState from, _CounterState to) => stepDelay;
+
+  @override
+  Map<String, dynamic> encodeState(_CounterState state) => {
+        'count': state.count,
+        'playerIds': state.playerIds,
+        'lastMover': state.lastMover,
+      };
+
+  @override
+  _CounterState decodeState(Map<String, dynamic> json, int version) =>
+      _CounterState(
+        json['count'] as int,
+        (json['playerIds'] as List).map((e) => e as String).toList(),
+        json['lastMover'] as String?,
+      );
+
+  @override
+  Map<String, dynamic> encodeMove(_CounterMove move) => const {};
+
+  @override
+  _CounterMove decodeMove(Map<String, dynamic> json) => const _CounterMove();
+}
+
 /// Flush pending microtasks so broadcast-stream listeners have run.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
@@ -362,6 +421,257 @@ void main() {
       );
 
       await host.dispose();
+    });
+  });
+
+  group('multi-step turns', () {
+    late LocalTransport transport;
+    const stepDelay = Duration(milliseconds: 40);
+    const game = _RunGame(stepDelay: stepDelay);
+
+    setUp(() => transport = LocalTransport());
+    tearDown(() => transport.dispose());
+
+    test(
+        'consecutive sub-moves by one player chain: prevState stays the '
+        'pre-turn snapshot and turnSteps collects the intermediates', () async {
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r1',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      final fresh = host.match!.state;
+
+      expect(await host.submitMove(const _CounterMove()), isTrue); // a: 0->1
+      await _settle();
+      final afterFirst = (await transport.loadMatch('r1'))!;
+      expect(afterFirst.prevState, fresh);
+      expect(afterFirst.turnSteps, isNull);
+
+      expect(await host.submitMove(const _CounterMove()), isTrue); // a: 1->2
+      await _settle();
+      final afterSecond = (await transport.loadMatch('r1'))!;
+      expect(afterSecond.turnCount, 2);
+      expect(afterSecond.lastMoverId, 'a');
+      expect(afterSecond.prevState, fresh, reason: 'still the pre-turn board');
+      expect(afterSecond.turnSteps, [afterFirst.state]);
+      expect(afterSecond.previousTurn!.turnCount, 0);
+      expect(afterSecond.previousTurn!.currentPlayerId, 'a');
+
+      await host.dispose();
+    });
+
+    test('the chain resets when the turn passes to the other player', () async {
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r2',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        hotSeat: true,
+        seed: 0,
+      );
+      await host.submitMove(const _CounterMove()); // a
+      await host.submitMove(const _CounterMove()); // a
+      await _settle();
+      final endOfA = (await transport.loadMatch('r2'))!;
+
+      await host.submitMove(const _CounterMove()); // b
+      await _settle();
+      final firstB = (await transport.loadMatch('r2'))!;
+      expect(firstB.lastMoverId, 'b');
+      expect(firstB.prevState, endOfA.state);
+      expect(firstB.turnSteps, isNull);
+
+      await host.dispose();
+    });
+
+    test('a game that reports no replayStepDelay never chains', () async {
+      const unchained = _RunGame(stepDelay: null);
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: unchained,
+        transport: transport,
+        matchId: 'r3',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      await host.submitMove(const _CounterMove());
+      await _settle();
+      final afterFirst = (await transport.loadMatch('r3'))!;
+      await host.submitMove(const _CounterMove());
+      await _settle();
+      final afterSecond = (await transport.loadMatch('r3'))!;
+      expect(afterSecond.prevState, afterFirst.state);
+      expect(afterSecond.turnSteps, isNull);
+
+      await host.dispose();
+    });
+
+    test('a cold open replays every frame of a chained turn in order',
+        () async {
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r4',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      await host.submitMove(const _CounterMove()); // a: 0->1
+      await host.submitMove(const _CounterMove()); // a: 1->2
+      await _settle();
+
+      final guest = MatchController<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r4',
+        localPlayerId: 'b',
+      );
+      final emissions = <int>[];
+      final sub = guest.stateStream.listen((s) => emissions.add(s.count));
+
+      await guest.connect(replayLastTurn: true);
+      await _settle();
+      expect(guest.state!.count, 0);
+      expect(guest.match!.turnCount, 0);
+      expect(guest.isReplayingLastTurn, isTrue);
+      expect(emissions, [0]);
+
+      await Future.delayed(
+        MatchController.replayDelay + const Duration(milliseconds: 20),
+      );
+      expect(emissions, [0, 1]);
+      expect(guest.match!.turnCount, 1);
+      expect(guest.match!.currentPlayerId, 'a');
+      expect(guest.isReplayingLastTurn, isTrue);
+      expect(guest.canActLocally, isFalse);
+
+      await Future.delayed(stepDelay + const Duration(milliseconds: 20));
+      expect(emissions, [0, 1, 2]);
+      expect(guest.match!.turnCount, 2);
+      expect(guest.isReplayingLastTurn, isFalse);
+      expect(guest.canActLocally, isTrue);
+
+      await sub.cancel();
+      await host.dispose();
+      await guest.dispose();
+    });
+
+    test(
+        'replayLastTurn() rewinds without emitting, then lands the frames; '
+        'it is refused while a replay is already running', () async {
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r5',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      await host.submitMove(const _CounterMove()); // a: 0->1
+      await host.submitMove(const _CounterMove()); // a: 1->2
+      await _settle();
+
+      final guest = MatchController<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r5',
+        localPlayerId: 'b',
+      );
+      await guest.connect(); // no replay on open
+      final emissions = <int>[];
+      final sub = guest.stateStream.listen((s) => emissions.add(s.count));
+      expect(guest.state!.count, 2);
+      expect(guest.canReplayLastTurn, isTrue);
+
+      expect(guest.replayLastTurn(), isTrue);
+      await _settle();
+      // Rewound in place: [state]/[match] show the pre-turn snapshot, but no
+      // board was asked to animate backwards.
+      expect(guest.state!.count, 0);
+      expect(guest.match!.currentPlayerId, 'a');
+      expect(emissions, isEmpty);
+      expect(guest.isReplayingLastTurn, isTrue);
+      expect(guest.canReplayLastTurn, isFalse);
+      expect(guest.replayLastTurn(), isFalse);
+      expect(await guest.submitMove(const _CounterMove()), isFalse);
+
+      await Future.delayed(
+        MatchController.replayDelay +
+            stepDelay +
+            const Duration(milliseconds: 40),
+      );
+      expect(emissions, [1, 2]);
+      expect(guest.state!.count, 2);
+      expect(guest.isReplayingLastTurn, isFalse);
+      expect(guest.canReplayLastTurn, isTrue);
+      expect(guest.canActLocally, isTrue);
+
+      await sub.cancel();
+      await host.dispose();
+      await guest.dispose();
+    });
+
+    test('a fresh match has nothing to replay', () async {
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r6',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      expect(host.canReplayLastTurn, isFalse);
+      expect(host.replayLastTurn(), isFalse);
+      await host.dispose();
+    });
+
+    test('a newer turn arriving mid-chain abandons the remaining frames',
+        () async {
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r7',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        hotSeat: true,
+        seed: 0,
+      );
+      await host.submitMove(const _CounterMove()); // a: 0->1
+      await host.submitMove(const _CounterMove()); // a: 1->2
+      await _settle();
+
+      final guest = MatchController<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'r7',
+        localPlayerId: 'b',
+      );
+      final emissions = <int>[];
+      final sub = guest.stateStream.listen((s) => emissions.add(s.count));
+      await guest.connect(replayLastTurn: true);
+      await Future.delayed(
+        MatchController.replayDelay + const Duration(milliseconds: 20),
+      );
+      expect(emissions, [0, 1]);
+
+      // b moves on the host before the second frame lands.
+      expect(await host.submitMove(const _CounterMove()), isTrue); // b: 2->3
+      await _settle();
+      expect(guest.state!.count, 3);
+      expect(guest.isReplayingLastTurn, isFalse);
+      expect(emissions, [0, 1, 3]);
+
+      await Future.delayed(stepDelay + const Duration(milliseconds: 40));
+      expect(emissions, [0, 1, 3], reason: 'no stale frame after abandon');
+
+      await sub.cancel();
+      await host.dispose();
+      await guest.dispose();
     });
   });
 }

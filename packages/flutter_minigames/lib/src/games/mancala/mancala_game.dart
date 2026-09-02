@@ -322,6 +322,21 @@ class MancalaGame extends TurnGame<MancalaState, MancalaMove> {
     return true;
   }
 
+  /// Landing in your own store grants another sow, so one turn can be
+  /// several [applyMove]s; replay them all. The board sows at a constant
+  /// 400ms per hop plus a 620ms capture beat (mancala_board.dart), so the
+  /// wait is sized from the sow that just landed rather than a fixed beat —
+  /// a long relay must finish before the next sow lifts.
+  @override
+  Duration? replayStepDelay(MancalaState from, MancalaState to) {
+    const hopMs = 400;
+    const captureMs = 620;
+    const settleMs = 250;
+    final hops = to.lastPath.isEmpty ? 1 : to.lastPath.length;
+    final capture = to.lastWasCapture ? captureMs : 0;
+    return Duration(milliseconds: hops * hopMs + capture + settleMs);
+  }
+
   @override
   GameOutcome? outcome(MancalaState state) {
     final southEmpty = state.pits.sublist(0, 6).every((n) => n == 0);

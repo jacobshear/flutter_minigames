@@ -38,11 +38,14 @@ class MatchController<S, M> {
   /// The authoritative snapshot held back while a replay is pending — see
   /// [connect]. Null whenever no replay is in flight.
   Match? _replayTarget;
+
+  /// The frames still to land, oldest first; the last one is [_replayTarget].
+  List<Match> _replayQueue = const [];
   Timer? _replayTimer;
 
-  /// How long [connect] shows the previous snapshot before landing the real
-  /// one when `replayLastTurn` is set. Long enough for a board's entrance
-  /// animation to finish so the replayed move reads as a move, not a flash.
+  /// How long a replay shows the pre-turn snapshot before landing the first
+  /// frame. Long enough for a board's entrance animation to finish so the
+  /// replayed move reads as a move, not a flash.
   static const Duration replayDelay = Duration(milliseconds: 700);
 
   /// Emits the decoded game state on every change.
@@ -76,38 +79,100 @@ class MatchController<S, M> {
       _match!.isOpen &&
       _match!.currentPlayerId == localPlayerId;
 
-  /// True while [connect] is holding the previous snapshot and the real one
-  /// has not landed yet.
+  /// True while a replay is in flight: the visible snapshot is a rolled-back
+  /// one and the real snapshot has not landed yet.
   bool get isReplayingLastTurn => _replayTarget != null;
+
+  /// Whether [replayLastTurn] would do anything right now: a turn has been
+  /// recorded with its pre-turn snapshot and no replay is already running.
+  bool get canReplayLastTurn =>
+      !isReplayingLastTurn && _match?.previousTurn != null;
 
   /// Load the current snapshot (if any) and start listening for updates.
   ///
   /// With [replayLastTurn], a match whose most recent turn was taken by
   /// someone other than [localPlayerId] is first exposed as it stood BEFORE
-  /// that turn ([Match.previousTurn]); after [replayDelay] the real snapshot
-  /// lands through [stateStream] exactly as a live turn would. Boards diff
-  /// consecutive states to animate a move, so this makes a cold open replay
-  /// the opponent's move with no board-level support. A snapshot that
-  /// arrives from the transport during the window either duplicates the held
-  /// one (swallowed — the timer lands it) or supersedes it (a newer turn:
-  /// the replay is abandoned and the newer snapshot wins). While the window
-  /// is open [canActLocally] is false and [submitMove] refuses, since the
+  /// that turn ([Match.previousTurn]); after [replayDelay] the turn's frames
+  /// land through [stateStream] exactly as live turns would — one frame for
+  /// a single move, several for a multi-step turn ([Match.turnSteps]),
+  /// spaced by [TurnGame.replayStepDelay]. Boards diff consecutive states
+  /// to animate a move, so this makes a cold open replay the opponent's
+  /// whole turn with no board-level support. A snapshot that arrives from
+  /// the transport during the window either duplicates the held one
+  /// (swallowed — the timer lands it) or supersedes it (a newer turn: the
+  /// replay is abandoned and the newer snapshot wins). While the window is
+  /// open [canActLocally] is false and [submitMove] refuses, since the
   /// visible board is not the one a move would be validated against.
   Future<void> connect({bool replayLastTurn = false}) async {
     final existing = await transport.loadMatch(matchId);
     if (existing != null) {
-      final previous = replayLastTurn && existing.lastMoverId != localPlayerId
-          ? existing.previousTurn
-          : null;
-      if (previous != null) {
-        _replayTarget = existing;
-        _emit(previous);
-        _replayTimer = Timer(replayDelay, _landReplay);
+      final replay = replayLastTurn &&
+          existing.lastMoverId != localPlayerId &&
+          existing.previousTurn != null;
+      if (replay) {
+        _startReplay(existing, emitFirst: true);
       } else {
         _emit(existing);
       }
     }
     _sub = transport.watchMatch(matchId).listen(_onTransportMatch);
+  }
+
+  /// Re-watch the most recent turn on demand.
+  ///
+  /// Rewinds [match] / [state] to the pre-turn snapshot WITHOUT emitting it
+  /// on [stateStream] — a board that is already showing the current position
+  /// must not be asked to animate backwards, and every board knows how to
+  /// initialise from [state]. So a host calls this, then rebuilds its board
+  /// widget (a fresh key) so it mounts against the rewound snapshot; after
+  /// [replayDelay] the turn's frames land through [stateStream] exactly as
+  /// on a cold open. Same gating as [connect]'s replay while it runs.
+  ///
+  /// Returns false, doing nothing, when there is no recorded turn to replay
+  /// or a replay is already in flight.
+  bool replayLastTurn() {
+    final m = _match;
+    if (m == null || !canReplayLastTurn) return false;
+    _startReplay(m, emitFirst: false);
+    return true;
+  }
+
+  void _startReplay(Match target, {required bool emitFirst}) {
+    final frames = target.replayFrames;
+    assert(frames.length >= 2, 'replayFrames must bracket the turn');
+    _replayTarget = target;
+    _replayQueue = frames.sublist(1);
+    final first = frames.first;
+    if (emitFirst) {
+      _emit(first);
+    } else {
+      _match = first;
+    }
+    _replayTimer = Timer(replayDelay, _landNextFrame);
+  }
+
+  void _landNextFrame() {
+    _replayTimer = null;
+    if (_replayQueue.isEmpty) {
+      _abandonReplay();
+      return;
+    }
+    final before = state;
+    final next = _replayQueue.first;
+    _replayQueue = _replayQueue.sublist(1);
+    if (_replayQueue.isEmpty) {
+      // The real snapshot: the replay is over the instant it lands, so the
+      // listeners that read [canActLocally] on this emission see the truth.
+      _abandonReplay();
+      _emit(next);
+      return;
+    }
+    _emit(next);
+    final after = state;
+    final delay = before == null || after == null
+        ? null
+        : game.replayStepDelay(before, after);
+    _replayTimer = Timer(delay ?? replayDelay, _landNextFrame);
   }
 
   void _onTransportMatch(Match m) {
@@ -123,16 +188,11 @@ class MatchController<S, M> {
     _emit(m);
   }
 
-  void _landReplay() {
-    final target = _replayTarget;
-    _abandonReplay();
-    if (target != null) _emit(target);
-  }
-
   void _abandonReplay() {
     _replayTimer?.cancel();
     _replayTimer = null;
     _replayTarget = null;
+    _replayQueue = const [];
   }
 
   void _emit(Match m) {
@@ -146,6 +206,11 @@ class MatchController<S, M> {
   ///
   /// Returns false (and does nothing) if there's no match yet, it isn't a
   /// legal move, or it isn't this client's turn.
+  ///
+  /// Records the replay trail: [Match.prevState] is the board before this
+  /// player's turn began and [Match.turnSteps] the snapshots in between,
+  /// when the same player is moving again and the game opted in through
+  /// [TurnGame.replayStepDelay]; otherwise each sub-move stands alone.
   Future<bool> submitMove(M move) async {
     final m = _match;
     if (m == null || !m.isOpen || isReplayingLastTurn) return false;
@@ -158,6 +223,10 @@ class MatchController<S, M> {
     final next = game.applyMove(current, move);
     final outcome = game.outcome(next);
 
+    final continuesTurn = m.lastMoverId == acting &&
+        m.prevState != null &&
+        game.replayStepDelay(current, next) != null;
+
     final updated = Match(
       id: m.id,
       gameId: m.gameId,
@@ -169,7 +238,8 @@ class MatchController<S, M> {
       schemaVersion: game.stateSchemaVersion,
       winnerId: outcome?.winnerId,
       isDraw: outcome?.isDraw ?? false,
-      prevState: m.state,
+      prevState: continuesTurn ? m.prevState : m.state,
+      turnSteps: continuesTurn ? [...?m.turnSteps, m.state] : null,
       lastMoverId: acting,
     );
 

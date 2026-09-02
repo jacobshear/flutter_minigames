@@ -43,7 +43,20 @@ class Match {
   /// (see `MatchController.connect(replayLastTurn:)`) — the board is shown
   /// this snapshot first, then [state] lands through the normal stream path
   /// and animates exactly as it would have live.
+  ///
+  /// A "turn" here is the whole run of consecutive sub-moves one player made
+  /// before the seat passed (a checkers multi-jump, a mancala extra turn,
+  /// a dots-and-boxes box chain), for games that opt in through
+  /// `TurnGame.replayStepDelay`. For those, this is the board before the
+  /// FIRST sub-move and [turnSteps] holds the snapshots in between. Games
+  /// that don't opt in record each sub-move on its own.
   final Map<String, dynamic>? prevState;
+
+  /// The encoded states after each sub-move of the most recent turn except
+  /// the last (which is [state]), oldest first — or `null` when the turn was
+  /// a single sub-move. Replaying [prevState] → each of these → [state] in
+  /// order shows the whole turn. See [prevState].
+  final List<Map<String, dynamic>>? turnSteps;
 
   /// Who submitted the most recent turn, or `null` on a fresh match. Paired
   /// with [prevState]: a replay only makes sense for a turn someone ELSE
@@ -63,6 +76,7 @@ class Match {
     this.winnerId,
     this.isDraw = false,
     this.prevState,
+    this.turnSteps,
     this.lastMoverId,
   });
 
@@ -77,6 +91,7 @@ class Match {
     String? winnerId,
     bool? isDraw,
     Map<String, dynamic>? prevState,
+    List<Map<String, dynamic>>? turnSteps,
     String? lastMoverId,
   }) {
     return Match(
@@ -91,6 +106,7 @@ class Match {
       winnerId: winnerId ?? this.winnerId,
       isDraw: isDraw ?? this.isDraw,
       prevState: prevState ?? this.prevState,
+      turnSteps: turnSteps ?? this.turnSteps,
       lastMoverId: lastMoverId ?? this.lastMoverId,
     );
   }
@@ -99,22 +115,43 @@ class Match {
   /// turn has been recorded with a [prevState]. Metadata is rolled back too
   /// (turn count, mover, open status) so a consumer holding this snapshot
   /// sees a coherent "their move is pending" match, not the current
-  /// outcome with an older board.
+  /// outcome with an older board. For a multi-step turn this is the board
+  /// before the first sub-move; see [replayFrames] for the rest.
   Match? get previousTurn {
     final prev = prevState;
     final mover = lastMoverId;
     if (prev == null || mover == null || turnCount == 0) return null;
-    return Match(
-      id: id,
-      gameId: gameId,
-      playerIds: playerIds,
-      currentPlayerId: mover,
-      status: MatchStatus.open,
-      turnCount: turnCount - 1,
-      state: prev,
-      schemaVersion: schemaVersion,
-    );
+    final steps = turnSteps?.length ?? 0;
+    return _frame(prev, mover, turnCount - 1 - steps);
   }
+
+  /// Every snapshot of the most recent turn in order — [previousTurn], then
+  /// one match per entry of [turnSteps], then this match itself. Emitting
+  /// these one after another replays the whole turn; a single-step turn
+  /// yields `[previousTurn, this]`. Empty when there is nothing to replay.
+  List<Match> get replayFrames {
+    final first = previousTurn;
+    if (first == null) return const [];
+    final mover = lastMoverId!;
+    final steps = turnSteps ?? const [];
+    return [
+      first,
+      for (var i = 0; i < steps.length; i++)
+        _frame(steps[i], mover, first.turnCount + 1 + i),
+      this,
+    ];
+  }
+
+  Match _frame(Map<String, dynamic> snapshot, String mover, int turn) => Match(
+        id: id,
+        gameId: gameId,
+        playerIds: playerIds,
+        currentPlayerId: mover,
+        status: MatchStatus.open,
+        turnCount: turn < 0 ? 0 : turn,
+        state: snapshot,
+        schemaVersion: schemaVersion,
+      );
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -128,6 +165,7 @@ class Match {
         'winnerId': winnerId,
         'isDraw': isDraw,
         'prevState': prevState,
+        'turnSteps': turnSteps,
         'lastMoverId': lastMoverId,
       };
 
@@ -145,6 +183,11 @@ class Match {
         prevState: json['prevState'] == null
             ? null
             : Map<String, dynamic>.from(json['prevState'] as Map),
+        turnSteps: json['turnSteps'] == null
+            ? null
+            : (json['turnSteps'] as List)
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList(),
         lastMoverId: json['lastMoverId'] as String?,
       );
 }

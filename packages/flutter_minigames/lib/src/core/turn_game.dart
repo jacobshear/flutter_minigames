@@ -42,6 +42,20 @@ abstract class TurnGame<S, M> {
   /// The terminal outcome, or `null` if the game is still in progress.
   GameOutcome? outcome(S state);
 
+  /// How long a board needs to animate the transition [from] → [to], for
+  /// games where one player takes several sub-moves before the seat passes
+  /// (a checkers multi-jump, a mancala extra turn, a dots-and-boxes chain).
+  ///
+  /// Returning a duration opts the game into whole-turn replay:
+  /// `MatchController.submitMove` then records every sub-move of the turn
+  /// (`Match.prevState` + `Match.turnSteps`) and a replay lands the frames
+  /// one after another, waiting this long after each so its animation can
+  /// finish. The default, `null`, leaves sub-moves unchained — each is
+  /// recorded on its own and a replay shows only the last one — which is
+  /// right for games whose per-move animation length the game can't know
+  /// (physics shots that run until the table settles).
+  Duration? replayStepDelay(S from, S to) => null;
+
   /// Serialize [state] to a JSON-safe map for transport/storage.
   Map<String, dynamic> encodeState(S state);
 
