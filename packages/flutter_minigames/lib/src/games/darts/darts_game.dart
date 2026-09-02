@@ -157,6 +157,17 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
   }
 
   /// 501 has no draw — the match runs until somebody checks out.
+
+  /// Three darts a visit. The receiving board shows each dart as its score
+  /// on the visit strip (the throw only flies on the thrower's device); the
+  /// BUST / SCORED notice lands with the third.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(DartsState from, DartsState to) =>
+      const Duration(milliseconds: 550);
+
   @override
   GameOutcome? outcome(DartsState state) =>
       state.winnerId == null ? null : GameOutcome.win(state.winnerId!);

@@ -356,6 +356,16 @@ class SeaBattleGame extends TurnGame<SeaBattleState, SeaBattleMove> {
     }
   }
 
+  /// A hit shoots again. Every shot animates on a fixed 820ms controller
+  /// (sea_battle_board.dart `_shotCtrl`) — shell drop, impact, reveal —
+  /// regardless of hit, miss or sink.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(SeaBattleState from, SeaBattleState to) =>
+      const Duration(milliseconds: 820);
+
   @override
   GameOutcome? outcome(SeaBattleState state) {
     if (state.phase != SeaBattlePhase.battle) return null;

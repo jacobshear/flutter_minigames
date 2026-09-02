@@ -180,6 +180,16 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
     );
   }
 
+  /// Strokes until holed out. Only the putter's device rolls the ball; a
+  /// receiving board places it at rest, so the beat is a readable hold per
+  /// stroke.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(MiniGolfState from, MiniGolfState to) =>
+      const Duration(milliseconds: 900);
+
   @override
   GameOutcome? outcome(MiniGolfState state) {
     if (state.currentHole < state.holeCount) return null;

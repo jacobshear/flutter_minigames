@@ -170,9 +170,9 @@ class MatchController<S, M> {
     _emit(next);
     final after = state;
     final delay = before == null || after == null
-        ? null
+        ? replayDelay
         : game.replayStepDelay(before, after);
-    _replayTimer = Timer(delay ?? replayDelay, _landNextFrame);
+    _replayTimer = Timer(delay, _landNextFrame);
   }
 
   void _onTransportMatch(Match m) {
@@ -210,7 +210,7 @@ class MatchController<S, M> {
   /// Records the replay trail: [Match.prevState] is the board before this
   /// player's turn began and [Match.turnSteps] the snapshots in between,
   /// when the same player is moving again and the game opted in through
-  /// [TurnGame.replayStepDelay]; otherwise each sub-move stands alone.
+  /// [TurnGame.replaysWholeTurn]; otherwise each sub-move stands alone.
   Future<bool> submitMove(M move) async {
     final m = _match;
     if (m == null || !m.isOpen || isReplayingLastTurn) return false;
@@ -223,9 +223,8 @@ class MatchController<S, M> {
     final next = game.applyMove(current, move);
     final outcome = game.outcome(next);
 
-    final continuesTurn = m.lastMoverId == acting &&
-        m.prevState != null &&
-        game.replayStepDelay(current, next) != null;
+    final continuesTurn =
+        game.replaysWholeTurn && m.lastMoverId == acting && m.prevState != null;
 
     final updated = Match(
       id: m.id,

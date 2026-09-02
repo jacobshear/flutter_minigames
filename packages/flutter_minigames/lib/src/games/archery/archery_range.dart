@@ -425,6 +425,13 @@ class _ArcheryRangeState extends State<ArcheryRange>
       _resolving = false;
       _shot = null;
       _stray = null;
+    } else if (!_resolving) {
+      // Not our arrow in flight: this is the other archer's shot (live or
+      // replayed), so mirror the face from the state the way _finishArrow
+      // does for our own once its wobble ends. Before this the opponent's
+      // arrows only appeared in the face on a remount.
+      _displayTarget = next.targetIndex;
+      _stuck = next.arrowsAt(next.currentPlayerId, next.targetIndex);
     }
     if (outcome != null && !_celebrated) _celebrate(outcome);
     setState(() {

@@ -387,6 +387,17 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
     );
   }
 
+  /// Ball-in-hand placement then the shot, and the shooter stays on after a
+  /// legal pot. Only the shooter's device simulates; a receiving board
+  /// re-seats the balls at their settled spots, so each frame gets a hold
+  /// long enough to read what dropped.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(EightBallState from, EightBallState to) =>
+      const Duration(milliseconds: 1000);
+
   @override
   GameOutcome? outcome(EightBallState state) =>
       state.over && state.winnerId != null

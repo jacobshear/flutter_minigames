@@ -68,11 +68,12 @@ class _CounterGame extends TurnGame<_CounterState, _CounterMove> {
 
 /// A player takes TWO consecutive sub-moves before the turn passes (like a
 /// checkers multi-jump or a mancala extra turn): a, a, b, b, a, a … The game
-/// ends after six sub-moves. [stepDelay] is what it reports as
-/// [TurnGame.replayStepDelay]; null leaves sub-moves unchained.
+/// ends after six sub-moves. [chain] is what it reports as
+/// [TurnGame.replaysWholeTurn]; [stepDelay] as [TurnGame.replayStepDelay].
 class _RunGame extends TurnGame<_CounterState, _CounterMove> {
-  final Duration? stepDelay;
-  const _RunGame({required this.stepDelay});
+  final bool chain;
+  final Duration stepDelay;
+  const _RunGame({this.chain = true, required this.stepDelay});
 
   @override
   String get id => 'run';
@@ -101,7 +102,10 @@ class _RunGame extends TurnGame<_CounterState, _CounterMove> {
       state.count >= 6 ? GameOutcome.win(state.lastMover!) : null;
 
   @override
-  Duration? replayStepDelay(_CounterState from, _CounterState to) => stepDelay;
+  bool get replaysWholeTurn => chain;
+
+  @override
+  Duration replayStepDelay(_CounterState from, _CounterState to) => stepDelay;
 
   @override
   Map<String, dynamic> encodeState(_CounterState state) => {
@@ -489,8 +493,8 @@ void main() {
       await host.dispose();
     });
 
-    test('a game that reports no replayStepDelay never chains', () async {
-      const unchained = _RunGame(stepDelay: null);
+    test('a game that does not replay whole turns never chains', () async {
+      const unchained = _RunGame(chain: false, stepDelay: stepDelay);
       final host = await MatchController.create<_CounterState, _CounterMove>(
         game: unchained,
         transport: transport,

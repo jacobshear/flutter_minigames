@@ -222,7 +222,10 @@ class DotsAndBoxesGame extends TurnGame<DotsAndBoxesState, DotsAndBoxesMove> {
   /// [applyMove]s; replay the whole run. The board draws an edge in 280ms
   /// and fills the box in 420ms — a beat covers both.
   @override
-  Duration? replayStepDelay(DotsAndBoxesState from, DotsAndBoxesState to) =>
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(DotsAndBoxesState from, DotsAndBoxesState to) =>
       const Duration(milliseconds: 700);
 
   @override

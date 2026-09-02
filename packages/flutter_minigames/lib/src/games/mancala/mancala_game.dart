@@ -328,7 +328,10 @@ class MancalaGame extends TurnGame<MancalaState, MancalaMove> {
   /// wait is sized from the sow that just landed rather than a fixed beat —
   /// a long relay must finish before the next sow lifts.
   @override
-  Duration? replayStepDelay(MancalaState from, MancalaState to) {
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(MancalaState from, MancalaState to) {
     const hopMs = 400;
     const captureMs = 620;
     const settleMs = 250;

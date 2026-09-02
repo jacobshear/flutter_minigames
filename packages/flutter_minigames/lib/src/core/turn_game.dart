@@ -42,19 +42,24 @@ abstract class TurnGame<S, M> {
   /// The terminal outcome, or `null` if the game is still in progress.
   GameOutcome? outcome(S state);
 
-  /// How long a board needs to animate the transition [from] → [to], for
-  /// games where one player takes several sub-moves before the seat passes
-  /// (a checkers multi-jump, a mancala extra turn, a dots-and-boxes chain).
+  /// Whether one player's consecutive sub-moves form a single turn that a
+  /// replay should show whole (a checkers multi-jump, a mancala extra turn,
+  /// a dots-and-boxes box chain, a pool run, the darts of one visit).
   ///
-  /// Returning a duration opts the game into whole-turn replay:
-  /// `MatchController.submitMove` then records every sub-move of the turn
-  /// (`Match.prevState` + `Match.turnSteps`) and a replay lands the frames
-  /// one after another, waiting this long after each so its animation can
-  /// finish. The default, `null`, leaves sub-moves unchained — each is
-  /// recorded on its own and a replay shows only the last one — which is
-  /// right for games whose per-move animation length the game can't know
-  /// (physics shots that run until the table settles).
-  Duration? replayStepDelay(S from, S to) => null;
+  /// When true, `MatchController.submitMove` records every sub-move of the
+  /// turn (`Match.prevState` is the board before the first one,
+  /// `Match.turnSteps` the snapshots in between) and a replay lands the
+  /// frames one after another, spaced by [replayStepDelay]. The default,
+  /// false, records each sub-move on its own — right for games whose turn
+  /// is always exactly one move.
+  bool get replaysWholeTurn => false;
+
+  /// How long a board needs to animate the transition [from] → [to] — the
+  /// wait after landing [to] before the next frame of a replayed turn. Only
+  /// consulted when [replaysWholeTurn] is true. Size it from the board's
+  /// own animation constants; a board that snaps (most physics games show
+  /// the opponent's shot as its settled result) wants a readable hold.
+  Duration replayStepDelay(S from, S to) => const Duration(milliseconds: 700);
 
   /// Serialize [state] to a JSON-safe map for transport/storage.
   Map<String, dynamic> encodeState(S state);

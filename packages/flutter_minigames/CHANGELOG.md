@@ -2,16 +2,22 @@
 
 ## Unreleased
 
-- Whole-turn replay. `TurnGame.replayStepDelay(from, to)` (default `null`)
-  lets a game opt into chaining consecutive sub-moves by one player into a
-  single recorded turn: `Match.prevState` then holds the board before the
-  FIRST sub-move and the new `Match.turnSteps` the snapshots in between,
-  and a replay lands every frame in order, waiting the returned duration
-  after each. Checkers (multi-jumps), dots-and-boxes (box chains) and
-  mancala (extra turns, sized from the sow that just landed) opt in; a
-  cold open of a checkers double jump previously replayed only the last
-  leg. `Match.replayFrames` lists the frames; `previousTurn` rolls the
-  turn count back past every step.
+- Whole-turn replay. `TurnGame.replaysWholeTurn` (default false) opts a
+  game into chaining consecutive sub-moves by one player into a single
+  recorded turn: `Match.prevState` then holds the board before the FIRST
+  sub-move and the new `Match.turnSteps` the snapshots in between, and a
+  replay lands every frame in order, waiting
+  `TurnGame.replayStepDelay(from, to)` (default 700ms) after each so the
+  board's animation for that frame can finish. Every game whose turn can
+  span several moves opts in with a beat sized from its board: checkers,
+  dots-and-boxes, mancala (from the sow that just landed), eight ball,
+  knockout, cup pong, mini golf, archery, darts, sea battle, crazy eights,
+  go fish and gin rummy (the card games per action). A cold open of a
+  checkers double jump previously replayed only the last leg.
+  `Match.replayFrames` lists the frames; `previousTurn` rolls the turn
+  count back past every step.
+- Archery: the receiving face now mirrors the other archer's arrows per
+  state (they previously appeared only on a remount).
 - `MatchController.replayLastTurn()` re-watches the last recorded turn on
   demand, with `canReplayLastTurn` to gate the affordance. It rewinds
   `state`/`match` WITHOUT emitting on `stateStream` (a mounted board must

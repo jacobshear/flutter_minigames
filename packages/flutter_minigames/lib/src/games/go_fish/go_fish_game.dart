@@ -481,6 +481,21 @@ class GoFishGame extends TurnGame<GoFishState, GoFishMove> {
   bool isExhausted(GoFishState state) =>
       state.pond.isEmpty && state.sharedRanks.isEmpty;
 
+  /// A catch, or fishing the asked rank, keeps the turn. Beats are the
+  /// table's controllers (go_fish_table.dart): the 520ms transfer flight on
+  /// a catch, the 420ms book pulse when a book completes (concurrent, so
+  /// the longer wins), else a beat for the sound and the notice.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(GoFishState from, GoFishState to) {
+    final event = to.lastEvent;
+    var ms = event.action == GoFishAction.caught ? 520 : 350;
+    if (event.books.isNotEmpty && ms < 420) ms = 420;
+    return Duration(milliseconds: ms);
+  }
+
   @override
   GameOutcome? outcome(GoFishState state) {
     if (state.booksMade < kGoFishBookCount && !isExhausted(state)) return null;

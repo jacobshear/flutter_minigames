@@ -205,6 +205,17 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
     );
   }
 
+  /// One archer shoots the whole end — twelve arrows — before the other.
+  /// The receiving face mirrors the state's arrows per frame
+  /// (archery_range.dart `_onState`) and the score chips tick; the flight
+  /// itself only plays on the shooter's device.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(ArcheryState from, ArcheryState to) =>
+      const Duration(milliseconds: 700);
+
   @override
   GameOutcome? outcome(ArcheryState state) {
     if (state.phase != ArcheryPhase.finished) return null;

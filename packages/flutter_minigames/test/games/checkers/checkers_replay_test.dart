@@ -124,7 +124,7 @@ void main() {
       expect(frames[1].pieceCount('b'), 1);
       expect(red.isReplayingLastTurn, isTrue);
 
-      final step = game.replayStepDelay(frames[0], frames[1])!;
+      final step = game.replayStepDelay(frames[0], frames[1]);
       await Future.delayed(step + const Duration(milliseconds: 30));
       expect(frames, hasLength(3));
       expect(frames[2].cells[land2], 'a');

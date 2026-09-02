@@ -199,6 +199,17 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
     );
   }
 
+  /// The resolver releases the round and then opens the next one — two
+  /// commits by one player. Only the resolver's device runs the physics; a
+  /// receiving board re-seats the pucks at rest, so the beat is a hold long
+  /// enough to read the knockouts before the (visually inert) opening frame.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(KnockoutState from, KnockoutState to) =>
+      const Duration(milliseconds: 1000);
+
   @override
   GameOutcome? outcome(KnockoutState state) {
     final a = state.playerIds[0];

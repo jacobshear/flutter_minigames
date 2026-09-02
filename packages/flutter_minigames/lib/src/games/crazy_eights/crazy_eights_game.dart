@@ -389,6 +389,24 @@ class CrazyEightsGame extends TurnGame<CrazyEightsState, CrazyEightsMove> {
     );
   }
 
+  /// Drawing keeps the turn, so a turn is draw × N then a play or a pass.
+  /// Beats are the table's flight controllers (crazy_eights_table.dart):
+  /// play 300ms, draw 280ms; a pass has no flight, just its sound.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(CrazyEightsState from, CrazyEightsState to) {
+    final action = to.lastAction;
+    if (action == CrazyEightsAction.play) {
+      return const Duration(milliseconds: 300);
+    }
+    if (action == CrazyEightsAction.draw) {
+      return const Duration(milliseconds: 280);
+    }
+    return const Duration(milliseconds: 250);
+  }
+
   @override
   GameOutcome? outcome(CrazyEightsState state) {
     for (var seat = 0; seat < 2; seat++) {

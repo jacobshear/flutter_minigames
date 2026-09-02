@@ -318,6 +318,16 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
     );
   }
 
+  /// Two balls a turn. The receiving board's only animation for a remote
+  /// throw is the 850ms cup sink (cup_pong_board.dart `_removalSeconds`);
+  /// the re-rack slide (500ms) runs inside it.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(CupPongState from, CupPongState to) =>
+      const Duration(milliseconds: 900);
+
   @override
   GameOutcome? outcome(CupPongState state) {
     final a = state.playerIds[0];
