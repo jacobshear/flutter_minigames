@@ -43,10 +43,38 @@ class MatchController<S, M> {
   List<Match> _replayQueue = const [];
   Timer? _replayTimer;
 
+  /// When [_replayTimer] fires and what it runs — what [setReplaySpeed]
+  /// needs to rescale the wait in flight.
+  DateTime? _replayTimerDue;
+  void Function()? _replayTimerCallback;
+
+  /// True after the last replayed frame has landed while its animation is
+  /// still playing out — see [isReplayPlaybackActive].
+  bool _inTail = false;
+
+  double _replaySpeed = 1.0;
+
+  final StreamController<bool> _replayActivity =
+      StreamController<bool>.broadcast();
+
   /// How long a replay shows the pre-turn snapshot before landing the first
   /// frame. Long enough for a board's entrance animation to finish so the
   /// replayed move reads as a move, not a flash.
   static const Duration replayDelay = Duration(milliseconds: 700);
+
+  /// Fast-forward factor for the replay in flight: 1 is real time, 2 twice
+  /// as fast. Scales the controller's own frame spacing ([replayDelay],
+  /// [TurnGame.replayStepDelay]); a board's animations are scaled by the
+  /// host through `ReplayTimeDilation` (ui layer), since this class is
+  /// Flutter-free. Resets to 1 when a replay ends, so every replay starts
+  /// in real time.
+  double get replaySpeed => _replaySpeed;
+
+  /// Emits true when a replay starts and false when its playback ends (the
+  /// tail after the last frame ran out, skipped, superseded by a newer
+  /// snapshot, or disposed) — see [isReplayPlaybackActive]. Hosts use it to
+  /// show and hide fast-forward controls and to reset time dilation.
+  Stream<bool> get replayActivity => _replayActivity.stream;
 
   /// Emits the decoded game state on every change.
   Stream<S> get stateStream => _stateController.stream;
@@ -82,6 +110,13 @@ class MatchController<S, M> {
   /// True while a replay is in flight: the visible snapshot is a rolled-back
   /// one and the real snapshot has not landed yet.
   bool get isReplayingLastTurn => _replayTarget != null;
+
+  /// True from the start of a replay until the last replayed frame has
+  /// finished animating: [isReplayingLastTurn], then a TAIL as long as the
+  /// game's step delay for that frame. The match is live during the tail
+  /// ([canActLocally] may be true) — this only says a replay is still on
+  /// screen, which is what fast-forward controls and time dilation follow.
+  bool get isReplayPlaybackActive => _replayTarget != null || _inTail;
 
   /// Whether [replayLastTurn] would do anything right now: a turn has been
   /// recorded with its pre-turn snapshot and no replay is already running.
@@ -140,6 +175,7 @@ class MatchController<S, M> {
   void _startReplay(Match target, {required bool emitFirst}) {
     final frames = target.replayFrames;
     assert(frames.length >= 2, 'replayFrames must bracket the turn');
+    _endPlayback(); // a re-watch can start inside the previous tail
     _replayTarget = target;
     _replayQueue = frames.sublist(1);
     final first = frames.first;
@@ -148,11 +184,63 @@ class MatchController<S, M> {
     } else {
       _match = first;
     }
-    _replayTimer = Timer(replayDelay, _landNextFrame);
+    if (!_replayActivity.isClosed) _replayActivity.add(true);
+    _armPlaybackTimer(replayDelay, _landNextFrame);
+  }
+
+  /// Arms [onFire] [realTime] from now at the current speed.
+  void _armPlaybackTimer(Duration realTime, void Function() onFire) {
+    final scaled = realTime * (1 / _replaySpeed);
+    _replayTimerDue = DateTime.now().add(scaled);
+    _replayTimerCallback = onFire;
+    _replayTimer = Timer(scaled, onFire);
+  }
+
+  /// Set the fast-forward factor (clamped to 1–8) for the playback in
+  /// flight — the replayed frames AND the tail after the last one (see
+  /// [isReplayPlaybackActive]). The pending wait is rescaled, so tapping
+  /// fast-forward mid-hold shortens that hold rather than the next one.
+  /// A no-op when no playback is active.
+  void setReplaySpeed(double speed) {
+    if (!isReplayPlaybackActive) return;
+    final next = speed.clamp(1.0, 8.0).toDouble();
+    if (next == _replaySpeed) return;
+    final previous = _replaySpeed;
+    _replaySpeed = next;
+    final due = _replayTimerDue;
+    final timer = _replayTimer;
+    final onFire = _replayTimerCallback;
+    if (timer == null || due == null || onFire == null) return;
+    timer.cancel();
+    var remaining = due.difference(DateTime.now());
+    if (remaining.isNegative) remaining = Duration.zero;
+    final rescaled = remaining * (previous / next);
+    _replayTimerDue = DateTime.now().add(rescaled);
+    _replayTimer = Timer(rescaled, onFire);
+  }
+
+  /// Jump to the end of the playback in flight: any frames still held back
+  /// land at once as the authoritative snapshot, and the playback (tail
+  /// included) ends.
+  ///
+  /// The board sees ONE transition from whatever frame it was showing to the
+  /// final one — for a multi-step turn that is a jump, not the remaining
+  /// steps, and during the tail the final frame's animation is still
+  /// running. A host that wants the board to simply show the final position
+  /// should remount it (fresh key) after calling this, the same way it does
+  /// for [replayLastTurn].
+  ///
+  /// Returns false when no playback is active.
+  bool skipReplay() {
+    if (!isReplayPlaybackActive) return false;
+    final target = _replayTarget;
+    _abandonReplay();
+    if (target != null) _emit(target);
+    return true;
   }
 
   void _landNextFrame() {
-    _replayTimer = null;
+    _clearPlaybackTimer();
     if (_replayQueue.isEmpty) {
       _abandonReplay();
       return;
@@ -161,19 +249,28 @@ class MatchController<S, M> {
     final next = _replayQueue.first;
     _replayQueue = _replayQueue.sublist(1);
     if (_replayQueue.isEmpty) {
-      // The real snapshot: the replay is over the instant it lands, so the
-      // listeners that read [canActLocally] on this emission see the truth.
-      _abandonReplay();
+      // The real snapshot. The replay is over the instant it lands — the
+      // listeners that read [canActLocally] on this emission see the truth —
+      // but the board is only now STARTING to animate it, so playback runs
+      // on through a tail as long as that animation (the game's own step
+      // delay) and keeps the fast-forward speed until then. Without the
+      // tail, a single-move turn (one shot, one piece) would drop back to
+      // real time before the move even played.
+      _replayTarget = null;
+      _replayQueue = const [];
+      _inTail = true;
       _emit(next);
+      final after = state;
+      _armPlaybackTimer(_stepDelay(before, after), _endPlayback);
       return;
     }
     _emit(next);
-    final after = state;
-    final delay = before == null || after == null
-        ? replayDelay
-        : game.replayStepDelay(before, after);
-    _replayTimer = Timer(delay, _landNextFrame);
+    _armPlaybackTimer(_stepDelay(before, state), _landNextFrame);
   }
+
+  Duration _stepDelay(S? before, S? after) => before == null || after == null
+      ? replayDelay
+      : game.replayStepDelay(before, after);
 
   void _onTransportMatch(Match m) {
     final target = _replayTarget;
@@ -184,15 +281,32 @@ class MatchController<S, M> {
         return;
       }
       _abandonReplay();
+    } else if (_inTail && m.turnCount > (_match?.turnCount ?? 0)) {
+      // A genuinely newer turn arrived while the last replayed frame was
+      // still animating: playback is over, the new move plays in real time.
+      _endPlayback();
     }
     _emit(m);
   }
 
-  void _abandonReplay() {
+  void _clearPlaybackTimer() {
     _replayTimer?.cancel();
     _replayTimer = null;
+    _replayTimerDue = null;
+    _replayTimerCallback = null;
+  }
+
+  /// Ends the playback — frames, tail, speed — and reports it once.
+  void _abandonReplay() => _endPlayback();
+
+  void _endPlayback() {
+    final wasActive = isReplayPlaybackActive;
+    _clearPlaybackTimer();
     _replayTarget = null;
     _replayQueue = const [];
+    _inTail = false;
+    _replaySpeed = 1.0;
+    if (wasActive && !_replayActivity.isClosed) _replayActivity.add(false);
   }
 
   void _emit(Match m) {
@@ -284,5 +398,6 @@ class MatchController<S, M> {
     _abandonReplay();
     await _sub?.cancel();
     await _stateController.close();
+    await _replayActivity.close();
   }
 }

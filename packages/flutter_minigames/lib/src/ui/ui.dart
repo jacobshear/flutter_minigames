@@ -8,3 +8,6 @@ library;
 export 'game_notice.dart';
 export 'game_pill.dart';
 export 'classic_game_tile_art.dart';
+export 'replay_time_dilation.dart';
+export 'round_replay_controller.dart';
+export 'tile_art_clock.dart';

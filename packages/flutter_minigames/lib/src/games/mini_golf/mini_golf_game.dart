@@ -1,6 +1,9 @@
+import 'dart:ui' show Offset;
+
 import 'package:flutter_minigames/src/core/core.dart';
 
 import 'mini_golf_course.dart';
+import 'mini_golf_sim.dart';
 
 /// Mini-golf (GamePigeon-style stroke play) as a pure [TurnGame].
 ///
@@ -53,7 +56,7 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
   String get id => 'mini_golf';
 
   @override
-  int get stateSchemaVersion => 3;
+  int get stateSchemaVersion => 4;
 
   /// The distinct hole seed for hole [holeIndex] of a match built on [baseSeed].
   static int holeSeed(int baseSeed, int holeIndex) =>
@@ -77,6 +80,7 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
       holedOut: {for (final p in playerIds) p: false},
       ballNx: {for (final p in playerIds) p: tee.dx},
       ballNy: {for (final p in playerIds) p: tee.dy},
+      strokeSeq: 0,
     );
   }
 
@@ -99,6 +103,29 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
   @override
   MiniGolfState applyMove(MiniGolfState state, MiniGolfMove move) {
     final course = state.holeCourse(state.currentHole);
+
+    // The recorded stroke: only built when the move carries the input a
+    // replay needs ([MiniGolfMove.dirX]/[dirY]/[power]). A move that lacks
+    // them (an older client, or a test move built without them) leaves
+    // [MiniGolfState.lastStroke] exactly as it was — [strokeSeq] still
+    // advances, so that stale [MiniGolfStroke] can never look newer than
+    // what a board has already shown, and nothing tries to replay it.
+    final strokeId = state.strokeSeq + 1;
+    final dirX = move.dirX;
+    final dirY = move.dirY;
+    final power = move.power;
+    final lastStroke = (dirX == null || dirY == null || power == null)
+        ? state.lastStroke
+        : MiniGolfStroke(
+            owner: move.owner,
+            fromNx: state.ballNx[move.owner] ?? course.normalizedTee.dx,
+            fromNy: state.ballNy[move.owner] ?? course.normalizedTee.dy,
+            dirX: dirX,
+            dirY: dirY,
+            power: power,
+            holeIndex: move.holeIndex ?? state.currentHole,
+            strokeId: strokeId,
+          );
 
     final holeStrokes = Map<String, int>.of(state.holeStrokes);
     holeStrokes[move.owner] = (holeStrokes[move.owner] ?? 0) + 1;
@@ -133,6 +160,8 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
         holedOut: holedOut,
         ballNx: ballNx,
         ballNy: ballNy,
+        strokeSeq: strokeId,
+        lastStroke: lastStroke,
       );
     }
 
@@ -144,6 +173,8 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
         holedOut: holedOut,
         ballNx: ballNx,
         ballNy: ballNy,
+        strokeSeq: strokeId,
+        lastStroke: lastStroke,
       );
     }
 
@@ -164,6 +195,8 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
         holedOut: holedOut,
         ballNx: ballNx,
         ballNy: ballNy,
+        strokeSeq: strokeId,
+        lastStroke: lastStroke,
       );
     }
 
@@ -175,20 +208,46 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
       scorecard: scorecard,
       holeStrokes: {for (final p in state.playerIds) p: 0},
       holedOut: {for (final p in state.playerIds) p: false},
+      strokeSeq: strokeId,
+      lastStroke: lastStroke,
       ballNx: {for (final p in state.playerIds) p: tee.dx},
       ballNy: {for (final p in state.playerIds) p: tee.dy},
     );
   }
 
-  /// Strokes until holed out. Only the putter's device rolls the ball; a
-  /// receiving board places it at rest, so the beat is a readable hold per
-  /// stroke.
+  /// Strokes until holed out. A receiving board replays each recorded stroke
+  /// ([MiniGolfState.lastStroke]) as a full roll rather than placing the ball
+  /// straight at rest, so between-stroke pacing has to cover that roll.
   @override
   bool get replaysWholeTurn => true;
 
+  /// Long enough for a board to replay the stroke that produced [to] in
+  /// full, plus a short readable hold once it lands.
+  ///
+  /// [MiniGolfPutt.simulate] is a pure, headless function of the stroke's
+  /// recorded input, so the exact roll duration is known rather than
+  /// guessed — running it here is cheap (a few hundred fixed-step
+  /// iterations) next to the delay it is sizing. Falls back to a
+  /// conservative flat hold when [to] carries no recorded stroke (a legacy
+  /// state, or a move submitted without input) since there is nothing to
+  /// replay.
   @override
-  Duration replayStepDelay(MiniGolfState from, MiniGolfState to) =>
-      const Duration(milliseconds: 900);
+  Duration replayStepDelay(MiniGolfState from, MiniGolfState to) {
+    final stroke = to.lastStroke;
+    if (stroke == null) return const Duration(milliseconds: 900);
+    final course = to.holeCourse(stroke.holeIndex);
+    final result = MiniGolfPutt.simulate(
+      course: course,
+      from: course.denormalize(stroke.fromNx, stroke.fromNy),
+      direction: Offset(stroke.dirX, stroke.dirY),
+      power: stroke.power,
+    );
+    final ms = (result.duration * 1000).round() + 300;
+    // Floor only: the simulated roll IS the replay's length, and capping it
+    // would cut a long putt short under the next queued stroke. Fast-forward
+    // is how a viewer shortens it.
+    return Duration(milliseconds: ms < 400 ? 400 : ms);
+  }
 
   @override
   GameOutcome? outcome(MiniGolfState state) {
@@ -213,38 +272,69 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
         'holedOut': state.holedOut,
         'ballNx': state.ballNx,
         'ballNy': state.ballNy,
+        'strokeSeq': state.strokeSeq,
+        'lastStroke': state.lastStroke == null
+            ? null
+            : {
+                'owner': state.lastStroke!.owner,
+                'fromNx': state.lastStroke!.fromNx,
+                'fromNy': state.lastStroke!.fromNy,
+                'dirX': state.lastStroke!.dirX,
+                'dirY': state.lastStroke!.dirY,
+                'power': state.lastStroke!.power,
+                'holeIndex': state.lastStroke!.holeIndex,
+                'strokeId': state.lastStroke!.strokeId,
+              },
       };
 
   @override
-  MiniGolfState decodeState(Map<String, dynamic> json, int version) =>
-      MiniGolfState(
-        baseSeed: (json['baseSeed'] as num).toInt(),
-        holeCount: (json['holeCount'] as num).toInt(),
-        playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
-        currentHole: (json['currentHole'] as num).toInt(),
-        currentPlayerId: json['currentPlayerId'] as String,
-        scorecard: {
-          for (final e in (json['scorecard'] as Map).entries)
-            e.key as String:
-                (e.value as List).map((v) => (v as num).toInt()).toList(),
-        },
-        holeStrokes: {
-          for (final e in (json['holeStrokes'] as Map).entries)
-            e.key as String: (e.value as num).toInt(),
-        },
-        holedOut: {
-          for (final e in (json['holedOut'] as Map).entries)
-            e.key as String: e.value as bool,
-        },
-        ballNx: {
-          for (final e in (json['ballNx'] as Map).entries)
-            e.key as String: (e.value as num).toDouble(),
-        },
-        ballNy: {
-          for (final e in (json['ballNy'] as Map).entries)
-            e.key as String: (e.value as num).toDouble(),
-        },
-      );
+  MiniGolfState decodeState(Map<String, dynamic> json, int version) {
+    final rawStroke = json['lastStroke'];
+    return MiniGolfState(
+      baseSeed: (json['baseSeed'] as num).toInt(),
+      holeCount: (json['holeCount'] as num).toInt(),
+      playerIds: (json['playerIds'] as List).map((e) => e as String).toList(),
+      currentHole: (json['currentHole'] as num).toInt(),
+      currentPlayerId: json['currentPlayerId'] as String,
+      scorecard: {
+        for (final e in (json['scorecard'] as Map).entries)
+          e.key as String:
+              (e.value as List).map((v) => (v as num).toInt()).toList(),
+      },
+      holeStrokes: {
+        for (final e in (json['holeStrokes'] as Map).entries)
+          e.key as String: (e.value as num).toInt(),
+      },
+      holedOut: {
+        for (final e in (json['holedOut'] as Map).entries)
+          e.key as String: e.value as bool,
+      },
+      ballNx: {
+        for (final e in (json['ballNx'] as Map).entries)
+          e.key as String: (e.value as num).toDouble(),
+      },
+      ballNy: {
+        for (final e in (json['ballNy'] as Map).entries)
+          e.key as String: (e.value as num).toDouble(),
+      },
+      // LEGACY: states written before schema 4 carry neither key. `strokeSeq`
+      // defaults to 0 and `lastStroke` decodes to null — no stroke to replay,
+      // matching the pre-replay behaviour of snapping straight to rest.
+      strokeSeq: (json['strokeSeq'] as num?)?.toInt() ?? 0,
+      lastStroke: rawStroke == null
+          ? null
+          : MiniGolfStroke(
+              owner: (rawStroke as Map)['owner'] as String,
+              fromNx: (rawStroke['fromNx'] as num).toDouble(),
+              fromNy: (rawStroke['fromNy'] as num).toDouble(),
+              dirX: (rawStroke['dirX'] as num).toDouble(),
+              dirY: (rawStroke['dirY'] as num).toDouble(),
+              power: (rawStroke['power'] as num).toDouble(),
+              holeIndex: (rawStroke['holeIndex'] as num).toInt(),
+              strokeId: (rawStroke['strokeId'] as num).toInt(),
+            ),
+    );
+  }
 
   @override
   Map<String, dynamic> encodeMove(MiniGolfMove move) => {
@@ -253,6 +343,10 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
         'ballNy': move.ballNy,
         'sunk': move.sunk,
         'outOfBounds': move.outOfBounds,
+        'dirX': move.dirX,
+        'dirY': move.dirY,
+        'power': move.power,
+        'holeIndex': move.holeIndex,
       };
 
   @override
@@ -262,6 +356,10 @@ class MiniGolfGame extends TurnGame<MiniGolfState, MiniGolfMove> {
         ballNy: (json['ballNy'] as num).toDouble(),
         sunk: json['sunk'] as bool? ?? false,
         outOfBounds: json['outOfBounds'] as bool? ?? false,
+        dirX: (json['dirX'] as num?)?.toDouble(),
+        dirY: (json['dirY'] as num?)?.toDouble(),
+        power: (json['power'] as num?)?.toDouble(),
+        holeIndex: (json['holeIndex'] as num?)?.toInt(),
       );
 }
 
@@ -282,12 +380,71 @@ class MiniGolfMove {
   /// The ball left the green (penalty). Costs the stroke; ball resets to tee.
   final bool outOfBounds;
 
+  /// The stroke's input — unit direction and 0..1 power, the same shape
+  /// [MiniGolfPutt.simulate] takes — plus the hole it was played on. Optional
+  /// so older callers (and hand-built test moves) that only carry the settled
+  /// outcome keep working; when present, [MiniGolfGame.applyMove] records it
+  /// on [MiniGolfState.lastStroke] so a receiving board can replay the roll
+  /// instead of snapping straight to [ballNx]/[ballNy].
+  final double? dirX;
+  final double? dirY;
+  final double? power;
+  final int? holeIndex;
+
   const MiniGolfMove({
     required this.owner,
     required this.ballNx,
     required this.ballNy,
     this.sunk = false,
     this.outOfBounds = false,
+    this.dirX,
+    this.dirY,
+    this.power,
+    this.holeIndex,
+  });
+}
+
+/// A recorded putt input: what a player actually did, not just where the
+/// ball ended up. Carried on [MiniGolfState.lastStroke] — not just on
+/// [MiniGolfMove] — because a replaying board needs the ball's PRE-stroke
+/// position too, and boards diff consecutive *states*, not moves.
+class MiniGolfStroke {
+  /// Who took this stroke.
+  final String owner;
+
+  /// Ball position (normalized), the instant before this stroke — same space
+  /// as [MiniGolfState.ballNx]/[MiniGolfState.ballNy].
+  final double fromNx;
+  final double fromNy;
+
+  /// Unit direction and 0..1 power the putt was struck with — exactly the
+  /// inputs [MiniGolfPutt.simulate] takes, so a receiver reproduces the same
+  /// roll rather than approximating it.
+  final double dirX;
+  final double dirY;
+  final double power;
+
+  /// Which hole this stroke was played on. NOT necessarily the enclosing
+  /// [MiniGolfState.currentHole]: the stroke that holes out the current hole
+  /// advances `currentHole` in the same reducer step that records it, so a
+  /// replayer must read the hole off here.
+  final int holeIndex;
+
+  /// Monotonic across the whole match (one per stroke, any hole, any owner —
+  /// see [MiniGolfState.strokeSeq]). How a receiver tells a genuinely new
+  /// stroke from the same one re-arriving (a duplicate transport delivery, a
+  /// cold reconnect showing the current position).
+  final int strokeId;
+
+  const MiniGolfStroke({
+    required this.owner,
+    required this.fromNx,
+    required this.fromNy,
+    required this.dirX,
+    required this.dirY,
+    required this.power,
+    required this.holeIndex,
+    required this.strokeId,
   });
 }
 
@@ -320,6 +477,18 @@ class MiniGolfState {
   final Map<String, double> ballNx;
   final Map<String, double> ballNy;
 
+  /// Strokes applied so far, match-wide — doubles as the id the *next*
+  /// stroke's [MiniGolfStroke.strokeId] will get. Monotonic across holes and
+  /// owners, unlike [holeStrokes] (per-hole) or [totalStrokes] (per-player).
+  final int strokeSeq;
+
+  /// The most recent stroke with recorded input, or `null` before any move
+  /// has carried one (a fresh match, or every move so far predating replay /
+  /// omitting the input fields). A board diffs this against what it has
+  /// already shown ([MiniGolfStroke.strokeId]) to replay an opponent's roll
+  /// instead of snapping straight to the settled position.
+  final MiniGolfStroke? lastStroke;
+
   const MiniGolfState({
     required this.baseSeed,
     required this.holeCount,
@@ -331,6 +500,8 @@ class MiniGolfState {
     required this.holedOut,
     required this.ballNx,
     required this.ballNy,
+    this.strokeSeq = 0,
+    this.lastStroke,
   });
 
   MiniGolfState copyWith({
@@ -341,6 +512,8 @@ class MiniGolfState {
     Map<String, bool>? holedOut,
     Map<String, double>? ballNx,
     Map<String, double>? ballNy,
+    int? strokeSeq,
+    MiniGolfStroke? lastStroke,
   }) =>
       MiniGolfState(
         baseSeed: baseSeed,
@@ -353,6 +526,8 @@ class MiniGolfState {
         holedOut: holedOut ?? this.holedOut,
         ballNx: ballNx ?? this.ballNx,
         ballNy: ballNy ?? this.ballNy,
+        strokeSeq: strokeSeq ?? this.strokeSeq,
+        lastStroke: lastStroke ?? this.lastStroke,
       );
 
   /// Strokes recorded on completed holes plus the in-progress current hole.

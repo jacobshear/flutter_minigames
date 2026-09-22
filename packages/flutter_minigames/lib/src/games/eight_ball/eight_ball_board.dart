@@ -48,6 +48,29 @@ class _EightBallBoardState extends State<EightBallBoard>
   EightBallState? _state;
   GameOutcome? _outcome;
 
+  // Opponent-shot replay bookkeeping. `_lastShotId` is the shot id already
+  // reflected on screen (shot locally or already replayed); an incoming
+  // state whose `lastShot.shotId` differs is one this board hasn't shown
+  // yet. `_pendingLocalShotId` is the id THIS board's own local shot is
+  // about to produce — its echo back through the stream must be adopted
+  // directly, never replayed (it already played out live in the scene).
+  // `_replaying` / `_replayTarget` track a physics replay in flight.
+  int? _lastShotId;
+  int? _pendingLocalShotId;
+  bool _replaying = false;
+  EightBallState? _replayTarget;
+
+  /// The state currently reflected on screen — including mid-replay, where
+  /// it is still the pre-shot snapshot until the replay settles. Exposed for
+  /// widget tests to assert the board eventually converges on the
+  /// authoritative outcome.
+  @visibleForTesting
+  EightBallState? get debugState => _state;
+
+  /// Whether a physics replay of a remote shot is currently animating.
+  @visibleForTesting
+  bool get debugIsReplaying => _replaying;
+
   // The transient centre message. A single GameNotice owns the animation and
   // the retract timer, so repeating the same text — "Miss" twice in a row is
   // ordinary play — can never collide with its own outgoing copy.
@@ -96,14 +119,22 @@ class _EightBallBoardState extends State<EightBallBoard>
       ..onRail = _onRail
       ..onPocket = _onPocket
       ..onShotSettled = _onShotSettled
+      ..onReplaySettled = _onReplaySettled
       ..onAimChanged = () => setState(() {});
     _scene = scene;
     _celebrated = false;
     _clearNotice();
     _confetti = const [];
+    _replaying = false;
+    _replayTarget = null;
+    _pendingLocalShotId = null;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
+    // A cold mount never replays: whatever shot is already reflected in `s`
+    // (including a mid-match resume, or none at all on a fresh match) is
+    // simply shown as-is.
+    _lastShotId = s?.lastShot?.shotId;
     if (s != null) {
       scene.applyState(s, _actingFor(s));
       // Whose shot it is, and whether they have ball in hand, are standing
@@ -252,6 +283,9 @@ class _EightBallBoardState extends State<EightBallBoard>
                     ? ('NO CONTACT — FOUL', GameNoticeTone.warn)
                     : ('MISS', GameNoticeTone.warn))));
 
+    // This board already ran the shot live; the echo of this exact shot id
+    // coming back through the stream must be adopted as-is, never replayed.
+    _pendingLocalShotId = (_state?.shotsTaken ?? 0) + 1;
     widget.controller.submitMove(move);
     if (!mounted) return;
     setState(() => _showNotice(
@@ -267,6 +301,71 @@ class _EightBallBoardState extends State<EightBallBoard>
   }
 
   void _onState(EightBallState next) {
+    if (!mounted) return;
+
+    // This state is the echo of our own local shot (already animated live in
+    // the scene, already submitted) — adopt it directly, no replay.
+    final pending = _pendingLocalShotId;
+    if (pending != null && next.lastShot?.shotId == pending) {
+      _pendingLocalShotId = null;
+      _lastShotId = pending;
+      _applyIncomingState(next);
+      return;
+    }
+
+    final shot = next.lastShot;
+    final prevState = _state;
+
+    if (_replaying) {
+      // A newer state landed before the replay in flight settled (e.g. the
+      // host fast-forwarded past it, or a continuation shot queued up faster
+      // than it can be shown) — abandon that sim and jump straight to the
+      // newest snapshot rather than layering another replay on top.
+      _replaying = false;
+      _replayTarget = null;
+      _lastShotId = shot?.shotId ?? _lastShotId;
+      _applyIncomingState(next);
+      return;
+    }
+
+    if (shot != null && prevState != null && shot.shotId != _lastShotId) {
+      _lastShotId = shot.shotId;
+      _replaying = true;
+      _replayTarget = next;
+      _scene?.beginReplay(prevState, shot);
+      // Outcome celebration + notices land once the replay settles (see
+      // _onReplaySettled) — nothing else to reflect right now besides the
+      // input lock the scene already enforces.
+      setState(() {});
+      return;
+    }
+
+    _lastShotId = shot?.shotId ?? _lastShotId;
+    _applyIncomingState(next);
+  }
+
+  /// Fired once the scene's physics replay of a remote shot has settled.
+  /// Reconciles the board to the authoritative outcome — the same
+  /// [_applyIncomingState] a live or directly-snapped state goes through.
+  void _onReplaySettled() {
+    if (!mounted) return;
+    _replaying = false;
+    final next = _replayTarget;
+    _replayTarget = null;
+    if (next == null) return;
+    _applyIncomingState(next);
+  }
+
+  /// Reconciles the scene + board state to [next] — the authoritative
+  /// outcome, whether it arrived live, as an already-shown echo of a local
+  /// shot, directly (a legacy move with nothing to replay), or after a
+  /// replayed remote shot settled. Rebuilding the sim from [next] here is
+  /// what actually reconciles a replay: it re-seats every ball at its
+  /// authoritative resting spot regardless of where the replay's own
+  /// simulation approximated it — a no-op snap when the two physics runs
+  /// agree (the common case; the harness is deterministic), a correcting one
+  /// otherwise.
+  void _applyIncomingState(EightBallState next) {
     if (!mounted) return;
     final prev = _state;
     final outcome = _game.outcome(next);
@@ -675,7 +774,7 @@ class EightBallScene extends FlameGame {
   /// starts losing energy in the pile-up and the spread gets *worse* again.
   static const aimConfig = AimToImpulse(
     maxDrag: 210,
-    maxImpulse: 20,
+    maxImpulse: EightBallGame.maxShotImpulse,
     minImpulse: 2.5,
     deadZone: 8,
   );
@@ -728,6 +827,20 @@ class EightBallScene extends FlameGame {
   bool _launched = false;
   double _accum = 0;
 
+  // The launch impulse of the shot currently under way, captured at
+  // [endAim] — handed back on settle so the board can record it as an
+  // [EightBallShot] for the opponent to replay. Null for a replay run
+  // (which launches directly, never through [endAim]) and for a shot that
+  // was never actually launched (dead-zone drag).
+  Vector2? _pendingImpulse;
+
+  // True while running a physics REPLAY of a remote shot (see
+  // [beginReplay]): input stays locked (via [_launched]) and settling
+  // reports through [onReplaySettled] instead of [onShotSettled] — a
+  // replay never re-submits a move, it only reconstructs one for the board
+  // to compare against the authoritative outcome.
+  bool _replaying = false;
+
   int? _firstHit; // first object-ball number the cue struck this shot
   final Set<int> _pocketedIds = {};
 
@@ -761,9 +874,14 @@ class EightBallScene extends FlameGame {
   void Function()? onAimChanged;
   void Function(EightBallMove move)? onShotSettled;
 
+  /// Fired once a [beginReplay] run settles. The caller (the board) owns
+  /// reconciling to the authoritative outcome — this scene only ran the sim.
+  void Function()? onReplaySettled;
+
   bool get canAim =>
       _cue != null &&
       !_launched &&
+      !_replaying &&
       !_sim.isRunning &&
       _pendingSettle == null &&
       (_state != null && !_state!.ballInHand && !_state!.over);
@@ -829,6 +947,8 @@ class EightBallScene extends FlameGame {
     _state = state;
     _acting = acting;
     _launched = false;
+    _replaying = false;
+    _pendingImpulse = null;
     _aimStart = null;
     _aimNow = null;
     _accum = 0;
@@ -843,6 +963,34 @@ class EightBallScene extends FlameGame {
     _lastBallVel.clear();
     _placeGhost = state.ballInHand ? const Offset(0.5, 0.8) : null;
     _sim = _buildSim(state);
+  }
+
+  /// Starts a physics replay of a remote [shot] on behalf of the board.
+  ///
+  /// Rebuilds the table from [from] (the pre-shot state) exactly like
+  /// [applyState] does — that's where the cue's start position comes from,
+  /// since it's already tracked in `EightBallState.balls` (see
+  /// [EightBallShot.cueStartNx]) — then launches the recorded impulse
+  /// immediately with input locked (via [_launched]). The same
+  /// [update]/[_handleSettled] machinery a local shot uses runs it out:
+  /// collisions, rail bounces, pockets, the drop animation. Settling
+  /// reports through [onReplaySettled] rather than [onShotSettled] — a
+  /// replay never submits a move, it only reconstructs one (see
+  /// `EightBallBoard._onReplaySettled`).
+  void beginReplay(EightBallState from, EightBallShot shot) {
+    applyState(from, shot.owner);
+    final cue = _cue;
+    if (cue == null) {
+      // The recorded shot has nothing to launch in `from` — shouldn't
+      // happen given how `_handleSettled` records one, but report done
+      // rather than hang the caller waiting on a settle that never comes.
+      onReplaySettled?.call();
+      return;
+    }
+    _replaying = true;
+    _launched = true;
+    onBreak?.call();
+    _sim.launch(cue, Vector2(shot.impulseX, shot.impulseY));
   }
 
   /// Normalized table coords → sim world units.
@@ -939,6 +1087,9 @@ class EightBallScene extends FlameGame {
     if (impulse.length2 == 0) return; // dead zone
     _launched = true;
     _firstHit = null;
+    // Recorded so [_handleSettled] can hand it back on [onShotSettled] — the
+    // opponent's board replays this exact input (see [beginReplay]).
+    _pendingImpulse = impulse.clone();
     onBreak?.call();
     _sim.launch(cue, impulse);
   }
@@ -976,10 +1127,18 @@ class EightBallScene extends FlameGame {
     _advanceFlourishes(dt);
     // The move was packaged when the physics settled; hold it only until the
     // last ball has finished falling, so the drop is watched rather than cut.
+    // A replay run reports through onReplaySettled instead — it never
+    // resubmits a move, and gets the same hold so a replayed pot is watched
+    // through, not cut, same as a local one.
     final pending = _pendingSettle;
     if (pending != null && !_sim.isRunning && _drops.isEmpty) {
       _pendingSettle = null;
-      onShotSettled?.call(pending);
+      if (_replaying) {
+        _replaying = false;
+        onReplaySettled?.call();
+      } else {
+        onShotSettled?.call(pending);
+      }
     }
   }
 
@@ -1126,10 +1285,14 @@ class EightBallScene extends FlameGame {
     // Packaged now, delivered once the last ball has finished dropping. The
     // outcome is read off the settled bodies here and never touched again, so
     // no amount of animation can move it.
+    final impulse = _pendingImpulse;
+    _pendingImpulse = null;
     _pendingSettle = EightBallMove.shot(
       owner: _acting,
       positions: positions,
       firstHitNumber: _firstHit,
+      shotImpulseX: impulse?.x,
+      shotImpulseY: impulse?.y,
     );
   }
 

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/tile_art_clock.dart';
 import 'filler_game.dart';
 import 'filler_style.dart';
 
@@ -38,15 +39,16 @@ class FillerTileArt extends StatefulWidget {
 
 class _FillerTileArtState extends State<FillerTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 5200),
+    period: const Duration(milliseconds: 5200),
+    animate: widget.animate,
   );
 
   @override
-  void initState() {
-    super.initState();
-    if (widget.animate) _c.repeat();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
   }
 
   late final FillerState _demo = _buildMidGame();

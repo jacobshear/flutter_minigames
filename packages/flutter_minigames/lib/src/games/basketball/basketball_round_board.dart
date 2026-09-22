@@ -9,6 +9,7 @@ import 'package:flutter_minigames/src/ui/ui.dart';
 import 'basketball_court.dart';
 import 'basketball_game.dart';
 import 'basketball_scoreboard.dart';
+import 'basketball_shot.dart';
 import 'basketball_sim.dart';
 import 'basketball_style.dart';
 import 'basketball_view.dart';
@@ -51,12 +52,21 @@ class BasketballRoundBoard extends StatefulWidget {
   /// Fires exactly once with one score per round.
   final ValueChanged<List<int>> onComplete;
 
+  /// Fires exactly once, alongside [onComplete], with every shot this player
+  /// threw across both rounds, in release order — the log a
+  /// [BasketballRoundReplay] needs to reconstruct this round. It fires before
+  /// [onComplete], so a caller that only wants a `BasketballMove` can stash
+  /// the shots here and read them back while handling `onComplete`.
+  /// Optional: existing callers that only want the score can leave it null.
+  final ValueChanged<List<BasketballShot>>? onShotsRecorded;
+
   const BasketballRoundBoard({
     super.key,
     required this.game,
     required this.playerLabel,
     required this.opponentLabel,
     required this.onComplete,
+    this.onShotsRecorded,
     this.mode = BasketballHoopMode.normal,
     this.opponentScore = 0,
     this.isPlayerOne = true,
@@ -83,6 +93,18 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
   final List<int> _roundScores = [];
   int _roundIndex = 0;
   bool _completed = false;
+
+  /// Every shot this player has thrown, across both rounds, in release order
+  /// — recorded here as it happens rather than reconstructed afterwards.
+  final List<BasketballShot> _shots = [];
+
+  /// [LiveBall.id] -> index into [_shots], for the shots still in flight
+  /// awaiting a make/miss resolution. A round throws at most a few dozen
+  /// balls, so this stays small for the board's whole lifetime and is never
+  /// explicitly pruned — a miss simply keeps its `made: false` default and
+  /// its entry is dropped once the ball goes stale (it is never looked up
+  /// again).
+  final Map<int, int> _pendingShotIndex = {};
 
   Duration _lastTick = Duration.zero;
 
@@ -192,6 +214,7 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
   void _onHit(BasketballHit hit) {
     switch (hit.kind) {
       case BasketballHitKind.made:
+        _resolveShot(hit.ball);
         widget.style.sounds.onSwish?.call();
         // Haptics fire on your own score only — and a clean drop feels
         // different in the hand from one that rattled its way in, which is the
@@ -263,6 +286,9 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     if (_roundScores.length >= BasketballGame.roundCount) {
       _completed = true;
       _ticker.stop();
+      // Shots first: a caller building a BasketballMove out of both
+      // callbacks needs the log in hand before it reads the scores.
+      widget.onShotsRecorded?.call(List.of(_shots));
       widget.onComplete(List.of(_roundScores));
       return;
     }
@@ -320,7 +346,42 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     // and arc are constants.
     final aim = BasketballAim.aimFromDrag(_dragX, _dragY);
     if (aim == null) return;
-    _sim.shoot(aim);
+    final ball = _sim.shoot(aim);
+    if (ball != null) _recordShot(ball, aim);
+  }
+
+  // ------------------------------------------------------------- shot log
+
+  /// Logs a just-released ball as a pending [BasketballShot] — outcome
+  /// unknown yet, filled in by [_resolveShot] if and when it goes in.
+  void _recordShot(LiveBall ball, double aim) {
+    final index = _shots.length;
+    _shots.add(BasketballShot(
+      round: _roundIndex,
+      tMs: (_sim.time * 1000).round(),
+      spawnX: ball.spawnX,
+      aim: aim,
+      made: false,
+      points: 0,
+      ballIndex: index,
+    ));
+    _pendingShotIndex[ball.id] = index;
+  }
+
+  /// A pending shot just went in — upgrade its logged entry to a make.
+  void _resolveShot(LiveBall ball) {
+    final index = _pendingShotIndex.remove(ball.id);
+    if (index == null) return;
+    final shot = _shots[index];
+    _shots[index] = BasketballShot(
+      round: shot.round,
+      tMs: shot.tMs,
+      spawnX: shot.spawnX,
+      aim: shot.aim,
+      made: true,
+      points: 1,
+      ballIndex: shot.ballIndex,
+    );
   }
 
   // ------------------------------------------------------------------- view

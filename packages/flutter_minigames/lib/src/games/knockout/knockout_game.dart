@@ -187,15 +187,24 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
       for (final p in move.positions)
         if (!p.fell) KnockoutPuck(id: p.id, owner: p.owner, nx: p.nx, ny: p.ny),
     ];
+    final nextFrame = state.frame + 1;
 
     return KnockoutState(
       pucks: pucks,
       playerIds: state.playerIds,
       currentPlayerId: move.owner,
-      frame: state.frame + 1,
+      frame: nextFrame,
       pucksPerPlayer: state.pucksPerPlayer,
       pendingAims: const [],
       pendingAimOwner: null,
+      // Every aim that fired this release — the resolver's own plus the
+      // opener's, held since the opening commit. A receiving board replays
+      // this exact launch from the PREVIOUS state's pucks (see
+      // [KnockoutResolution]) instead of just snapping to the settled result.
+      lastResolution: KnockoutResolution(
+        frame: nextFrame,
+        aims: [...move.aims, ...state.pendingAims],
+      ),
     );
   }
 
@@ -206,9 +215,22 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
   @override
   bool get replaysWholeTurn => true;
 
+  // MatchController runs a "tail" after the real snapshot lands — the window
+  // during which the board is expected to still be animating the move —
+  // paced by this. A resolving frame reconstructs the release by running the
+  // same local Forge2D sim (see KnockoutScene.beginReplay), which — per the
+  // glide-friction tuning note on the scene — settles in ~1.5-2.4s for a
+  // single flick; knockout can have up to `2 * pucksPerPlayer` discs
+  // colliding in the same release, busier than a lone puck sliding, so this
+  // tail is sized a bit above that single-puck measurement while staying
+  // well under a ~6s conservative ceiling. The opening half of a round moves
+  // nothing (the "visually inert" frame — see the class doc), so it keeps a
+  // short fixed hold instead.
   @override
   Duration replayStepDelay(KnockoutState from, KnockoutState to) =>
-      const Duration(milliseconds: 1000);
+      to.lastResolution == null
+          ? const Duration(milliseconds: 700)
+          : const Duration(milliseconds: 4500);
 
   @override
   GameOutcome? outcome(KnockoutState state) {
@@ -251,6 +273,7 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
         'pucksPerPlayer': state.pucksPerPlayer,
         'pendingAims': [for (final a in state.pendingAims) a.toJson()],
         'pendingAimOwner': state.pendingAimOwner,
+        'lastResolution': state.lastResolution?.toJson(),
       };
 
   @override
@@ -269,6 +292,13 @@ class KnockoutGame extends TurnGame<KnockoutState, KnockoutMove> {
             KnockoutAim.fromJson(Map<String, dynamic>.from(a as Map)),
         ],
         pendingAimOwner: json['pendingAimOwner'] as String?,
+        // Absent on legacy payloads written before replay support existed
+        // (and on the opening half of a round) — decodes to null, so those
+        // states simply never replay.
+        lastResolution: json['lastResolution'] == null
+            ? null
+            : KnockoutResolution.fromJson(
+                Map<String, dynamic>.from(json['lastResolution'] as Map)),
       );
 
   @override
@@ -399,6 +429,38 @@ class KnockoutAim {
       );
 }
 
+/// What fired when a round resolved: every aim that launched (the resolver's
+/// own plus the opener's, held since the opening commit) that produced the
+/// [KnockoutState.pucks] it is attached to, plus a monotonically increasing
+/// [frame] id.
+///
+/// A receiving board diffs [frame] against the last resolution it already
+/// showed (or produced locally itself) to tell a genuinely new resolution
+/// from a re-emitted or self-authored state, then replays the physics —
+/// launching [aims] from the PREVIOUS state's puck positions — instead of
+/// just snapping to the settled result. See `KnockoutBoard` in
+/// `knockout_board.dart`.
+class KnockoutResolution {
+  final int frame;
+  final List<KnockoutAim> aims;
+
+  const KnockoutResolution({required this.frame, required this.aims});
+
+  Map<String, dynamic> toJson() => {
+        'frame': frame,
+        'aims': [for (final a in aims) a.toJson()],
+      };
+
+  factory KnockoutResolution.fromJson(Map<String, dynamic> json) =>
+      KnockoutResolution(
+        frame: (json['frame'] as num).toInt(),
+        aims: [
+          for (final a in (json['aims'] as List? ?? const []))
+            KnockoutAim.fromJson(Map<String, dynamic>.from(a as Map)),
+        ],
+      );
+}
+
 /// A knockout move = one side's commit for the round.
 ///
 /// [aims] is always the mover's full wind-up (one impulse per live puck they
@@ -439,6 +501,12 @@ class KnockoutState {
   /// Who committed [pendingAims]. Null when the round is fresh.
   final String? pendingAimOwner;
 
+  /// What the most recent RESOLVING commit launched, i.e. the input that
+  /// produced [pucks] from whatever board preceded it — null on the opening
+  /// half of a round (nothing moved) and on any state decoded from a payload
+  /// written before this field existed. See [KnockoutResolution].
+  final KnockoutResolution? lastResolution;
+
   const KnockoutState({
     required this.pucks,
     required this.playerIds,
@@ -447,6 +515,7 @@ class KnockoutState {
     required this.pucksPerPlayer,
     this.pendingAims = const [],
     this.pendingAimOwner,
+    this.lastResolution,
   });
 
   /// True once one side has committed: the next commit resolves the round.

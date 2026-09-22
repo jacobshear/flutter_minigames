@@ -11,6 +11,7 @@ export 'package:flutter_minigames/src/words/words.dart' show WordDictionary;
 export 'anagrams_board.dart';
 export 'anagrams_game.dart';
 export 'anagrams_results.dart';
+export 'anagrams_round_replay.dart';
 export 'anagrams_sounds.dart';
 export 'anagrams_style.dart';
 export 'anagrams_tile_art.dart';

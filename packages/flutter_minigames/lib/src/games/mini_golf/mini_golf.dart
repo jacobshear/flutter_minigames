@@ -16,7 +16,8 @@ export 'mini_golf_course.dart'
         MiniGolfArchetypeLabel,
         MiniGolfCourse,
         MiniGolfObstacle;
-export 'mini_golf_game.dart' show MiniGolfGame, MiniGolfState, MiniGolfMove;
+export 'mini_golf_game.dart'
+    show MiniGolfGame, MiniGolfState, MiniGolfMove, MiniGolfStroke;
 export 'mini_golf_render.dart' show paintMiniGolfScene;
 export 'mini_golf_sim.dart'
     show MiniGolfPutt, PuttEvent, PuttEventKind, PuttResult, PuttSample;

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 
 /// Launcher-tile miniature for Anagrams: wooden letter tiles pop in one by
 /// one to spell a short word, a green "valid!" underline flashes, then the
@@ -23,13 +24,19 @@ class _AnagramsTileArtState extends State<AnagramsTileArt>
 
   final _rng = math.Random();
 
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 5400),
-  )..repeat();
+    period: const Duration(milliseconds: 5400),
+  );
 
   late int _wordIndex = _rng.nextInt(_words.length);
   double _lastT = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

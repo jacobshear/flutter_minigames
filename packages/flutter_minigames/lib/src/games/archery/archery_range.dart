@@ -80,6 +80,33 @@ class _ArcheryRangeState extends State<ArcheryRange>
   bool _resolving = false;
   bool _lastHitFace = false;
 
+  /// The draw behind the arrow currently resolving, for a LOCAL shot — used
+  /// to build the submitted [ArcheryMove] so a receiving board can replay
+  /// the same flight. Unset (all null) while replaying an opponent's arrow;
+  /// the draw there comes from [ArcheryState.lastShot] instead.
+  double? _lastPower;
+  double? _lastAimYaw;
+  double? _lastAimPitch;
+
+  /// True while [_shot]/[_flight] is replaying an arrow this board didn't
+  /// originate, rather than a local draw-and-loose.
+  bool _replaying = false;
+
+  /// The authoritative state a replayed arrow must land on exactly, or null
+  /// outside a replay.
+  ArcheryState? _replayTarget;
+
+  /// [ArcheryState.totalShots] of the arrow this board last finished
+  /// animating (local or replayed), so a repeat/echoed state is never
+  /// replayed twice. Seeded from the state already on screen at bind time —
+  /// a cold mount shows a snapshot, it does not replay into it.
+  int? _lastAnimatedShotCount;
+
+  /// Set right before this board submits its own move, to the `totalShots`
+  /// value the resulting state will carry — lets [_onState] recognise the
+  /// echo of an arrow it already animated instead of replaying it again.
+  int? _pendingLocalShotCount;
+
   /// Where the last arrow struck the face, and how hard it arrived. Together
   /// they place and scale the straw's compression, so a close, fast arrow digs
   /// in and a tired one at thirty-eight metres barely marks it.
@@ -154,6 +181,12 @@ class _ArcheryRangeState extends State<ArcheryRange>
     _aimPitch = 0;
     _clearNotice();
     _confetti = const [];
+    _lastPower = null;
+    _lastAimYaw = null;
+    _lastAimPitch = null;
+    _replaying = false;
+    _replayTarget = null;
+    _pendingLocalShotCount = null;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
@@ -162,6 +195,9 @@ class _ArcheryRangeState extends State<ArcheryRange>
       _stuck = s.arrowsAt(s.currentPlayerId, s.targetIndex);
       if (_outcome != null) _celebrated = true;
     }
+    // The state already on screen at bind time is not something to replay
+    // into — only an arrow newer than it should ever trigger a flight.
+    _lastAnimatedShotCount = s?.totalShots ?? 0;
     _sub = widget.controller.stateStream.listen(_onState);
   }
 
@@ -200,7 +236,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
   bool get _canShoot {
     final s = _state;
     if (s == null || _outcome != null) return false;
-    if (_resolving) return false;
+    if (_resolving || _replaying) return false;
     if (_hotSeat && s.phase == ArcheryPhase.handoff && !_handoffAcknowledged) {
       return false;
     }
@@ -279,6 +315,10 @@ class _ArcheryRangeState extends State<ArcheryRange>
     _shot = result;
     _stray = null;
     _resolving = true;
+    _replaying = false;
+    _lastPower = ArcheryDraw.power(held);
+    _lastAimYaw = _aimYaw + swayYaw;
+    _lastAimPitch = _aimPitch + swayPitch;
     _flight
       ..duration = Duration(
         milliseconds: (result.flightSeconds * 1000 * (slowMo ? 1.9 : 1.15))
@@ -291,7 +331,11 @@ class _ArcheryRangeState extends State<ArcheryRange>
 
   void _onFlightStatus(AnimationStatus status) {
     if (status != AnimationStatus.completed || !mounted) return;
-    _onImpact();
+    if (_replaying) {
+      _onReplayImpact();
+    } else {
+      _onImpact();
+    }
   }
 
   void _onImpact() {
@@ -345,6 +389,9 @@ class _ArcheryRangeState extends State<ArcheryRange>
       arrowIndex: s.arrowIndex,
       offsetX: result.offsetX,
       offsetY: result.offsetY,
+      power: _lastPower,
+      aimYaw: _lastAimYaw,
+      aimPitch: _lastAimPitch,
     );
 
     // Show the arrow in the face immediately; the state catches up on the next
@@ -373,6 +420,10 @@ class _ArcheryRangeState extends State<ArcheryRange>
     // be read and the submitted move land before the display rolls forward.
     _lastHitFace = result.onFace;
     _wobble.forward(from: 0);
+    // The resulting state will carry totalShots == s.totalShots + 1 (exactly
+    // one arrow is appended per move) — remembered so _onState recognises
+    // this move's own echo instead of replaying an arrow already shown here.
+    _pendingLocalShotCount = s.totalShots + 1;
     widget.controller.submitMove(move);
   }
 
@@ -384,10 +435,12 @@ class _ArcheryRangeState extends State<ArcheryRange>
   /// The arrow is done: clear the flight, reset the aim, and roll the display
   /// forward if the state has moved to a new target or a new shooter.
   void _finishArrow() {
-    if (!_resolving || !mounted) return;
+    if (!(_resolving || _replaying) || !mounted) return;
     final s = _state;
     _resolving = false;
+    _replaying = false;
     _shot = null;
+    _replayTarget = null;
     _aimYaw = 0;
     _aimPitch = 0;
     if (s == null) return;
@@ -414,6 +467,52 @@ class _ArcheryRangeState extends State<ArcheryRange>
 
   void _onState(ArcheryState next) {
     if (!mounted) return;
+
+    // The echo of an arrow this board just submitted itself (local, or a
+    // replay this board just finished) — already fully animated, so it is
+    // shown as a plain state landing rather than replayed a second time.
+    if (_pendingLocalShotCount != null &&
+        next.totalShots == _pendingLocalShotCount) {
+      _pendingLocalShotCount = null;
+      _lastAnimatedShotCount = next.totalShots;
+      _finishState(next);
+      return;
+    }
+
+    final lastShot = next.lastShot;
+    final isNewThrow =
+        lastShot != null && next.totalShots > (_lastAnimatedShotCount ?? 0);
+    if (isNewThrow && !_resolving) {
+      if (_replaying) {
+        // A newer arrow arrived while an earlier one was still animating —
+        // jump straight to this snapshot instead of chaining another
+        // flight (mirrors what MatchController.skipReplay does one level
+        // up).
+        _flight.stop();
+        _wobble.stop();
+        _replaying = false;
+        _shot = null;
+        _replayTarget = null;
+      }
+      _beginReplay(next, lastShot);
+      return;
+    }
+
+    if (!_resolving && !_replaying) {
+      // Not our arrow in flight, and no draw to replay it with (a legacy
+      // move, most likely): mirror the face from the state directly, the
+      // way _finishArrow does for our own once its wobble ends.
+      _displayTarget = next.targetIndex;
+      _stuck = next.arrowsAt(next.currentPlayerId, next.targetIndex);
+      _lastAnimatedShotCount = next.totalShots;
+    }
+    _finishState(next);
+  }
+
+  /// Applies everything about [next] that isn't the arrow's own flight: the
+  /// fresh-match reset, win celebration, and the state swap itself. Shared
+  /// by a plain state arrival and the landing of a replayed arrow.
+  void _finishState(ArcheryState next) {
     final outcome = _game.outcome(next);
     final fresh = next.arrowsShotBy(next.playerIds.first) == 0 &&
         next.arrowsShotBy(next.playerIds.last) == 0;
@@ -423,21 +522,140 @@ class _ArcheryRangeState extends State<ArcheryRange>
       _handoffAcknowledged = false;
       _celebrated = false;
       _resolving = false;
+      _replaying = false;
       _shot = null;
       _stray = null;
-    } else if (!_resolving) {
-      // Not our arrow in flight: this is the other archer's shot (live or
-      // replayed), so mirror the face from the state the way _finishArrow
-      // does for our own once its wobble ends. Before this the opponent's
-      // arrows only appeared in the face on a remount.
-      _displayTarget = next.targetIndex;
-      _stuck = next.arrowsAt(next.currentPlayerId, next.targetIndex);
+      _replayTarget = null;
+      _lastAnimatedShotCount = 0;
     }
     if (outcome != null && !_celebrated) _celebrate(outcome);
     setState(() {
       _state = next;
       _outcome = outcome;
     });
+  }
+
+  /// Starts replaying an opponent's arrow: the same [ArcheryBallistics.fire]
+  /// call a local loose would make, re-fired from [ArcheryState.lastShot]'s
+  /// recorded draw — deterministic, so it reproduces the flight the shooter
+  /// saw exactly — landing on [next] once it resolves ([_onReplayImpact]).
+  void _beginReplay(ArcheryState next, ArcheryLastShot lastShot) {
+    final conditions =
+        ArcheryGame.conditionsAt(next.seed, lastShot.targetIndex);
+    final result = ArcheryBallistics.fire(
+      conditions: conditions,
+      power: lastShot.power,
+      aimYaw: lastShot.aimYaw,
+      aimPitch: lastShot.aimPitch,
+    );
+
+    final slowMo = widget.style.slowMotionOnBullseye && result.isBullseye;
+    _shot = result;
+    _stray = null;
+    _replaying = true;
+    _replayTarget = next;
+    _flight
+      ..duration = Duration(
+        milliseconds: (result.flightSeconds * 1000 * (slowMo ? 1.9 : 1.15))
+            .round()
+            .clamp(200, 4000),
+      )
+      ..forward(from: 0);
+    setState(() {});
+  }
+
+  /// Counterpart to [_onImpact] for an arrow replayed from
+  /// [ArcheryState.lastShot] rather than shot locally: same stick/sound
+  /// effects, but the arrow added to the face — and so the score shown — is
+  /// always the authoritative one already in [ArcheryState.shots], never
+  /// this client's own replay of the flight. Never re-submits a move.
+  void _onReplayImpact() {
+    final next = _replayTarget;
+    final result = _shot;
+    if (next == null || result == null) {
+      _replayTarget = null;
+      return;
+    }
+    final lastShot = next.lastShot;
+    if (lastShot == null) {
+      _replayTarget = null;
+      _finishState(next);
+      return;
+    }
+    final style = widget.style;
+
+    _impactStrength = result.impactStrength;
+    if (result.onFace) {
+      _impactX = result.offsetX;
+      _impactY = result.offsetY;
+      if (result.isBullseye) {
+        style.sounds.onBullseye?.call();
+        if (style.haptics) HapticFeedback.heavyImpact();
+      } else {
+        style.sounds.onHit?.call();
+        if (style.haptics) {
+          if (_impactStrength > 0.5) {
+            HapticFeedback.mediumImpact();
+          } else {
+            HapticFeedback.lightImpact();
+          }
+        }
+      }
+    } else {
+      final path = result.path;
+      if (path.length >= 2) {
+        final end = path.last;
+        final before = path[path.length - 2];
+        final delta = end - before;
+        _stray = StrayArrow(
+          position: end,
+          direction: delta.lengthSquared < 1e-9
+              ? result.impactDirection
+              : delta.normalized,
+          inGround: end.y <= 0.05,
+        );
+      }
+      style.sounds.onMiss?.call();
+      if (style.haptics) HapticFeedback.mediumImpact();
+    }
+
+    // The arrow shown, and so the score, is always the authoritative one
+    // already recorded in state — this client's own replay of the flight
+    // only decides how it looks arriving, never what it was worth.
+    final arrows = next.arrowsAt(lastShot.shooter, lastShot.targetIndex);
+    final authoritative = lastShot.arrowIndex < arrows.length
+        ? arrows[lastShot.arrowIndex]
+        : ArrowShot(
+            ring: result.ring,
+            offsetX: result.offsetX,
+            offsetY: result.offsetY,
+            onFace: result.onFace,
+          );
+
+    setState(() {
+      _stuck = [..._stuck, authoritative];
+      if (authoritative.onFace && authoritative.ring == 10) {
+        _showNotice(
+          'BULLSEYE  +10',
+          tone: GameNoticeTone.score,
+          accent: _colorForPlayer(lastShot.shooter),
+          strong: true,
+        );
+      } else if (authoritative.onFace) {
+        _showNotice(
+          '+${authoritative.ring}',
+          tone: GameNoticeTone.score,
+          accent: _colorForPlayer(lastShot.shooter),
+        );
+      } else {
+        _showNotice('MISS', tone: GameNoticeTone.warn);
+      }
+    });
+    _lastHitFace = authoritative.onFace;
+    _lastAnimatedShotCount = next.totalShots;
+    _replayTarget = null;
+    _wobble.forward(from: 0);
+    _finishState(next);
   }
 
   void _celebrate(GameOutcome outcome) {
@@ -501,7 +719,17 @@ class _ArcheryRangeState extends State<ArcheryRange>
     final s = _state;
     return s == null
         ? widget.style.resolvePlayer1(_scheme)
-        : widget.style.colorFor(_scheme, s.currentPlayerId, s.playerIds);
+        : _colorForPlayer(s.currentPlayerId);
+  }
+
+  /// [playerId]'s colour, for a notice raised on their behalf — during a
+  /// replay that may not be [_accent]'s `currentPlayerId` (an end can finish
+  /// on the shot being replayed).
+  Color _colorForPlayer(String playerId) {
+    final s = _state;
+    return s == null
+        ? widget.style.resolvePlayer1(_scheme)
+        : widget.style.colorFor(_scheme, playerId, s.playerIds);
   }
 
   // ---------------------------------------------------------------------------
@@ -563,7 +791,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
       drawing: drawing,
       showReticle: _canShoot && !_resolving,
       // The zoom holds through the flight instead of snapping back to wide.
-      zoom: _resolving ? 1 : progress,
+      zoom: (_resolving || _replaying) ? 1 : progress,
       swayAmplitude: sway,
       time: _time,
       // Scaled by the arrival: a tired arrow at long range dents the straw far

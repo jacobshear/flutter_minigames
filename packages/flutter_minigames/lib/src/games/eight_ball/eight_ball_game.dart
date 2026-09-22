@@ -149,6 +149,7 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
       shotsTaken: 0,
       over: false,
       winnerId: null,
+      lastShot: null,
     );
   }
 
@@ -264,7 +265,20 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
         else
           b,
     ];
-    return state.copyWith(balls: balls, ballInHand: false);
+    // A placement carries no shot input to replay — clear whatever the
+    // previous stroke recorded rather than let `copyWith`'s merge-by-`??`
+    // carry it forward onto a state nothing launched.
+    return EightBallState(
+      balls: balls,
+      playerIds: state.playerIds,
+      currentPlayerId: state.currentPlayerId,
+      groups: state.groups,
+      ballInHand: false,
+      shotsTaken: state.shotsTaken,
+      over: state.over,
+      winnerId: state.winnerId,
+      lastShot: null,
+    );
   }
 
   EightBallState _applyShot(EightBallState state, EightBallMove move) {
@@ -273,6 +287,26 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
     final shooterGroup = state.groups[shooter];
     final tableOpenBefore = state.groups.isEmpty;
     final isBreak = state.shotsTaken == 0;
+
+    // The stroke's raw physics input, when the caller recorded one — a
+    // remote board replays it to show the actual shot instead of snapping to
+    // the outcome (see EightBallScene.beginReplay). The cue's start spot is
+    // read off `state` (not the move) because the cue is already tracked in
+    // `state.balls`; `shotId` is the running shot count after this one,
+    // already monotonic and unique, so a board can tell "a new shot landed"
+    // from "this state re-emitted" with no extra bookkeeping. Both fields
+    // are required together — a legacy/partial move records no shot at all,
+    // same as a placement.
+    final lastShot = (move.shotImpulseX != null && move.shotImpulseY != null)
+        ? EightBallShot(
+            owner: shooter,
+            cueStartNx: state.cue.nx,
+            cueStartNy: state.cue.ny,
+            impulseX: move.shotImpulseX!,
+            impulseY: move.shotImpulseY!,
+            shotId: state.shotsTaken + 1,
+          )
+        : null;
 
     final wasPocketed = {
       for (final b in state.balls)
@@ -321,14 +355,16 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
       final clearedBefore =
           shooterGroup != null && groupCleared(state.balls, shooterGroup);
       final legalWin = clearedBefore && !foul;
-      return state.copyWith(
+      return EightBallState(
         balls: balls,
+        playerIds: state.playerIds,
+        groups: state.groups, // irrelevant once over, keep them.
         over: true,
         winnerId: legalWin ? shooter : opponent,
         currentPlayerId: shooter,
         ballInHand: false,
         shotsTaken: state.shotsTaken + 1,
-        // groups are irrelevant once over, keep them.
+        lastShot: lastShot,
       );
     }
 
@@ -378,25 +414,52 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
       ballInHand = false;
     }
 
-    return state.copyWith(
+    return EightBallState(
       balls: balls,
+      playerIds: state.playerIds,
       groups: groups,
       currentPlayerId: next,
       ballInHand: ballInHand,
       shotsTaken: state.shotsTaken + 1,
+      over: state.over,
+      winnerId: state.winnerId,
+      lastShot: lastShot,
     );
   }
 
   /// Ball-in-hand placement then the shot, and the shooter stays on after a
-  /// legal pot. Only the shooter's device simulates; a receiving board
-  /// re-seats the balls at their settled spots, so each frame gets a hold
-  /// long enough to read what dropped.
+  /// legal pot — so a foul's placement, or a run of pots, has to land as one
+  /// turn rather than N separate cold-open replays. Opts into
+  /// MatchController's turn-continuation recording (`Match.prevState` +
+  /// `Match.turnSteps`).
   @override
   bool get replaysWholeTurn => true;
 
+  /// The strongest cue impulse a flick can produce. Owned here (not by the
+  /// board's aim config, which references it) so [replayStepDelay] can size
+  /// a replay from the recorded impulse without importing the physics.
+  static const double maxShotImpulse = 20;
+
+  // The receiving board reconstructs a replayed shot by re-running the same
+  // local Forge2D sim the shooter used (see EightBallScene.beginReplay). A
+  // placement has nothing to simulate — the cue easing into a spot — so it
+  // gets a short, fixed hold. A shot's settle time scales with its power:
+  // measured with EightBallScene.createSim + runUntilSettled (the harness
+  // `eight_ball_physics_test.dart` uses) it runs from ~4s for a soft tap to
+  // ~8.5-10s for a full-power break. The hold interpolates 4.5s -> 10.5s on
+  // the recorded impulse, so a break isn't cut short by the next queued
+  // frame and a soft tap doesn't sit on screen for ten seconds. No ceiling:
+  // fast-forward is how a viewer shortens a long replay.
   @override
-  Duration replayStepDelay(EightBallState from, EightBallState to) =>
-      const Duration(milliseconds: 1000);
+  Duration replayStepDelay(EightBallState from, EightBallState to) {
+    final shot = to.lastShot;
+    if (shot == null) return const Duration(milliseconds: 900);
+    final power = math.sqrt(
+      shot.impulseX * shot.impulseX + shot.impulseY * shot.impulseY,
+    );
+    final t = (power / maxShotImpulse).clamp(0.0, 1.0);
+    return Duration(milliseconds: (4500 + 6000 * t).round());
+  }
 
   @override
   GameOutcome? outcome(EightBallState state) =>
@@ -418,6 +481,7 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
         'shotsTaken': state.shotsTaken,
         'over': state.over,
         'winnerId': state.winnerId,
+        if (state.lastShot != null) 'lastShot': state.lastShot!.toJson(),
       };
 
   @override
@@ -437,6 +501,12 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
         shotsTaken: (json['shotsTaken'] as num?)?.toInt() ?? 0,
         over: json['over'] as bool? ?? false,
         winnerId: json['winnerId'] as String?,
+        // LEGACY states (recorded before shot-replay shipped) simply have no
+        // 'lastShot' key and decode to null — no migration needed.
+        lastShot: json['lastShot'] == null
+            ? null
+            : EightBallShot.fromJson(
+                Map<String, dynamic>.from(json['lastShot'] as Map)),
       );
 
   @override
@@ -448,6 +518,8 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
         if (move.firstHitNumber != null) 'firstHitNumber': move.firstHitNumber,
         if (move.cueNx != null) 'cueNx': move.cueNx,
         if (move.cueNy != null) 'cueNy': move.cueNy,
+        if (move.shotImpulseX != null) 'shotImpulseX': move.shotImpulseX,
+        if (move.shotImpulseY != null) 'shotImpulseY': move.shotImpulseY,
       };
 
   @override
@@ -463,6 +535,63 @@ class EightBallGame extends TurnGame<EightBallState, EightBallMove> {
         firstHitNumber: (json['firstHitNumber'] as num?)?.toInt(),
         cueNx: (json['cueNx'] as num?)?.toDouble(),
         cueNy: (json['cueNy'] as num?)?.toDouble(),
+        shotImpulseX: (json['shotImpulseX'] as num?)?.toDouble(),
+        shotImpulseY: (json['shotImpulseY'] as num?)?.toDouble(),
+      );
+}
+
+/// The recorded input of the most recent stroke — cue start position,
+/// direction + power (as the raw impulse vector the sim was given), owner,
+/// and a monotonically increasing [shotId] (the shot count after this one;
+/// see [EightBallGame.applyMove]). The receiving board replays the stroke
+/// locally by feeding this straight back into the same physics harness the
+/// shooter used (see `EightBallScene.beginReplay`), then reconciles to the
+/// settled [Ball] positions, which remain the source of truth.
+class EightBallShot {
+  final String owner;
+
+  /// Cue ball's normalized position immediately before the stroke — where a
+  /// replay's simulation seats the cue. (The replay itself actually reads
+  /// this off the pre-shot state it already has, since the cue is tracked
+  /// in `EightBallState.balls`; this field just makes the record
+  /// self-describing.)
+  final double cueStartNx;
+  final double cueStartNy;
+
+  /// The launch impulse handed to `TableSimulation.launch`, in sim world
+  /// units — direction and magnitude (power) together.
+  final double impulseX;
+  final double impulseY;
+
+  /// Shots played so far, including this one — monotonic and unique per
+  /// shot, so a board can distinguish a new shot from a re-emitted state.
+  final int shotId;
+
+  const EightBallShot({
+    required this.owner,
+    required this.cueStartNx,
+    required this.cueStartNy,
+    required this.impulseX,
+    required this.impulseY,
+    required this.shotId,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'owner': owner,
+        'cueStartNx': cueStartNx,
+        'cueStartNy': cueStartNy,
+        'impulseX': impulseX,
+        'impulseY': impulseY,
+        'shotId': shotId,
+      };
+
+  factory EightBallShot.fromJson(Map<String, dynamic> json) => EightBallShot(
+        owner: json['owner'] as String,
+        cueStartNx: (json['cueStartNx'] as num).toDouble(),
+        cueStartNy: (json['cueStartNy'] as num).toDouble(),
+        impulseX: (json['impulseX'] as num).toDouble(),
+        impulseY: (json['impulseY'] as num).toDouble(),
+        shotId: (json['shotId'] as num).toInt(),
       );
 }
 
@@ -563,6 +692,17 @@ class EightBallMove {
   final double? cueNx;
   final double? cueNy;
 
+  /// Shot only: the raw physics impulse applied to the cue ball, in sim
+  /// world units — the same vector `endAim` fed to `TableSimulation.launch`.
+  /// Optional and descriptive: [EightBallGame.validateMove] never reads it,
+  /// only [applyMove], which records it as [EightBallState.lastShot] so a
+  /// remote board can replay the actual stroke instead of snapping to
+  /// [positions]. Both fields are set together by a board's local shot, or
+  /// both left null (a legacy client, or a move built without physics —
+  /// see the pure-layer tests) — a partial pair records no shot at all.
+  final double? shotImpulseX;
+  final double? shotImpulseY;
+
   const EightBallMove({
     required this.kind,
     required this.owner,
@@ -570,6 +710,8 @@ class EightBallMove {
     this.firstHitNumber,
     this.cueNx,
     this.cueNy,
+    this.shotImpulseX,
+    this.shotImpulseY,
   });
 
   /// The settled outcome of a stroke.
@@ -577,6 +719,8 @@ class EightBallMove {
     required this.owner,
     required List<BallPosition> this.positions,
     required this.firstHitNumber,
+    this.shotImpulseX,
+    this.shotImpulseY,
   })  : kind = MoveKind.shot,
         cueNx = null,
         cueNy = null;
@@ -588,7 +732,9 @@ class EightBallMove {
     required double this.cueNy,
   })  : kind = MoveKind.place,
         positions = null,
-        firstHitNumber = null;
+        firstHitNumber = null,
+        shotImpulseX = null,
+        shotImpulseY = null;
 }
 
 /// The full table state.
@@ -609,6 +755,11 @@ class EightBallState {
   final bool over;
   final String? winnerId;
 
+  /// The most recent stroke's recorded input, or `null` when no stroke has
+  /// carried one yet (a fresh match, ball-in-hand was just placed, or a
+  /// LEGACY state from before replay shipped). See [EightBallShot].
+  final EightBallShot? lastShot;
+
   const EightBallState({
     required this.balls,
     required this.playerIds,
@@ -618,6 +769,7 @@ class EightBallState {
     required this.shotsTaken,
     required this.over,
     required this.winnerId,
+    required this.lastShot,
   });
 
   bool get isOpenTable => groups.isEmpty;
@@ -649,6 +801,7 @@ class EightBallState {
     int? shotsTaken,
     bool? over,
     String? winnerId,
+    EightBallShot? lastShot,
   }) =>
       EightBallState(
         balls: balls ?? this.balls,
@@ -659,5 +812,6 @@ class EightBallState {
         shotsTaken: shotsTaken ?? this.shotsTaken,
         over: over ?? this.over,
         winnerId: winnerId ?? this.winnerId,
+        lastShot: lastShot ?? this.lastShot,
       );
 }

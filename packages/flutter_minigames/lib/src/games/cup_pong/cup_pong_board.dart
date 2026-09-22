@@ -69,6 +69,40 @@ class _CupPongBoardState extends State<CupPongBoard>
   CupPongThrowSim? _sim;
   double _simCarry = 0;
 
+  /// The launch velocity behind the ball currently in [_sim], for a LOCAL
+  /// throw — carried into the submitted [CupPongThrow] so a receiving board
+  /// can replay the same flight. Null while replaying an opponent's throw
+  /// (the velocity there comes from [CupPongState.lastThrow] instead).
+  Vec3? _lastLaunchVelocity;
+
+  /// True while [_sim] is replaying a throw this board didn't originate,
+  /// rather than a local swipe.
+  bool _replaying = false;
+
+  /// The snapshots either side of the throw being replayed — the board
+  /// before it ([_replayPrev], for diffing cup removal) and the
+  /// authoritative state it must land on exactly ([_replayNext]).
+  CupPongState? _replayPrev;
+  CupPongState? _replayNext;
+
+  /// The state the board is showing (not the controller's).
+  @visibleForTesting
+  CupPongState? get debugState => _state;
+
+  @visibleForTesting
+  bool get debugIsReplaying => _replaying;
+
+  /// The `CupPongState.throws` value of the throw this board last finished
+  /// animating (local or replayed), so a repeat/echoed state is never
+  /// replayed twice. Seeded from the state already on screen at bind time —
+  /// a cold mount shows a snapshot, it does not replay into it.
+  int? _lastAnimatedThrowId;
+
+  /// Set right before this board submits its own move, to the `throws`
+  /// value the resulting state will carry — lets [_onState] recognise the
+  /// echo of a throw it already animated instead of replaying it again.
+  int? _pendingLocalThrowId;
+
   // Drag state, in board-local pixels.
   Offset? _dragFrom;
   Offset? _dragTo;
@@ -177,9 +211,17 @@ class _CupPongBoardState extends State<CupPongBoard>
     _resting = null;
     _sim = null;
     _phase = _Phase.aiming;
+    _lastLaunchVelocity = null;
+    _replaying = false;
+    _replayPrev = null;
+    _replayNext = null;
+    _pendingLocalThrowId = null;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
+    // The state already on screen at bind time is not something to replay
+    // into — only a throw newer than it should ever trigger a flight.
+    _lastAnimatedThrowId = s?.throws;
     _sub = widget.controller.stateStream.listen(_onState);
   }
 
@@ -315,18 +357,26 @@ class _CupPongBoardState extends State<CupPongBoard>
   static const double _hardImpact = 2.4;
 
   void _resolve(CupPongThrowSim sim) {
+    if (_replaying) {
+      _resolveReplay(sim);
+      return;
+    }
     final state = _state;
     if (state == null) {
       _sim = null;
       return;
     }
     final owner = _acting(state);
+    final velocity = _lastLaunchVelocity;
     final move = CupPongThrow(
       owner: owner,
       target: state.opponentOf(owner),
       hitCupId: sim.hitCupId,
       ballX: sim.position.x,
       ballZ: sim.position.z,
+      velocityX: velocity?.x,
+      velocityY: velocity?.y,
+      velocityZ: velocity?.z,
     );
 
     if (sim.hitCupId == null) {
@@ -366,7 +416,70 @@ class _CupPongBoardState extends State<CupPongBoard>
         after: const Duration(milliseconds: 1200),
       );
     }
+    // The resulting state will carry throws == state.throws + 1 (applyMove
+    // always increments by exactly one) — remembered so _onState recognises
+    // this move's own echo instead of replaying a throw already shown here.
+    _pendingLocalThrowId = state.throws + 1;
     widget.controller.submitMove(move);
+
+    _armTimer?.cancel();
+    _armTimer = Timer(const Duration(milliseconds: 650), () {
+      if (!mounted) return;
+      setState(() {
+        if (_outcome == null) _phase = _Phase.aiming;
+      });
+    });
+  }
+
+  /// Counterpart to [_resolve] for a throw replayed from
+  /// [CupPongState.lastThrow] rather than thrown locally: same outcome
+  /// effects, but landing on the authoritative [_replayNext] (snapped, in
+  /// case this client's own sim — different [widget.tuning], say — diverged)
+  /// and never re-submitting a move.
+  void _resolveReplay(CupPongThrowSim sim) {
+    final prev = _replayPrev;
+    final next = _replayNext;
+    _replaying = false;
+    _sim = null;
+    _replayPrev = null;
+    _replayNext = null;
+    if (prev == null || next == null) return;
+    final lt = next.lastThrow;
+    if (lt == null) {
+      // Shouldn't happen — _beginReplay only runs with a non-null lastThrow —
+      // but land on the authoritative state regardless of how we got here.
+      _finishState(prev, next);
+      return;
+    }
+
+    if (lt.hitCupId == null) {
+      widget.style.sounds.onMiss?.call();
+      _resting = sim.atRest
+          ? CupPongBallView(
+              position: Vec3(lt.ballX, CupPongWorld.ballRadius, lt.ballZ),
+              radius: CupPongWorld.ballRadius,
+              spin: sim.spin,
+            )
+          : null;
+    } else {
+      _resting = null;
+    }
+    _phase = _Phase.resolving;
+    if (lt.hitCupId != null) {
+      _showNotice(
+        'CUP!',
+        tone: GameNoticeTone.score,
+        after: const Duration(milliseconds: 1200),
+      );
+    } else {
+      _showNotice(
+        'MISS',
+        tone: GameNoticeTone.warn,
+        after: const Duration(milliseconds: 1200),
+      );
+    }
+    _lastAnimatedThrowId = lt.throwId;
+    _finishState(prev, next);
 
     _armTimer?.cancel();
     _armTimer = Timer(const Duration(milliseconds: 650), () {
@@ -394,6 +507,54 @@ class _CupPongBoardState extends State<CupPongBoard>
   void _onState(CupPongState next) {
     if (!mounted) return;
     final prev = _state;
+
+    // The echo of a throw this board just submitted itself (local, or a
+    // replay this board just finished) — already fully animated, so it is
+    // shown as a plain state landing rather than replayed a second time.
+    if (_pendingLocalThrowId != null && next.throws == _pendingLocalThrowId) {
+      _pendingLocalThrowId = null;
+      _lastAnimatedThrowId = next.throws;
+      _finishState(prev, next);
+      return;
+    }
+
+    final lt = next.lastThrow;
+    final isNewThrow = lt != null && next.throws > (_lastAnimatedThrowId ?? -1);
+    if (isNewThrow && prev != null) {
+      var from = prev;
+      if (_replaying) {
+        // A newer throw arrived while an earlier one was still animating.
+        // Land the abandoned throw's authoritative result at once (its cup
+        // removal, re-rack, notices) so the next flight starts from the
+        // table it actually left — flying from the pre-abandoned board could
+        // "hit" a cup that throw had already sunk.
+        final abandonedPrev = _replayPrev;
+        final abandonedNext = _replayNext;
+        _armTimer?.cancel();
+        _sim = null;
+        _replaying = false;
+        _replayPrev = null;
+        _replayNext = null;
+        if (abandonedNext != null) {
+          _lastAnimatedThrowId = abandonedNext.throws;
+          _finishState(abandonedPrev, abandonedNext);
+          from = abandonedNext;
+        }
+      }
+      _beginReplay(from, next, lt);
+      return;
+    }
+
+    _lastAnimatedThrowId = next.throws;
+    _finishState(prev, next);
+  }
+
+  /// Applies everything about [next] that isn't the throw's own flight: cup
+  /// removal (diffed against [prev]), the re-rack slide, the balls-back
+  /// notice, win celebration, and the state swap itself. Shared by a plain
+  /// state arrival and the landing of a replayed throw — [prev] is null only
+  /// for the very first emission this board has ever seen.
+  void _finishState(CupPongState? prev, CupPongState next) {
     final outcome = _game.outcome(next);
 
     // Cache invalidation: a removal or a re-rack changes the geometry the aim
@@ -449,6 +610,37 @@ class _CupPongBoardState extends State<CupPongBoard>
       _state = next;
       _outcome = outcome;
       if (outcome != null) _phase = _Phase.resolving;
+    });
+    _wake();
+  }
+
+  /// Starts replaying an opponent's throw: the same [CupPongThrowSim] a local
+  /// swipe would drive, seeded from [CupPongState.lastThrow]'s recorded
+  /// velocity against the rack as it stood in [prev] — so it plays the same
+  /// flight the thrower saw, landing on [next] once it resolves
+  /// ([_resolveReplay]).
+  void _beginReplay(
+    CupPongState prev,
+    CupPongState next,
+    CupPongLastThrow lt,
+  ) {
+    widget.style.sounds.onThrow?.call();
+    setState(() {
+      _resting = null;
+      _drop.clear();
+      _dropSpin.clear();
+      _phase = _Phase.flying;
+      _simCarry = 0;
+      _replaying = true;
+      _replayPrev = prev;
+      _replayNext = next;
+      _sim = CupPongThrowSim(
+        cups: prev.cupsOf(lt.target),
+        velocity: Vec3(lt.velocityX, lt.velocityY, lt.velocityZ),
+        tuning: widget.tuning,
+      );
+      _notice = null;
+      _noticeDismiss = null;
     });
     _wake();
   }
@@ -598,6 +790,8 @@ class _CupPongBoardState extends State<CupPongBoard>
       _dropSpin.clear();
       _phase = _Phase.flying;
       _simCarry = 0;
+      _lastLaunchVelocity = sol.velocity;
+      _replaying = false;
       _sim = CupPongThrowSim(
         cups: _targetRack,
         velocity: sol.velocity,

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 
 /// Launcher-tile miniature for Shuffleboard: a warm maple mini-lane with cool
 /// scoring bands at the far end and a couple of red/blue weights, one gently
@@ -19,10 +20,16 @@ class ShuffleboardTileArt extends StatefulWidget {
 
 class _ShuffleboardTileArtState extends State<ShuffleboardTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 6200),
-  )..repeat();
+    period: const Duration(milliseconds: 6200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

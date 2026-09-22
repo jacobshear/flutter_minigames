@@ -52,11 +52,18 @@ class WordHuntState {
   /// Player ids that have completed their round, in completion order.
   final List<String> submitted;
 
+  /// Tile paths for accepted words, parallel to [found]: `paths[playerId][i]`
+  /// is the path for `found[playerId][i]`. Null on states decoded from before
+  /// this field existed (legacy) or on states that haven't had any submission
+  /// applied via [WordHuntGame.applyMove] yet built by hand without it.
+  final Map<String, List<List<int>>>? paths;
+
   const WordHuntState({
     required this.letters,
     required this.playerIds,
     required this.found,
     required this.submitted,
+    this.paths,
   });
 
   /// Board side length (4 for the classic grid).
@@ -77,6 +84,17 @@ class WordHuntState {
 
   int scoreOf(String playerId) => wordsOf(playerId)
       .fold(0, (total, w) => total + WordHuntGame.scoreForLength(w.length));
+
+  /// The stored path for [playerId]'s accepted [word], or null if not
+  /// recorded (legacy state, or the word/player isn't found).
+  List<int>? pathOf(String playerId, String word) {
+    final words = found[playerId];
+    final ps = paths?[playerId];
+    if (words == null || ps == null) return null;
+    final i = words.indexOf(word);
+    if (i < 0 || i >= ps.length) return null;
+    return ps[i];
+  }
 }
 
 class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
@@ -198,6 +216,36 @@ class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
     return words.toList()..sort();
   }
 
+  /// Reconstructs A valid trace path for [word] on [letters] via DFS — used by
+  /// replays when [WordHuntState.paths] has no recorded path (legacy states).
+  /// Returns the first path found, or null if [word] cannot be traced on this
+  /// board (should not happen for a word that was actually accepted).
+  List<int>? findPathForWord(List<String> letters, String word) {
+    final size = sqrt(letters.length).round();
+    final path = <int>[];
+    final used = List<bool>.filled(letters.length, false);
+
+    bool dfs(int cell, int consumed) {
+      final tile = letters[cell];
+      if (!word.startsWith(tile, consumed)) return false;
+      final nextConsumed = consumed + tile.length;
+      path.add(cell);
+      used[cell] = true;
+      if (nextConsumed == word.length) return true;
+      for (final n in neighborsOf(cell, size)) {
+        if (!used[n] && dfs(n, nextConsumed)) return true;
+      }
+      used[cell] = false;
+      path.removeLast();
+      return false;
+    }
+
+    for (var i = 0; i < letters.length; i++) {
+      if (dfs(i, 0)) return List.of(path);
+    }
+    return null;
+  }
+
   /// 8-directional neighbours of [cell] on a [size]×[size] grid.
   static List<int> neighborsOf(int cell, int size) {
     final row = cell ~/ size;
@@ -237,6 +285,7 @@ class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
       playerIds: List.of(playerIds),
       found: const {},
       submitted: const [],
+      paths: const {},
     );
   }
 
@@ -257,18 +306,21 @@ class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
   WordHuntState applyMove(WordHuntState state, WordHuntMove move) {
     final player = state.currentPlayerId;
     final accepted = <String>[];
+    final acceptedPaths = <List<int>>[];
     final seen = <String>{};
     for (final traced in move.words) {
       final word = traced.word.toLowerCase();
       if (!seen.add(word)) continue; // dedupe within the submission
       if (!isValidTrace(state.letters, word, traced.path)) continue;
       accepted.add(word);
+      acceptedPaths.add(List.of(traced.path));
     }
     return WordHuntState(
       letters: state.letters,
       playerIds: state.playerIds,
       found: {...state.found, player: accepted},
       submitted: [...state.submitted, player],
+      paths: {...(state.paths ?? const {}), player: acceptedPaths},
     );
   }
 
@@ -315,6 +367,9 @@ class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
           for (final e in state.found.entries) e.key: e.value,
         },
         'submitted': state.submitted,
+        'paths': state.paths == null
+            ? null
+            : {for (final e in state.paths!.entries) e.key: e.value},
       };
 
   @override
@@ -327,6 +382,14 @@ class WordHuntGame extends TurnGame<WordHuntState, WordHuntMove> {
             e.key as String: (e.value as List).map((w) => w as String).toList(),
         },
         submitted: (json['submitted'] as List).map((e) => e as String).toList(),
+        paths: json['paths'] == null
+            ? null
+            : {
+                for (final e in (json['paths'] as Map).entries)
+                  e.key as String: (e.value as List)
+                      .map((p) => (p as List).map((c) => c as int).toList())
+                      .toList(),
+              },
       );
 
   @override

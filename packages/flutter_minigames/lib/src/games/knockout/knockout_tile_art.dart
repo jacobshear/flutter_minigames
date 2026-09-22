@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 
 /// Launcher-tile miniature for Knockout: a raised light platform over a dark
 /// void with a couple of resting pucks and one flying off the lip on a loop.
@@ -19,10 +20,16 @@ class KnockoutTileArt extends StatefulWidget {
 
 class _KnockoutTileArtState extends State<KnockoutTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 5200),
-  )..repeat();
+    period: const Duration(milliseconds: 5200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

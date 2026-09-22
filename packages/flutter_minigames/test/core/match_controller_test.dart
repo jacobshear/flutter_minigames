@@ -208,6 +208,112 @@ void main() {
     });
   });
 
+  group('replay fast-forward', () {
+    late LocalTransport transport;
+    const game = _CounterGame();
+
+    setUp(() => transport = LocalTransport());
+    tearDown(() => transport.dispose());
+
+    Future<MatchController<_CounterState, _CounterMove>> replayingGuest(
+      String matchId,
+    ) async {
+      final host = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: matchId,
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      addTearDown(host.dispose);
+      expect(await host.submitMove(const _CounterMove()), isTrue);
+      await _settle();
+      final guest = MatchController<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: matchId,
+        localPlayerId: 'b',
+      );
+      addTearDown(guest.dispose);
+      return guest;
+    }
+
+    test(
+        'setReplaySpeed shortens the hold already in flight and keeps the '
+        'speed through the tail', () async {
+      final guest = await replayingGuest('ff1');
+      final activity = <bool>[];
+      final sub = guest.replayActivity.listen(activity.add);
+      await guest.connect(replayLastTurn: true);
+      await _settle();
+      expect(guest.isReplayingLastTurn, isTrue);
+
+      guest.setReplaySpeed(4);
+      expect(guest.replaySpeed, 4);
+      await Future.delayed(
+        MatchController.replayDelay * (1 / 4) +
+            const Duration(milliseconds: 60),
+      );
+
+      // The real snapshot has landed and the match is live, but the board is
+      // still animating it: playback (and the speed) runs through the tail.
+      expect(guest.isReplayingLastTurn, isFalse);
+      expect(guest.canActLocally, isTrue);
+      expect(guest.state!.count, 1);
+      expect(guest.isReplayPlaybackActive, isTrue);
+      expect(guest.replaySpeed, 4);
+      expect(activity, [true]);
+
+      await Future.delayed(
+        const Duration(milliseconds: 700) * (1 / 4) +
+            const Duration(milliseconds: 60),
+      );
+      expect(guest.isReplayPlaybackActive, isFalse);
+      expect(guest.replaySpeed, 1, reason: 'speed resets when playback ends');
+      expect(activity, [true, false]);
+      await sub.cancel();
+    });
+
+    test('skipReplay during the tail ends playback', () async {
+      final guest = await replayingGuest('ff4');
+      await guest.connect(replayLastTurn: true);
+      await Future.delayed(
+        MatchController.replayDelay + const Duration(milliseconds: 60),
+      );
+      expect(guest.isReplayingLastTurn, isFalse);
+      expect(guest.isReplayPlaybackActive, isTrue);
+      expect(guest.skipReplay(), isTrue);
+      expect(guest.isReplayPlaybackActive, isFalse);
+      expect(guest.state!.count, 1);
+    });
+
+    test('skipReplay lands the real snapshot immediately', () async {
+      final guest = await replayingGuest('ff2');
+      final emissions = <int>[];
+      final sub = guest.stateStream.listen((s) => emissions.add(s.count));
+      await guest.connect(replayLastTurn: true);
+      await _settle();
+
+      expect(guest.skipReplay(), isTrue);
+      expect(guest.isReplayingLastTurn, isFalse);
+      expect(guest.isReplayPlaybackActive, isFalse);
+      expect(guest.canActLocally, isTrue);
+      expect(guest.state!.count, 1);
+      await _settle();
+      expect(emissions, [0, 1]);
+      expect(guest.skipReplay(), isFalse, reason: 'nothing left to skip');
+      await sub.cancel();
+    });
+
+    test('setReplaySpeed outside a replay is a no-op', () async {
+      final guest = await replayingGuest('ff3');
+      await guest.connect();
+      guest.setReplaySpeed(4);
+      expect(guest.replaySpeed, 1);
+    });
+  });
+
   group('replayLastTurn', () {
     late LocalTransport transport;
     const game = _CounterGame();

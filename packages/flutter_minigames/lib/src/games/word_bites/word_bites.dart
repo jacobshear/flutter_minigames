@@ -10,6 +10,7 @@ library;
 export 'word_bites_board.dart';
 export 'word_bites_game.dart';
 export 'word_bites_results_panel.dart';
+export 'word_bites_round_replay.dart';
 export 'word_bites_sounds.dart';
 export 'word_bites_style.dart';
 export 'word_bites_tile_art.dart';

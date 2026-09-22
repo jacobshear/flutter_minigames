@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'darts_game.dart';
@@ -60,6 +61,31 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
 
   DartsFlight? _flight;
   Duration _lastTick = Duration.zero;
+
+  /// The launch velocity behind the dart currently in [_flight], for a
+  /// LOCAL throw — carried into the submitted [DartsMove] so a receiving
+  /// board can replay the same flight. Null while replaying an opponent's
+  /// dart (the velocity there comes from [DartsState.lastThrow] instead).
+  Vec3? _lastLaunchVelocity;
+
+  /// True while [_flight] is replaying a dart this board didn't originate.
+  bool _replaying = false;
+
+  /// The authoritative state a replayed dart must land on exactly, or null
+  /// outside a replay.
+  DartsState? _replayTarget;
+
+  /// The `DartsState.dartsThrown` value of the dart this board last finished
+  /// animating (local or replayed), so a repeat/echoed state is never
+  /// replayed twice. Seeded from the state already on screen at bind time —
+  /// a cold mount shows a snapshot, it does not replay into it.
+  int? _lastAnimatedThrowId;
+
+  /// Set right before this board submits its own move, to the
+  /// `dartsThrown` value the resulting state will carry — lets [_onState]
+  /// recognise the echo of a dart it already animated instead of replaying
+  /// it again.
+  int? _pendingLocalThrowId;
 
   final List<StuckDart> _stuck = [];
   double _wobbleX = 0;
@@ -120,9 +146,16 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     _clearNotice();
     _confetti = const [];
     _clearSwipe();
+    _lastLaunchVelocity = null;
+    _replaying = false;
+    _replayTarget = null;
+    _pendingLocalThrowId = null;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
+    // The state already on screen at bind time is not something to replay
+    // into — only a dart newer than it should ever trigger a flight.
+    _lastAnimatedThrowId = s?.dartsThrown;
     // Whose throw it is, and how many darts are left in the visit, are
     // standing facts — they live in the header GamePill, not in a message.
     _sub = widget.controller.stateStream.listen(_onState);
@@ -143,6 +176,44 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
 
   void _onState(DartsState next) {
     if (!mounted) return;
+
+    // The echo of a dart this board just submitted itself (local, or a
+    // replay this board just finished) — already fully animated, so it is
+    // shown as a plain state landing rather than replayed a second time.
+    if (_pendingLocalThrowId != null &&
+        next.dartsThrown == _pendingLocalThrowId) {
+      _pendingLocalThrowId = null;
+      _lastAnimatedThrowId = next.dartsThrown;
+      _finishState(next);
+      return;
+    }
+
+    final lt = next.lastThrow;
+    final isNewThrow =
+        lt != null && next.dartsThrown > (_lastAnimatedThrowId ?? -1);
+    if (isNewThrow) {
+      if (_replaying) {
+        // A newer dart arrived while an earlier one was still animating —
+        // jump straight to this snapshot instead of chaining another
+        // flight (mirrors what MatchController.skipReplay does one level
+        // up).
+        _ticker.stop();
+        _flight = null;
+        _replaying = false;
+        _replayTarget = null;
+      }
+      _beginReplay(next, lt);
+      return;
+    }
+
+    _lastAnimatedThrowId = next.dartsThrown;
+    _finishState(next);
+  }
+
+  /// Applies everything about [next] that isn't the dart's own flight: the
+  /// BUST / visit-total notice, win celebration, and the state swap itself.
+  /// Shared by a plain state arrival and the landing of a replayed dart.
+  void _finishState(DartsState next) {
     final outcome = _game.outcome(next);
     final fresh = next.dartsThrown == 0 && next.visit.isEmpty;
     if (fresh) {
@@ -178,6 +249,98 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
       _state = next;
       _outcome = outcome;
     });
+  }
+
+  /// Starts replaying an opponent's dart: the same [DartsFlight] a local
+  /// swipe would drive, seeded from [DartsState.lastThrow]'s recorded
+  /// velocity, landing on [next] once it resolves ([_landReplay]).
+  void _beginReplay(DartsState next, DartsLastThrow lt) {
+    // Pull the previous visit's darts the moment a new visit's first dart
+    // starts, so all three stay visible until then — same rule _throw uses.
+    if (next.visit.isEmpty) _stuck.clear();
+    widget.style.sounds.onThrow?.call();
+    _replaying = true;
+    _replayTarget = next;
+    _flight = DartsFlight(
+      velocity: Vec3(lt.velocityX, lt.velocityY, lt.velocityZ),
+    );
+    _lastTick = Duration.zero;
+    _ticker.stop();
+    _ticker.start();
+    setState(_clearSwipe);
+  }
+
+  /// Counterpart to [_land] for a dart replayed from [DartsState.lastThrow]
+  /// rather than thrown locally: same stick/sound effects, keyed to the
+  /// authoritative [_replayTarget] (`lt.hit`, not this client's own sim —
+  /// different clients running the same deterministic flight should always
+  /// agree, but the score shown never depends on it) and never re-submitting
+  /// a move.
+  void _landReplay(DartsImpact impact) {
+    _ticker.stop();
+    final next = _replayTarget;
+    _flight = null;
+    _replaying = false;
+    _replayTarget = null;
+    if (next == null) return;
+    final lt = next.lastThrow;
+    if (lt == null) {
+      _finishState(next);
+      return;
+    }
+
+    final style = widget.style;
+    final strength = impact.deflected
+        ? math.min(1.0, impact.strength + 0.3)
+        : impact.strength;
+    if (!impact.onFloor) {
+      _stuck.add(
+        StuckDart(
+          boardX: impact.boardX,
+          boardY: impact.boardY,
+          direction: impact.direction,
+          color: _colorFor(lt.playerId),
+          hit: lt.hit,
+          strength: strength,
+        ),
+      );
+      _wobbleX = impact.boardX;
+      _wobbleY = impact.boardY;
+      _wobbleStrength = strength;
+      _wobbleCtrl.forward(from: 0);
+    }
+
+    if (lt.hit.isMiss) {
+      style.sounds.onMiss?.call();
+      if (style.haptics) HapticFeedback.selectionClick();
+    } else if (lt.hit.multiplier > 1 || strength > 0.55) {
+      style.sounds.onBigScore?.call();
+      if (style.haptics) {
+        if (strength > 0.55) {
+          HapticFeedback.mediumImpact();
+        } else {
+          HapticFeedback.lightImpact();
+        }
+      }
+    } else {
+      style.sounds.onStick?.call();
+      if (style.haptics) HapticFeedback.selectionClick();
+    }
+
+    final hit = lt.hit;
+    _showNotice(
+      (impact.deflected && !hit.isMiss
+              ? 'OFF THE WIRE · ${hit.announcement}'
+              : hit.announcement)
+          .replaceAll('!', '')
+          .toUpperCase(),
+      tone: hit.isMiss ? GameNoticeTone.warn : GameNoticeTone.score,
+      accent: hit.isMiss ? null : _colorFor(lt.playerId),
+      strong: !hit.isMiss && (hit.multiplier == 3 || hit.sector == 25),
+    );
+
+    _lastAnimatedThrowId = lt.throwId;
+    _finishState(next);
   }
 
   void _celebrate(GameOutcome outcome, DartsState state) {
@@ -244,7 +407,11 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     _lastTick = elapsed;
     flight.advance(dt.clamp(0.0, 0.05));
     if (flight.done) {
-      _land(flight.impact!);
+      if (_replaying) {
+        _landReplay(flight.impact!);
+      } else {
+        _land(flight.impact!);
+      }
     } else {
       setState(() {});
     }
@@ -263,6 +430,8 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     widget.style.sounds.onThrow?.call();
     if (widget.style.haptics) HapticFeedback.mediumImpact();
 
+    _lastLaunchVelocity = velocity;
+    _replaying = false;
     _flight = DartsFlight(velocity: velocity);
     _lastTick = Duration.zero;
     _ticker.stop();
@@ -336,8 +505,20 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     );
     setState(() {});
 
+    // The resulting state will carry dartsThrown == state.dartsThrown + 1
+    // (applyMove always increments by exactly one) — remembered so
+    // _onState recognises this move's own echo instead of replaying a dart
+    // already shown here.
+    final velocity = _lastLaunchVelocity;
+    _pendingLocalThrowId = state.dartsThrown + 1;
     widget.controller.submitMove(
-      DartsMove(playerId: state.currentPlayerId, hit: impact.hit),
+      DartsMove(
+        playerId: state.currentPlayerId,
+        hit: impact.hit,
+        velocityX: velocity?.x,
+        velocityY: velocity?.y,
+        velocityZ: velocity?.z,
+      ),
     );
   }
 

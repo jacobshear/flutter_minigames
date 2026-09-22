@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 
 /// Launcher-tile miniature for Mini Golf: a striped green receding into the
 /// distance between raised rails, a flag in the cup at the far end, and a ball
@@ -25,10 +26,16 @@ class MiniGolfTileArt extends StatefulWidget {
 
 class _MiniGolfTileArtState extends State<MiniGolfTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 5200),
-  )..repeat();
+    period: const Duration(milliseconds: 5200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

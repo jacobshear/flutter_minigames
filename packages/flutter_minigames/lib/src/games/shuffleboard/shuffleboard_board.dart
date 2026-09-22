@@ -46,6 +46,29 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
   ShuffleboardState? _state;
   GameOutcome? _outcome;
 
+  // Opponent-shot replay bookkeeping. `_lastShotId` is the shot id already
+  // reflected on screen (locally slid or already replayed); a new incoming
+  // state whose `lastShot.shotId` differs is a shot this board hasn't shown
+  // yet. `_pendingLocalShotId` is the shot id THIS board's own local slide is
+  // about to produce — its echo back through `stateStream` must be adopted
+  // directly, never replayed (it already played out live in the scene).
+  // `_replaying` / `_replayTarget` track a physics replay in flight.
+  int? _lastShotId;
+  int? _pendingLocalShotId;
+  bool _replaying = false;
+  ShuffleboardState? _replayTarget;
+
+  /// The state currently reflected on screen — including mid-replay, where
+  /// it is still the pre-shot snapshot until the replay settles. Exposed for
+  /// widget tests to assert the board eventually converges on the
+  /// authoritative outcome.
+  @visibleForTesting
+  ShuffleboardState? get debugState => _state;
+
+  /// Whether a physics replay of a remote shot is currently animating.
+  @visibleForTesting
+  bool get debugIsReplaying => _replaying;
+
   // The transient centre message. Held as plain fields and handed to a single
   // GameNotice, which owns the animation and the retract timer — the board no
   // longer runs a Timer of its own, and repeating the same text (two "+8"s in a
@@ -97,14 +120,22 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
           ..onLaunch = _onLaunch
           ..onCollision = _onCollision
           ..onSettled = _onSlideSettled
+          ..onReplaySettled = _onReplaySettled
           ..onAimChanged = () => setState(() {});
     _scene = scene;
     _celebrated = false;
     _clearNotice();
     _confetti = const [];
+    _replaying = false;
+    _replayTarget = null;
+    _pendingLocalShotId = null;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
+    // A cold mount never replays: whatever shot is already reflected in `s`
+    // (including a mid-match resume, or none at all on a fresh match) is
+    // simply shown as-is — see contract point 3 ("cold-mount: no replay").
+    _lastShotId = s?.lastShot?.shotId;
     if (s != null) {
       scene.applyState(s, _actingFor(s));
       // Whose slide it is is a standing fact, not an event: it lives in the
@@ -187,8 +218,10 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
     }
   }
 
-  void _onSlideSettled(ShuffleboardMove move, PuckStatus status, int value) {
-    if (!mounted) return;
+  /// Sound + haptic cue for a settled puck — shared by the local live slide
+  /// and a replayed remote one, which get the identical cue once their sim
+  /// settles.
+  void _playSlideEffects(PuckStatus status, int value) {
     final style = widget.style;
     if (status == PuckStatus.inZone && value > 0) {
       style.sounds.onScore?.call();
@@ -197,19 +230,32 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
       style.sounds.onFoul?.call();
       if (style.haptics) HapticFeedback.selectionClick();
     }
+  }
+
+  /// The centre-notice text + tone for a settled puck — shared by the local
+  /// live slide and a replayed remote one.
+  (String, GameNoticeTone) _noticeForStatus(PuckStatus status, int value) =>
+      switch (status) {
+        PuckStatus.inZone when value > 0 => (
+            '+$value ${value == 1 ? 'POINT' : 'POINTS'}',
+            GameNoticeTone.score,
+          ),
+        PuckStatus.inZone => ('IN THE ZONE', GameNoticeTone.info),
+        PuckStatus.offEnd => ('OFF THE END', GameNoticeTone.warn),
+        PuckStatus.foul => ('FOUL', GameNoticeTone.warn),
+        PuckStatus.onBoard => ('ON THE BOARD', GameNoticeTone.info),
+      };
+
+  void _onSlideSettled(ShuffleboardMove move, PuckStatus status, int value) {
+    if (!mounted) return;
+    _playSlideEffects(status, value);
     // The seat that actually took this slide — read before submitMove, which
     // can hand the turn over synchronously.
     final shooter = _state?.currentPlayerId;
-    final (text, tone) = switch (status) {
-      PuckStatus.inZone when value > 0 => (
-          '+$value ${value == 1 ? 'POINT' : 'POINTS'}',
-          GameNoticeTone.score,
-        ),
-      PuckStatus.inZone => ('IN THE ZONE', GameNoticeTone.info),
-      PuckStatus.offEnd => ('OFF THE END', GameNoticeTone.warn),
-      PuckStatus.foul => ('FOUL', GameNoticeTone.warn),
-      PuckStatus.onBoard => ('ON THE BOARD', GameNoticeTone.info),
-    };
+    final (text, tone) = _noticeForStatus(status, value);
+    // This board already ran the shot live; the echo of this exact shot id
+    // coming back through the stream must be adopted as-is, never replayed.
+    _pendingLocalShotId = (_state?.frame ?? 0) + 1;
     // Submit the settled outcome as the move.
     widget.controller.submitMove(move);
     if (!mounted) return;
@@ -226,14 +272,92 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
 
   void _onState(ShuffleboardState next) {
     if (!mounted) return;
-    final prev = _state;
+
+    // This state is the echo of our own local slide (already animated live
+    // in the scene, already scored) — adopt it directly, no replay.
+    final pending = _pendingLocalShotId;
+    if (pending != null && next.lastShot?.shotId == pending) {
+      _pendingLocalShotId = null;
+      _lastShotId = pending;
+      _applyIncomingState(next);
+      return;
+    }
+
+    final shot = next.lastShot;
+    final prevState = _state;
+
+    if (_replaying) {
+      // A newer state landed before the replay in flight settled (e.g. the
+      // host fast-forwarded past it, or several solo slides queued up
+      // faster than they can be shown) — abandon that sim and jump straight
+      // to the newest snapshot rather than layering another replay on top.
+      _replaying = false;
+      _replayTarget = null;
+      _lastShotId = shot?.shotId ?? _lastShotId;
+      _applyIncomingState(next);
+      return;
+    }
+
+    if (shot != null && prevState != null && shot.shotId != _lastShotId) {
+      _lastShotId = shot.shotId;
+      _replaying = true;
+      _replayTarget = next;
+      _scene?.beginReplay(prevState, shot);
+      // Scoring effects + outcome celebration land once the replay settles
+      // (see _onReplaySettled) — nothing else to reflect right now besides
+      // the input lock the scene already enforces.
+      setState(() {});
+      return;
+    }
+
+    _lastShotId = shot?.shotId ?? _lastShotId;
+    _applyIncomingState(next);
+  }
+
+  /// Fired once the scene's physics replay of a remote shot has settled.
+  /// Runs the same scoring effects a live slide gets (using the
+  /// authoritative outcome, not the sim's own approximation of it), then
+  /// reconciles the board to that authoritative state.
+  void _onReplaySettled() {
+    if (!mounted) return;
+    _replaying = false;
+    final next = _replayTarget;
+    _replayTarget = null;
+    if (next == null) return;
+
+    final shot = next.lastShot;
+    ShuffleboardPuck? puck;
+    if (shot != null) {
+      for (final p in next.pucks) {
+        if (p.id == shot.puckId) {
+          puck = p;
+          break;
+        }
+      }
+    }
+    if (puck != null) {
+      _playSlideEffects(puck.status, puck.value);
+      final (text, tone) = _noticeForStatus(puck.status, puck.value);
+      setState(() => _showNotice(
+            text,
+            tone: tone,
+            // A score wears the shooter's colour, same as the live path.
+            accent:
+                tone == GameNoticeTone.score ? _accentFor(shot!.owner) : null,
+          ));
+    }
+    _applyIncomingState(next);
+  }
+
+  /// Reconciles the scene + board state to [next] — the authoritative
+  /// outcome, whether it arrived live, as an already-shown echo of a local
+  /// slide, or after a replayed remote one settled.
+  void _applyIncomingState(ShuffleboardState next) {
+    if (!mounted) return;
     final outcome = _game.outcome(next);
 
     // Fresh board => New game reset.
     final isFresh = next.pucks.isEmpty && next.frame == 0;
-    if (prev != null && !isFresh || prev == null) {
-      // ordinary update
-    }
 
     _scene?.applyState(next, _actingFor(next));
 
@@ -609,6 +733,19 @@ class ShuffleboardScene extends FlameGame {
   bool _launched = false;
   double _accum = 0;
 
+  // The launch input of the shot currently under way, captured at [endAim] —
+  // handed back on [onSettled] so the board can record it as a
+  // [ShuffleboardShot] for the opponent to replay. Cleared once consumed;
+  // stays null for a shot that was never actually launched (dead-zone drag).
+  double? _pendingLaunchStartNx;
+  Vector2? _pendingLaunchImpulse;
+
+  // True while running a physics REPLAY of a remote shot (see [beginReplay]):
+  // input stays locked (via [_launched]) and settling reports through
+  // [onReplaySettled] instead of [onSettled] — a replay never re-submits a
+  // move.
+  bool _replaying = false;
+
   // Off-the-far-end fall animation: purely visual, decoupled from the (trusted)
   // physics. When a disc is removed at the edge we spawn a [_Falling] that
   // tumbles over the lip; scoring already treated it as off-end.
@@ -647,9 +784,15 @@ class ShuffleboardScene extends FlameGame {
   void Function()? onAimChanged;
   void Function(ShuffleboardMove move, PuckStatus status, int value)? onSettled;
 
+  /// Fired once a [beginReplay] run settles. The caller (the board) owns
+  /// reconciling to the authoritative outcome and running scoring effects —
+  /// this scene only ran the sim.
+  void Function()? onReplaySettled;
+
   bool get canAim =>
       _shooter != null &&
       !_launched &&
+      !_replaying &&
       !_sim.isRunning &&
       (_state != null && _game.outcome(_state!) == null);
 
@@ -709,10 +852,17 @@ class ShuffleboardScene extends FlameGame {
 
   /// Rebuild the sim to match [state] (keeps the sim authoritative-in-sync with
   /// the pure game state before each slide).
+  ///
+  /// Also the reconciliation step after a replayed shot: rebuilding discs
+  /// straight from [state.pucks] snaps them onto the authoritative outcome
+  /// regardless of where the replay sim's own approximation settled.
   void applyState(ShuffleboardState state, String acting) {
     _state = state;
     _acting = acting;
     _launched = false;
+    _replaying = false;
+    _pendingLaunchStartNx = null;
+    _pendingLaunchImpulse = null;
     _aimStart = null;
     _aimNow = null;
     _accum = 0;
@@ -731,6 +881,47 @@ class ShuffleboardScene extends FlameGame {
       _spin.clear();
       _impacts.clear();
     }
+  }
+
+  /// Starts a physics replay of a remote [shot] on behalf of the board.
+  ///
+  /// Rebuilds the sim from [from] (the pre-shot state) exactly like
+  /// [applyState] does, then launches the recorded shot immediately with
+  /// input locked (via [_launched]) — the same [update]/[_handleSettled]
+  /// machinery a local slide uses runs it out, including collisions and
+  /// knock-offs. Settling reports through [onReplaySettled] rather than
+  /// [onSettled]: a replay never submits a move, it only reconstructs one.
+  void beginReplay(ShuffleboardState from, ShuffleboardShot shot) {
+    _state = from;
+    _acting = shot.owner;
+    _replaying = true;
+    _launched = true;
+    _pendingLaunchStartNx = null;
+    _pendingLaunchImpulse = null;
+    _aimStart = null;
+    _aimNow = null;
+    _accum = 0;
+    _startNx = shot.startNx;
+    _sim = _buildSim(from, shot.owner);
+    _lastPos.clear();
+    if (from.pucks.isEmpty && from.frame == 0) {
+      _falling.clear();
+      _fellIds.clear();
+      _spin.clear();
+      _impacts.clear();
+    }
+    final shooter = _shooter;
+    if (shooter == null) {
+      // The recorded shot's owner has nothing to launch in `from` — a
+      // malformed shot (shouldn't happen given how [_handleSettled] records
+      // one). Report done rather than hang the caller waiting on a settle
+      // that will never come.
+      _replaying = false;
+      _launched = false;
+      onReplaySettled?.call();
+      return;
+    }
+    _sim.launch(shooter, Vector2(shot.impulseX, shot.impulseY));
   }
 
   Vector2 _simPos(double nx, double ny) =>
@@ -791,6 +982,10 @@ class ShuffleboardScene extends FlameGame {
     final impulse = _aim.impulse(drag);
     if (impulse.length2 == 0) return; // dead zone: no shot
     _launched = true;
+    // Recorded so [_handleSettled] can hand it back on [onSettled] — the
+    // opponent's board replays this exact input (see [beginReplay]).
+    _pendingLaunchStartNx = _startNx;
+    _pendingLaunchImpulse = impulse.clone();
     onLaunch?.call();
     _sim.launch(shooter, impulse);
   }
@@ -818,7 +1013,13 @@ class ShuffleboardScene extends FlameGame {
     _accum += dt;
     var steps = 0;
     final h = _sim.config.fixedDt;
-    while (_accum >= h && steps < 8) {
+    // A replayed shot steps a FIXED dt per iteration rather than by elapsed
+    // time, so fast-forward (`ReplayTimeDilation`, applied globally by the
+    // host while a replay is on screen) only reaches it if the per-frame
+    // step budget scales up too — see the class doc on ReplayTimeDilation.
+    // A live local slide is never fast-forwarded, so it keeps the plain cap.
+    final maxSteps = _replaying ? 8 * ReplayTimeDilation.stepsPerTick : 8;
+    while (_accum >= h && steps < maxSteps) {
       _applyGlideFriction(h);
       _sim.step();
       _integrateSpin();
@@ -932,6 +1133,16 @@ class ShuffleboardScene extends FlameGame {
   }
 
   void _handleSettled(SimOutcome outcome) {
+    // A replay run settling just means "the reconstruction is done" — the
+    // caller reconciles to the authoritative outcome itself and never wants
+    // this run resubmitted as a move.
+    if (_replaying) {
+      _replaying = false;
+      _launched = false;
+      onReplaySettled?.call();
+      return;
+    }
+
     final shooterId = _shooter?.id ?? '';
     final positions = <PuckPosition>[];
     for (final d in _sim.discs) {
@@ -957,11 +1168,18 @@ class ShuffleboardScene extends FlameGame {
     final value = status == PuckStatus.inZone
         ? ShuffleboardGame.zoneValue(launched.ny)
         : 0;
+    final startNx = _pendingLaunchStartNx;
+    final impulse = _pendingLaunchImpulse;
+    _pendingLaunchStartNx = null;
+    _pendingLaunchImpulse = null;
     onSettled?.call(
       ShuffleboardMove(
         launchedPuckId: shooterId,
         owner: _acting,
         positions: positions,
+        launchStartNx: startNx,
+        launchImpulseX: impulse?.x,
+        launchImpulseY: impulse?.y,
       ),
       status,
       value,

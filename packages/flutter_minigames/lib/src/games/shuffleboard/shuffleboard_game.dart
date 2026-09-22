@@ -140,6 +140,24 @@ class ShuffleboardGame extends TurnGame<ShuffleboardState, ShuffleboardMove> {
         ),
     ];
 
+    // The shot's launch input, when the caller recorded one — replay uses it
+    // to reconstruct the slide locally. `shotId` is just the running slide
+    // count (frame + 1 after this move), which is already monotonic and
+    // unique per slide, so a board can tell "a new shot landed" from "this
+    // state re-emitted" without any extra bookkeeping.
+    final lastShot = (move.launchStartNx != null &&
+            move.launchImpulseX != null &&
+            move.launchImpulseY != null)
+        ? ShuffleboardShot(
+            puckId: move.launchedPuckId,
+            owner: move.owner,
+            startNx: move.launchStartNx!,
+            impulseX: move.launchImpulseX!,
+            impulseY: move.launchImpulseY!,
+            shotId: state.frame + 1,
+          )
+        : null;
+
     final remaining = Map<String, int>.of(state.remaining);
     remaining[move.owner] = (remaining[move.owner] ?? 0) - 1;
 
@@ -167,8 +185,37 @@ class ShuffleboardGame extends TurnGame<ShuffleboardState, ShuffleboardMove> {
       scores: scores,
       frame: state.frame + 1,
       pucksPerPlayer: state.pucksPerPlayer,
+      lastShot: lastShot,
     );
   }
+
+  // MatchController runs a "tail" after the real snapshot lands — the window
+  // during which the board is expected to still be animating the move —
+  // paced by this. The board reconstructs a replayed slide by running the
+  // same local Forge2D sim (see ShuffleboardScene.beginReplay), which — per
+  // the tuning note on ShuffleboardScene._glideFriction — settles in
+  // ~1.6-2.7s. This gives it comfortable headroom past that worst case for a
+  // slow device, while staying well under the ~5s conservative ceiling; a
+  // short tail would flip `isReplayPlaybackActive` (and any host-driven
+  // fast-forward / ReplayTimeDilation) off while the puck is still visibly
+  // sliding.
+  @override
+  Duration replayStepDelay(ShuffleboardState from, ShuffleboardState to) =>
+      const Duration(milliseconds: 4000);
+
+  // `replaysWholeTurn` deliberately stays at the TurnGame default (false):
+  // the "other is out; finish this player's pucks" branch above never
+  // actually lets one player take two SEPARATE valid moves in a row. With
+  // symmetric `pucksPerPlayer` and exactly two players (the only
+  // configuration `initialState` allows), remaining pucks decrement in
+  // lockstep — by induction, {remaining[p1], remaining[p2]} stay equal
+  // after every full p1-then-p2 round, so both always hit 0 on the SAME
+  // move, at which point `outcome()` is already non-null and
+  // `validateMove` refuses anything further. The branch's `next` value is
+  // real but never observed as a live turn — a board never needs to replay
+  // "several slides in a row" for this game. Opponent-shot replay below is
+  // therefore single-step: each slide is its own turn, exactly as the
+  // TurnGame default already assumes.
 
   @override
   GameOutcome? outcome(ShuffleboardState state) {
@@ -191,6 +238,7 @@ class ShuffleboardGame extends TurnGame<ShuffleboardState, ShuffleboardMove> {
         'scores': state.scores,
         'frame': state.frame,
         'pucksPerPlayer': state.pucksPerPlayer,
+        if (state.lastShot != null) 'lastShot': state.lastShot!.toJson(),
       };
 
   @override
@@ -212,6 +260,12 @@ class ShuffleboardGame extends TurnGame<ShuffleboardState, ShuffleboardMove> {
         },
         frame: (json['frame'] as num).toInt(),
         pucksPerPlayer: (json['pucksPerPlayer'] as num).toInt(),
+        // LEGACY states (recorded before shot-replay shipped) simply have no
+        // 'lastShot' key and decode to null — no migration needed.
+        lastShot: json['lastShot'] == null
+            ? null
+            : ShuffleboardShot.fromJson(
+                Map<String, dynamic>.from(json['lastShot'] as Map)),
       );
 
   @override
@@ -219,6 +273,9 @@ class ShuffleboardGame extends TurnGame<ShuffleboardState, ShuffleboardMove> {
         'launchedPuckId': move.launchedPuckId,
         'owner': move.owner,
         'positions': [for (final p in move.positions) p.toJson()],
+        if (move.launchStartNx != null) 'launchStartNx': move.launchStartNx,
+        if (move.launchImpulseX != null) 'launchImpulseX': move.launchImpulseX,
+        if (move.launchImpulseY != null) 'launchImpulseY': move.launchImpulseY,
       };
 
   @override
@@ -229,6 +286,61 @@ class ShuffleboardGame extends TurnGame<ShuffleboardState, ShuffleboardMove> {
           for (final p in (json['positions'] as List))
             PuckPosition.fromJson(Map<String, dynamic>.from(p as Map)),
         ],
+        launchStartNx: (json['launchStartNx'] as num?)?.toDouble(),
+        launchImpulseX: (json['launchImpulseX'] as num?)?.toDouble(),
+        launchImpulseY: (json['launchImpulseY'] as num?)?.toDouble(),
+      );
+}
+
+/// The recorded input of the most recent slide — launch position, direction +
+/// power (as the raw impulse vector the sim was given), owner, and a
+/// monotonically increasing [shotId] (the slide count after this shot; see
+/// [ShuffleboardGame.applyMove]). The receiving board replays the slide
+/// locally by feeding this straight back into the same physics harness the
+/// shooter used (see `ShuffleboardScene.beginReplay`), then reconciles to the
+/// settled [ShuffleboardPuck] positions, which remain the source of truth.
+class ShuffleboardShot {
+  final String puckId;
+  final String owner;
+
+  /// Where across the lane (0..1) the shooter started from.
+  final double startNx;
+
+  /// The launch impulse handed to `TableSimulation.launch`, in sim world
+  /// units — direction and magnitude (speed/power) together.
+  final double impulseX;
+  final double impulseY;
+
+  /// Slides played so far, including this one — monotonic and unique per
+  /// shot, so a board can distinguish a new shot from a re-emitted state.
+  final int shotId;
+
+  const ShuffleboardShot({
+    required this.puckId,
+    required this.owner,
+    required this.startNx,
+    required this.impulseX,
+    required this.impulseY,
+    required this.shotId,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'puckId': puckId,
+        'owner': owner,
+        'startNx': startNx,
+        'impulseX': impulseX,
+        'impulseY': impulseY,
+        'shotId': shotId,
+      };
+
+  factory ShuffleboardShot.fromJson(Map<String, dynamic> json) =>
+      ShuffleboardShot(
+        puckId: json['puckId'] as String,
+        owner: json['owner'] as String,
+        startNx: (json['startNx'] as num).toDouble(),
+        impulseX: (json['impulseX'] as num).toDouble(),
+        impulseY: (json['impulseY'] as num).toDouble(),
+        shotId: (json['shotId'] as num).toInt(),
       );
 }
 
@@ -332,10 +444,23 @@ class ShuffleboardMove {
   final String owner;
   final List<PuckPosition> positions;
 
+  /// Optional recorded launch input — where across the lane the shot started
+  /// and the impulse it was given. All three are set together (by the board's
+  /// local slide) or all left null; [ShuffleboardGame.applyMove] only records
+  /// a [ShuffleboardShot] when every field is present. Purely descriptive: it
+  /// plays no part in [ShuffleboardGame.validateMove], which still trusts
+  /// [positions] as the settled outcome.
+  final double? launchStartNx;
+  final double? launchImpulseX;
+  final double? launchImpulseY;
+
   const ShuffleboardMove({
     required this.launchedPuckId,
     required this.owner,
     required this.positions,
+    this.launchStartNx,
+    this.launchImpulseX,
+    this.launchImpulseY,
   });
 }
 
@@ -356,6 +481,11 @@ class ShuffleboardState {
 
   final int pucksPerPlayer;
 
+  /// The most recent slide's recorded input, or `null` when no slide has
+  /// carried one yet (a fresh match, or a LEGACY state from before replay
+  /// shipped). See [ShuffleboardShot].
+  final ShuffleboardShot? lastShot;
+
   const ShuffleboardState({
     required this.pucks,
     required this.playerIds,
@@ -364,6 +494,7 @@ class ShuffleboardState {
     required this.scores,
     required this.frame,
     required this.pucksPerPlayer,
+    this.lastShot,
   });
 
   int scoreOf(String playerId) => scores[playerId] ?? 0;

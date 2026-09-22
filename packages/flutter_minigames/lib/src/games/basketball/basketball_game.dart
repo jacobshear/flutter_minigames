@@ -1,5 +1,7 @@
 import 'package:flutter_minigames/src/core/core.dart';
 
+import 'basketball_shot.dart';
+
 /// GamePigeon-style Basketball as a round-submission [TurnGame].
 ///
 /// ## The trust boundary (read this first)
@@ -96,6 +98,10 @@ class BasketballGame extends TurnGame<BasketballState, BasketballMove> {
         ...state.submissions,
         playerId: normaliseRounds(move.roundScores),
       },
+      shots: {
+        ...state.shots,
+        playerId: move.shots,
+      },
     );
   }
 
@@ -116,6 +122,9 @@ class BasketballGame extends TurnGame<BasketballState, BasketballMove> {
         'submissions': {
           for (final e in state.submissions.entries) e.key: e.value,
         },
+        'shots': {
+          for (final e in state.shots.entries) e.key: encodeShotList(e.value),
+        },
       };
 
   @override
@@ -126,18 +135,29 @@ class BasketballGame extends TurnGame<BasketballState, BasketballMove> {
           for (final e in (json['submissions'] as Map).entries)
             e.key as String: normaliseRounds(intList(e.value)),
         },
+        // LEGACY states predate the shot log and simply have no 'shots' key —
+        // this decodes to an empty map, and BasketballRoundReplay falls back
+        // to a plain score reveal for any player with no entry in it.
+        shots: json['shots'] is Map
+            ? {
+                for (final e in (json['shots'] as Map).entries)
+                  e.key as String: decodeShotList(e.value),
+              }
+            : const {},
       );
 
   @override
   Map<String, dynamic> encodeMove(BasketballMove move) => {
         'owner': move.owner,
         'roundScores': move.roundScores,
+        'shots': encodeShotList(move.shots),
       };
 
   @override
   BasketballMove decodeMove(Map<String, dynamic> json) => BasketballMove(
         owner: json['owner'] as String,
         roundScores: intList(json['roundScores']),
+        shots: decodeShotList(json['shots']),
       );
 
   /// Defensive JSON list decode: anything that isn't a list of numbers becomes
@@ -160,7 +180,18 @@ class BasketballMove {
   /// per basket, so these are also the points.
   final List<int> roundScores;
 
-  const BasketballMove({required this.owner, required this.roundScores});
+  /// This player's whole shot log for the match (both rounds), in release
+  /// order — what [BasketballRoundReplay] needs to reproduce their round.
+  /// Optional: a move built without one (or decoded from a pre-replay
+  /// payload) simply carries no replay data; [applyMove] still records the
+  /// scores normally.
+  final List<BasketballShot> shots;
+
+  const BasketballMove({
+    required this.owner,
+    required this.roundScores,
+    this.shots = const [],
+  });
 }
 
 /// Round-submission state: the two seats and each player's per-round scores.
@@ -173,12 +204,24 @@ class BasketballState {
   /// Normalised per-round scores per player. Absent until that player finishes.
   final Map<String, List<int>> submissions;
 
+  /// Per-player shot logs, present for any player who submitted a move that
+  /// carried one. Absent or empty for a player means either they haven't
+  /// submitted yet or their move predates shot logging — [shotsOf] returns an
+  /// empty list either way, which [BasketballRoundReplay] reads as "fall back
+  /// to a plain score reveal."
+  final Map<String, List<BasketballShot>> shots;
+
   const BasketballState({
     required this.playerIds,
     required this.submissions,
+    this.shots = const {},
   });
 
   bool hasSubmitted(String playerId) => submissions.containsKey(playerId);
+
+  /// This player's shot log, or empty if they haven't submitted one (not yet
+  /// finished, or a LEGACY move with no replay data).
+  List<BasketballShot> shotsOf(String playerId) => shots[playerId] ?? const [];
 
   /// Match total for [playerId] (0 until they submit).
   int scoreOf(String playerId) => roundsOf(playerId).fold(0, (a, b) => a + b);
