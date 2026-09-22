@@ -24,7 +24,7 @@ dependencies:
   # no native plugins, so bundling costs tree-shakeable code, not build setup.
   flame: ^1.18.0
   flame_forge2d: ^0.18.0
-  forge2d: ^0.13.0
+  forge2d: ^0.13.1
   # Move generation and legality for chess.
   chess: ^0.8.1
 

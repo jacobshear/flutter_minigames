@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- Opponent shot replay for the physics games. Eight ball, knockout,
+  shuffleboard, mini golf, cup pong, darts and archery record the shot's
+  input in state (`lastShot` / `lastThrow` / `lastStroke` /
+  `lastResolution`; older states decode it as null) and the receiving board
+  replays it through its own local shot path, landing on the authoritative
+  result. Darts previously showed no opponent dart at all.
+- Replay fast-forward. `MatchController.setReplaySpeed` (rescales the wait in
+  flight), `skipReplay`, `replayActivity`, and `isReplayPlaybackActive`
+  (the replayed frames plus a tail as long as the last frame's
+  `replayStepDelay`, so a single-move turn stays fast-forwarded until its
+  animation ends). `ReplayTimeDilation` speeds every board animation via
+  the scheduler's `timeDilation`; fixed-step sims read `stepsPerTick`.
+- Round replays: `AnagramsRoundReplay`, `WordHuntRoundReplay` (Word Hunt now
+  stores traced paths, with a DFS fallback for older states),
+  `WordBitesRoundReplay` and `BasketballRoundReplay` (Basketball now logs
+  each shot) — compressed reels of the opponent's round, driven by
+  `RoundReplayController`.
+- `TileArtClock` / `TileArtDriver`: a grid of animated tile arts shares one
+  30fps ticker instead of one display-rate ticker per tile. Every tile art
+  uses the driver and behaves as before outside a clock.
+- Mini Golf and Knockout reframe on tall phones (#7, fixes #4).
+- Word Hunt: the scored-word notice sits in its own strip above the grid
+  instead of over the top row (fixes #1).
+- Mancala: the board sizes to the height it is given, clamped to 360–720pt,
+  instead of a fixed 560pt cap (fixes #2).
+- Basketball: a miss now says so — `RIM OUT` or `AIRBALL` — from a new
+  `BasketballHitKind.missed` sim signal, live and in the round replay
+  (fixes #3).
+- Go Fish: a hand spread across many ranks wraps to a second row instead of
+  shrinking cards below 52pt (fixes #6).
+- `forge2d` lower bound raised to `^0.13.1` (`CircleShape(radius:)`); the
+  package analyzes and tests clean at every dependency's lower bound.
 - Whole-turn replay. `TurnGame.replaysWholeTurn` (default false) opts a
   game into chaining consecutive sub-moves by one player into a single
   recorded turn: `Match.prevState` then holds the board before the FIRST
@@ -26,7 +58,6 @@
   open. `isReplayingLastTurn` / `canActLocally` / `submitMove` gate the
   same way as the connect-time replay.
 
-## Unreleased
 
 - `Match` gains `prevState` and `lastMoverId`, plus a `previousTurn` getter
   that reconstructs the match as it stood before the most recent turn
