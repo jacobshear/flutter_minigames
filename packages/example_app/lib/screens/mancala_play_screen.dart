@@ -110,12 +110,17 @@ class _MancalaPlayScreenState extends State<MancalaPlayScreen> {
                   child: controller == null
                       ? const CircularProgressIndicator()
                       // Board paints its own felt table — no white panel.
-                      : SingleChildScrollView(
-                          child: MancalaBoard(
-                            key: ValueKey(_round),
-                            controller: controller,
-                            style: _boardStyle,
-                          ),
+                      // No SingleChildScrollView here: it used to hand the
+                      // board unbounded height, which was the reason the
+                      // board needed a magic fixed height cap in the first
+                      // place. The board now scales itself to whatever this
+                      // Expanded band actually measures out (see
+                      // MancalaBoard._resolveBoardMaxHeight), so it must see
+                      // that real, finite budget directly.
+                      : MancalaBoard(
+                          key: ValueKey(_round),
+                          controller: controller,
+                          style: _boardStyle,
                         ),
                 ),
               ),

@@ -101,6 +101,42 @@ class _MancalaBoardState extends State<MancalaBoard>
   List<_Confetto> _confetti = const [];
   _BoardGeom? _geom;
 
+  /// Vertical space the felt card's own [Padding] eats before the seat/board
+  /// [Row] (`EdgeInsets.symmetric(vertical: 16)`, both edges) — subtracted
+  /// from the incoming height budget so the board's cap reflects space it
+  /// can actually fill.
+  static const double _kBoardVerticalChrome = 32.0;
+
+  /// Floor so pits stay comfortably tappable and stone counts legible on the
+  /// smallest supported phones, even if a host ever hands down a very tight
+  /// band. Flutter's constraint system still intersects this with whatever
+  /// the real parent allows, so it can never force an overflow.
+  static const double _kMinBoardHeight = 360.0;
+
+  /// Ceiling — without it a tablet's wide-open centring band (or the
+  /// unbounded-height fallback below) would grow the felt tray absurdly
+  /// tall. Phones should essentially never hit this; it exists purely to
+  /// keep the old "don't let a tablet get silly" guarantee.
+  static const double _kMaxBoardHeight = 720.0;
+
+  /// The board used to hard-cap itself at 560pt regardless of how much
+  /// vertical room the host actually gave it, stranding ~110pt of empty
+  /// felt above and below it on a tall phone. It now scales with the real
+  /// budget — e.g. `GameMatchScaffold`'s centring band, which is loose but
+  /// finite (`BoxConstraints.loose(area.size)`) — and only clamps at the
+  /// top end for tablets.
+  ///
+  /// A host that hands down unbounded height (e.g. a plain scroll view)
+  /// falls back to the screen height so the board still resolves to a
+  /// sensible, finite size instead of trying to grow to infinity.
+  double _resolveBoardMaxHeight(BuildContext context, BoxConstraints outer) {
+    final available = outer.hasBoundedHeight
+        ? outer.maxHeight
+        : MediaQuery.sizeOf(context).height;
+    return (available - _kBoardVerticalChrome)
+        .clamp(_kMinBoardHeight, _kMaxBoardHeight);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -658,172 +694,183 @@ class _MancalaBoardState extends State<MancalaBoard>
 
     final table = style.resolveTable(scheme);
 
-    return AnimatedBuilder(
-      animation: Listenable.merge([_entrance, _sowCtrl, _confettiCtrl]),
-      builder: (context, _) {
-        final enter = Curves.easeOutCubic.transform(_entrance.value);
-        final frame = _frame(_sowCtrl.value);
-        final showOutcome = !_sowing ? _outcome : null;
+    // Captures the constraints the HOST hands MancalaBoard (e.g. the
+    // centring band `GameMatchScaffold` computes from real screen space) —
+    // hoisted above the AnimatedBuilder so it isn't re-measured on every
+    // animation tick. See _resolveBoardMaxHeight.
+    return LayoutBuilder(
+      builder: (context, outer) {
+        final boardMaxHeight = _resolveBoardMaxHeight(context, outer);
 
-        // GP-style translucent pill floating over the board center for
-        // transient events; turn state lives on the side players.
-        String? pillMsg;
-        if (showOutcome != null) {
-          pillMsg = showOutcome.isDraw
-              ? 'DRAW'
-              : (showOutcome.winnerId == state.southId
-                      ? '${style.southLabel} wins'
-                      : '${style.northLabel} wins')
-                  .toUpperCase();
-        } else if (frame.extraFlash || _showExtraPill) {
-          pillMsg = 'AGAIN!';
-        }
+        return AnimatedBuilder(
+          animation: Listenable.merge([_entrance, _sowCtrl, _confettiCtrl]),
+          builder: (context, _) {
+            final enter = Curves.easeOutCubic.transform(_entrance.value);
+            final frame = _frame(_sowCtrl.value);
+            final showOutcome = !_sowing ? _outcome : null;
 
-        // RepaintBoundary: sow frames repaint the board in its own layer
-        // instead of dragging the felt stipple + side players into every
-        // 120Hz raster pass.
-        final board = RepaintBoundary(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 560),
-            child: Transform.scale(
-              scale: 0.94 + 0.06 * enter,
-              child: Opacity(
-                opacity: enter.clamp(0.0, 1.0),
-                child: AspectRatio(
-                  // Slim GP tray: ~3.1 units wide × ~10.3 tall.
-                  aspectRatio: 0.31,
-                  child: LayoutBuilder(
-                    builder: (context, c) {
-                      final geom = _BoardGeom(Size(c.maxWidth, c.maxHeight));
-                      _geom = geom;
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTapDown: (d) => _onTapDown(d.localPosition),
-                        child: Stack(
-                          children: [
-                            CustomPaint(
-                              size: Size(c.maxWidth, c.maxHeight),
-                              painter: _MancalaPainter(
-                                pits: frame.pits,
-                                geom: geom,
-                                boardColor: boardColor,
-                                pitColor: pitColor,
-                                legal: legal,
-                                highlight: frame.highlight,
-                                flyers: frame.flyers,
-                                dpr: MediaQuery.devicePixelRatioOf(context),
-                              ),
-                            ),
-                            if (style.confetti && _confetti.isNotEmpty)
-                              Positioned.fill(
-                                child: IgnorePointer(
-                                  child: CustomPaint(
-                                    painter: _ConfettiPainter(
-                                      confetti: _confetti,
-                                      t: _confettiCtrl.value,
-                                      boardSize: c.maxWidth,
-                                    ),
+            // GP-style translucent pill floating over the board center for
+            // transient events; turn state lives on the side players.
+            String? pillMsg;
+            if (showOutcome != null) {
+              pillMsg = showOutcome.isDraw
+                  ? 'DRAW'
+                  : (showOutcome.winnerId == state.southId
+                          ? '${style.southLabel} wins'
+                          : '${style.northLabel} wins')
+                      .toUpperCase();
+            } else if (frame.extraFlash || _showExtraPill) {
+              pillMsg = 'AGAIN!';
+            }
+
+            // RepaintBoundary: sow frames repaint the board in its own layer
+            // instead of dragging the felt stipple + side players into every
+            // 120Hz raster pass.
+            final board = RepaintBoundary(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: boardMaxHeight),
+                child: Transform.scale(
+                  scale: 0.94 + 0.06 * enter,
+                  child: Opacity(
+                    opacity: enter.clamp(0.0, 1.0),
+                    child: AspectRatio(
+                      // Slim GP tray: ~3.1 units wide × ~10.3 tall.
+                      aspectRatio: 0.31,
+                      child: LayoutBuilder(
+                        builder: (context, c) {
+                          final geom =
+                              _BoardGeom(Size(c.maxWidth, c.maxHeight));
+                          _geom = geom;
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapDown: (d) => _onTapDown(d.localPosition),
+                            child: Stack(
+                              children: [
+                                CustomPaint(
+                                  size: Size(c.maxWidth, c.maxHeight),
+                                  painter: _MancalaPainter(
+                                    pits: frame.pits,
+                                    geom: geom,
+                                    boardColor: boardColor,
+                                    pitColor: pitColor,
+                                    legal: legal,
+                                    highlight: frame.highlight,
+                                    flyers: frame.flyers,
+                                    dpr: MediaQuery.devicePixelRatioOf(context),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
+                                if (style.confetti && _confetti.isNotEmpty)
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: CustomPaint(
+                                        painter: _ConfettiPainter(
+                                          confetti: _confetti,
+                                          t: _confettiCtrl.value,
+                                          boardSize: c.maxWidth,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-        );
+            );
 
-        // Felt table the board sits on.
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(26),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                offset: const Offset(0, 6),
-                blurRadius: 18,
+            // Felt table the board sits on.
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    offset: const Offset(0, 6),
+                    blurRadius: 18,
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(26),
-            child: CustomPaint(
-              painter: _FeltPainter(table),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  // The host hands this widget tight full-width constraints
-                  // (Positioned.fill), which overrides mainAxisSize.min — and
-                  // an unset mainAxisAlignment then packs the chip-board-chip
-                  // cluster to the LEFT edge. Center it explicitly.
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    _SidePlayer(
-                      label: style.northLabel,
-                      score: frame.pits[MancalaState.northStore],
-                      color: north,
-                      avatar: style.northAvatar,
-                      active: showOutcome == null &&
-                          state.currentPlayerId == state.northId,
-                      winner: showOutcome?.isWin == true &&
-                          showOutcome!.winnerId == state.northId,
-                    ),
-                    const SizedBox(width: 8),
-                    Stack(
-                      alignment: Alignment.center,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(26),
+                child: CustomPaint(
+                  painter: _FeltPainter(table),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 16),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      // The host hands this widget tight full-width constraints
+                      // (Positioned.fill), which overrides mainAxisSize.min — and
+                      // an unset mainAxisAlignment then packs the chip-board-chip
+                      // cluster to the LEFT edge. Center it explicitly.
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        board,
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Center(
-                              // Single animating node. "AGAIN!" fires on consecutive
-                              // extra turns, so the message genuinely repeats inside
-                              // one exit — an AnimatedSwitcher keyed on the text put
-                              // two live 'AGAIN!' children in its Stack and threw.
-                              // No accent override: the seat colours are dark on the
-                              // notice's dark fill, so passing one to say *who* just
-                              // erased the underline that says *what*. The side
-                              // players already carry the seat.
-                              child: GameNotice(
-                                message: pillMsg,
-                                tone: showOutcome != null
-                                    ? GameNoticeTone.win
-                                    : GameNoticeTone.score,
-                                strong: showOutcome != null,
-                                // Sticky on a result; the extra-turn call retracts
-                                // itself, which is what the old _pillTimer did.
-                                autoDismiss: showOutcome != null
-                                    ? null
-                                    : const Duration(milliseconds: 900),
+                        _SidePlayer(
+                          label: style.northLabel,
+                          score: frame.pits[MancalaState.northStore],
+                          color: north,
+                          avatar: style.northAvatar,
+                          active: showOutcome == null &&
+                              state.currentPlayerId == state.northId,
+                          winner: showOutcome?.isWin == true &&
+                              showOutcome!.winnerId == state.northId,
+                        ),
+                        const SizedBox(width: 8),
+                        Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            board,
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Center(
+                                  // Single animating node. "AGAIN!" fires on consecutive
+                                  // extra turns, so the message genuinely repeats inside
+                                  // one exit — an AnimatedSwitcher keyed on the text put
+                                  // two live 'AGAIN!' children in its Stack and threw.
+                                  // No accent override: the seat colours are dark on the
+                                  // notice's dark fill, so passing one to say *who* just
+                                  // erased the underline that says *what*. The side
+                                  // players already carry the seat.
+                                  child: GameNotice(
+                                    message: pillMsg,
+                                    tone: showOutcome != null
+                                        ? GameNoticeTone.win
+                                        : GameNoticeTone.score,
+                                    strong: showOutcome != null,
+                                    // Sticky on a result; the extra-turn call retracts
+                                    // itself, which is what the old _pillTimer did.
+                                    autoDismiss: showOutcome != null
+                                        ? null
+                                        : const Duration(milliseconds: 900),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+                          ],
+                        ),
+                        const SizedBox(width: 8),
+                        _SidePlayer(
+                          label: style.southLabel,
+                          score: frame.pits[MancalaState.southStore],
+                          color: south,
+                          avatar: style.southAvatar,
+                          active: showOutcome == null &&
+                              state.currentPlayerId == state.southId,
+                          winner: showOutcome?.isWin == true &&
+                              showOutcome!.winnerId == state.southId,
                         ),
                       ],
                     ),
-                    const SizedBox(width: 8),
-                    _SidePlayer(
-                      label: style.southLabel,
-                      score: frame.pits[MancalaState.southStore],
-                      color: south,
-                      avatar: style.southAvatar,
-                      active: showOutcome == null &&
-                          state.currentPlayerId == state.southId,
-                      winner: showOutcome?.isWin == true &&
-                          showOutcome!.winnerId == state.southId,
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
