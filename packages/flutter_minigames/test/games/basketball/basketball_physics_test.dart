@@ -373,6 +373,74 @@ void main() {
     });
   });
 
+  group('missed shot signal', () {
+    // Runs one shot to rest, collecting every hit kind the sim reports —
+    // exactly what a board's onHit wiring sees.
+    List<BasketballHitKind> runToRest({
+      required BasketballHoopMode mode,
+      required double aim,
+      double spawnX = 0,
+    }) {
+      final sim = BasketballRoundSim(mode: mode, rng: math.Random(1));
+      sim.ready = _ballAt(spawnX);
+      final kinds = <BasketballHitKind>[];
+      final ball = sim.shoot(aim)!;
+      var guard = 0;
+      while (!ball.atRest && guard++ < 2400) {
+        sim.advance(
+          BasketballCourt.throwConfig.fixedDt,
+          onHit: (hit) => kinds.add(hit.kind),
+        );
+      }
+      return kinds;
+    }
+
+    test('a clean airball fires `missed` exactly once and touches nothing', () {
+      final ideal = BasketballAim.leadAim(BasketballHoopMode.normal, 0, 0);
+      // Far outside the make window and outside the rim/backboard too — see
+      // the physics test above ("lateral aim error beyond the window
+      // misses") for the window's size.
+      final kinds = runToRest(
+        mode: BasketballHoopMode.normal,
+        aim: (ideal + 0.5).clamp(-1.0, 1.0),
+      );
+      expect(kinds.where((k) => k == BasketballHitKind.missed).length, 1,
+          reason: 'exactly one missed event for the whole flight');
+      expect(kinds, isNot(contains(BasketballHitKind.made)));
+      expect(kinds, isNot(contains(BasketballHitKind.rim)));
+      expect(kinds, isNot(contains(BasketballHitKind.backboard)));
+    });
+
+    test(
+        'a shot that rattles the rim but stays out fires `missed` once, '
+        'and it touched iron', () {
+      final ideal = BasketballAim.leadAim(BasketballHoopMode.normal, 0, 0);
+      // Just past the rattle-IN window (see the scan in the comment above):
+      // it catches the ring and bounces away instead of dropping.
+      final kinds =
+          runToRest(mode: BasketballHoopMode.normal, aim: ideal + 0.12);
+      expect(kinds.where((k) => k == BasketballHitKind.missed).length, 1);
+      expect(kinds, isNot(contains(BasketballHitKind.made)));
+      expect(kinds, contains(BasketballHitKind.rim),
+          reason: 'the miss event must be classifiable as a rim touch');
+    });
+
+    test('missed never fires for a make — swish or rattle-in', () {
+      final ideal = BasketballAim.leadAim(BasketballHoopMode.normal, 0, 0);
+      for (final aim in [ideal, ideal - 0.085]) {
+        final kinds = runToRest(mode: BasketballHoopMode.normal, aim: aim);
+        expect(kinds, contains(BasketballHitKind.made));
+        expect(kinds, isNot(contains(BasketballHitKind.missed)),
+            reason: 'a ball that goes in must never report missed');
+      }
+    });
+
+    test('missed fires exactly once even across a bounce-and-roll miss', () {
+      final kinds = runToRest(mode: BasketballHoopMode.normal, aim: -1.0);
+      expect(kinds.where((k) => k == BasketballHitKind.missed).length, 1);
+    });
+  });
+
   group('cadence', () {
     test('balls respawn on a 250 ms cooldown and several fly at once', () {
       final sim = BasketballRoundSim(

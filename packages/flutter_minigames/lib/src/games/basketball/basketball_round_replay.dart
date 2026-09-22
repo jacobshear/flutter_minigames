@@ -133,6 +133,11 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
   bool _noticeStrong = false;
   double _noticeTtl = 0;
 
+  /// Bumped on every [_showNotice] call and passed to [GameNotice] as its
+  /// `token` — see [BasketballRoundBoard] for why an identical repeated
+  /// message needs this to re-fire as its own occurrence.
+  int _noticeSeq = 0;
+
   double _lastImpactCue = -1;
   double _fadeOpacity = 0;
 
@@ -150,6 +155,13 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
   static const double _minHoldFloor = 0.06;
   static const double _minAudibleImpact = 0.6;
   static const double _impactCueGap = 0.085;
+
+  /// Seconds a miss notice holds — shorter than a make's 0.8s, mirroring
+  /// [BasketballRoundBoard.missNoticeSeconds]. Distinct from [_missHoldSeconds]
+  /// above, which paces the *timeline* (how long the replay lingers on a
+  /// missed shot before cutting to the next), not how long the notice text
+  /// itself stays up.
+  static const double _missNoticeSeconds = 0.45;
 
   @override
   void initState() {
@@ -355,9 +367,20 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
       case BasketballHitKind.bounce:
         if (hit.speed < _minAudibleImpact) return;
         if (_cueReady) widget.style.sounds.onBounce?.call(hit.speed);
+      case BasketballHitKind.missed:
+        _showMissNotice(hit.ball.touchedIron ? 'RIM OUT' : 'AIRBALL');
       case BasketballHitKind.launch:
         break;
     }
+  }
+
+  /// Mirrors [BasketballRoundBoard._showMissNotice]: never interrupts a make
+  /// or a round/final banner still showing, and never restarts on top of a
+  /// miss notice already up — a fast-cut run of misses would otherwise
+  /// machine-gun this capsule with a fresh pop on every skipped shot.
+  void _showMissNotice(String text) {
+    if (_notice != null) return;
+    _showNotice(text, _missNoticeSeconds, tone: GameNoticeTone.warn);
   }
 
   bool get _cueReady {
@@ -467,6 +490,7 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
     _noticeTone = tone;
     _noticeStrong = strong;
     _noticeTtl = seconds;
+    _noticeSeq++;
   }
 
   // -------------------------------------------------------------- display
@@ -603,6 +627,7 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
                               accent: _noticeTone == GameNoticeTone.score
                                   ? null
                                   : accent,
+                              token: _noticeSeq,
                             ),
                           ),
                         ),

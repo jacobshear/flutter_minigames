@@ -165,4 +165,56 @@ void main() {
     await tester.pump(const Duration(milliseconds: 32));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a real miss raises a brief warn notice on the board', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            height: 700,
+            child: BasketballRoundBoard(
+              game: const BasketballGame(),
+              playerLabel: 'P1',
+              opponentLabel: 'P2',
+              seed: 3,
+              onComplete: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    // Clear the opening 'ROUND 1' banner so it can't be mistaken for the
+    // miss notice, and get well past the 250ms respawn cooldown.
+    for (var i = 0; i < 16; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('ROUND 1'), findsNothing);
+
+    // A hard drag to one extreme clamps to aim = -1.0 — far outside the make
+    // window (see "lateral aim error beyond the window misses" in
+    // basketball_physics_test.dart) — so this shot is guaranteed to miss
+    // regardless of this seed's randomised spawn offset.
+    final detector = find.byType(GestureDetector).first;
+    await tester.drag(detector, const Offset(-300, 0));
+    await tester.pump();
+
+    // Run the flight forward, polling rather than pumping a fixed window at
+    // the end: the notice is deliberately brief (shorter than a make's),
+    // so it can come and go well before the ball comes to rest.
+    String? seen;
+    for (var i = 0; i < 60 && seen == null; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.text('AIRBALL').evaluate().isNotEmpty) seen = 'AIRBALL';
+      if (find.text('RIM OUT').evaluate().isNotEmpty) seen = 'RIM OUT';
+    }
+
+    expect(seen, isNotNull,
+        reason: 'a miss must raise one of the two miss notices');
+    expect(find.text('SWISH!'), findsNothing);
+    expect(find.text('BUCKET!'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

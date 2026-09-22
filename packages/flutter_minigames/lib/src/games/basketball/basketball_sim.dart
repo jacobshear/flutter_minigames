@@ -20,6 +20,10 @@ enum BasketballHitKind {
 
   /// A ball hit the floor.
   bounce,
+
+  /// A ball is done — it can no longer possibly score. Fired exactly once per
+  /// ball, and never for one that goes in. See [BasketballRoundSim._reportMiss].
+  missed,
 }
 
 /// One notable contact, carrying the impact speed so audio can be
@@ -72,6 +76,10 @@ class LiveBall {
 
   /// True once it has stopped rolling.
   bool atRest = false;
+
+  /// True once [BasketballHitKind.missed] has fired for this ball — the flag
+  /// that makes the signal a one-shot per ball.
+  bool missReported = false;
 
   /// Seconds since launch.
   double age = 0;
@@ -331,7 +339,36 @@ class BasketballRoundSim {
       }
     }
 
+    // The make check above is the only way to score, and it only fires on the
+    // single step where the ball's swept path straddles the rim's height
+    // moving down (`Surfaces.descendingPlaneCrossing`, the same primitive it
+    // uses). Once that has happened without a make, the ball cannot cross
+    // that plane descending again without first climbing back above it — and
+    // nothing left in its budget (rim/backboard restitution, floor bounce)
+    // gets it there — so this is the earliest point a shot is provably over.
+    // Guarded by `!ball.made`: a ball that just went in in the branch above
+    // never reaches here.
+    if (!ball.made &&
+        Surfaces.descendingPlaneCrossing(from, to, hoop.y) != null) {
+      _reportMiss(ball, body.velocity.length, onHit);
+    }
+
     _confine(ball, onHit);
+  }
+
+  /// Fires [BasketballHitKind.missed] once, the first time this ball is known
+  /// to be unable to score. Safe to call more than once per ball (from the
+  /// rim-plane crossing in [_stepBall] and the at-rest fallback in
+  /// [_confine]) — [LiveBall.missReported] makes every call after the first a
+  /// no-op, and a made ball never reaches either call site.
+  void _reportMiss(
+    LiveBall ball,
+    double speed,
+    void Function(BasketballHit hit)? onHit,
+  ) {
+    if (ball.made || ball.missReported) return;
+    ball.missReported = true;
+    onHit?.call(BasketballHit(BasketballHitKind.missed, speed, ball));
   }
 
   /// Floor, walls, rolling and rest.
@@ -365,6 +402,11 @@ class BasketballRoundSim {
         body.velocity = Vec3.zero;
         body.spinRate = 0;
         ball.atRest = true;
+        // Fallback: the rim-plane crossing in `_stepBall` covers essentially
+        // every shot (every launch arcs up through the rim's height and back
+        // down), but at-rest is the unconditional backstop for whatever it
+        // doesn't — a ball that settles without ever straddling that plane.
+        _reportMiss(ball, 0, onHit);
       }
     }
 
@@ -388,7 +430,10 @@ class BasketballRoundSim {
       body.bounce(const Vec3(0, 0, 1), restitution: 0.35, friction: 0.25);
     }
 
-    if (ball.age > LiveBall.maxAge + LiveBall.fadeSeconds) ball.atRest = true;
+    if (ball.age > LiveBall.maxAge + LiveBall.fadeSeconds) {
+      ball.atRest = true;
+      _reportMiss(ball, 0, onHit);
+    }
   }
 }
 

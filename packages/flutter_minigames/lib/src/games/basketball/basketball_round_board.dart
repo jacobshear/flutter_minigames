@@ -125,6 +125,11 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
   bool _noticeStrong = false;
   double _noticeTtl = 0;
 
+  /// Bumped on every [_showNotice] call and passed to [GameNotice] as its
+  /// `token` — what lets an identical message (two SWISH!s in a row) re-fire
+  /// as its own occurrence instead of being read as an unchanged rebuild.
+  int _noticeSeq = 0;
+
   /// Sim-time of the last bounce/rim cue, for rate limiting.
   double _lastImpactCue = -1;
 
@@ -244,6 +249,8 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
       case BasketballHitKind.bounce:
         if (hit.speed < minAudibleImpact) return;
         if (_cueReady) widget.style.sounds.onBounce?.call(hit.speed);
+      case BasketballHitKind.missed:
+        _showMissNotice(hit.ball.touchedIron ? 'RIM OUT' : 'AIRBALL');
       case BasketballHitKind.launch:
         break;
     }
@@ -254,6 +261,22 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
   /// near-zero-speed touches, and each one used to burn the rate-limit slot
   /// that the *next real* impact needed.
   static const double minAudibleImpact = 0.6;
+
+  /// Seconds a miss notice holds — shorter than a make's 0.8s. Balls land
+  /// ~250ms apart and misses vastly outnumber makes, so this cannot linger
+  /// the way a score does without smearing into the next shot.
+  static const double missNoticeSeconds = 0.45;
+
+  /// Raises a miss notice, unless anything is already showing — a make, a
+  /// round card, or another miss. A make (or a round card) always outranks a
+  /// miss; and misses repeat every ~250ms, so without this a run of them
+  /// would machine-gun this capsule with a fresh pop/shake on every single
+  /// ball. The already-showing notice is simply left to run out; the next
+  /// miss after that gets a fresh one.
+  void _showMissNotice(String text) {
+    if (_notice != null) return;
+    _showNotice(text, missNoticeSeconds, tone: GameNoticeTone.warn);
+  }
 
   /// Rate limit: a floor full of loose balls would otherwise machine-gun the
   /// same sample.
@@ -321,6 +344,7 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
     _noticeTone = tone;
     _noticeStrong = strong;
     _noticeTtl = seconds;
+    _noticeSeq++;
   }
 
   // ----------------------------------------------------------------- input
@@ -494,6 +518,7 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
                                 accent: _noticeTone == GameNoticeTone.score
                                     ? null
                                     : accent,
+                                token: _noticeSeq,
                               ),
                             ),
                           ),
