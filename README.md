@@ -10,7 +10,7 @@ dependencies:
 
 ## Why this exists
 
-I was building a social app and wanted GamePigeon-style games playable inside a
+I was building a social app and wanted turn-based mini-games playable inside a
 chat. Every option I found was either a single game hard-wired to one backend,
 or a full game engine that wanted to own the whole app. What I actually needed
 was a way to write a game **once** and have it work pass-and-play on one phone,
@@ -121,7 +121,7 @@ flutter pub get                        # resolves the whole workspace
 cd packages/example_app && flutter run # main menu → pick a game (local hot-seat)
 ```
 
-The demo is a **full-screen GamePigeon-style launcher** (static illustrated
+The demo is a **full-screen mini-game launcher** (static illustrated
 grid, quiet iOS-light chrome). Host apps (a chat sheet, your own launcher) embed
 the same catalog + play screens; multiplayer injects via
 `example_app/lib/multiplayer/play_session.dart`

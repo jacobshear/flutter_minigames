@@ -1,6 +1,6 @@
 # example_app
 
-Standalone **full-screen GamePigeon-style launcher** for `flutter_minigames`.
+Standalone **full-screen mini-game launcher** for `flutter_minigames`.
 
 ## What it is
 
