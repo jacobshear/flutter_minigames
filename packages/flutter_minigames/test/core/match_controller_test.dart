@@ -132,6 +132,26 @@ class _RunGame extends TurnGame<_CounterState, _CounterMove> {
 /// Flush pending microtasks so broadcast-stream listeners have run.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
+/// A transport whose writes are refused — the opponent always got there first.
+class _RefusingTransport implements GameTransport {
+  final LocalTransport _inner = LocalTransport();
+  final Object error;
+
+  _RefusingTransport(this.error);
+
+  @override
+  Future<void> createMatch(Match match) => _inner.createMatch(match);
+
+  @override
+  Stream<Match> watchMatch(String matchId) => _inner.watchMatch(matchId);
+
+  @override
+  Future<Match?> loadMatch(String matchId) => _inner.loadMatch(matchId);
+
+  @override
+  Future<void> submitTurn(Match updatedMatch) async => throw error;
+}
+
 void main() {
   group('MatchController over LocalTransport', () {
     late LocalTransport transport;
@@ -205,6 +225,68 @@ void main() {
       expect(decoded.lastMover, 'a');
 
       await host.dispose();
+    });
+  });
+
+  group('transport outcomes', () {
+    const game = _CounterGame();
+
+    test('a refused write returns false, reports on turnRejected, never throws',
+        () async {
+      final transport = _RefusingTransport(StateError('turn already advanced'));
+      final c = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: transport,
+        matchId: 'refused',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      addTearDown(c.dispose);
+      final rejected = <Object>[];
+      final committed = <Match>[];
+      final subs = [
+        c.turnRejected.listen(rejected.add),
+        c.turnCommitted.listen(committed.add),
+      ];
+
+      // Boards fire moves unawaited — the error must not escape as an
+      // unhandled async error (the test zone would fail on one).
+      // ignore: unawaited_futures
+      c.submitMove(const _CounterMove());
+      await _settle();
+      expect(await c.submitMove(const _CounterMove()), isFalse);
+      await _settle();
+
+      expect(rejected, hasLength(2));
+      expect(rejected.first, isA<StateError>());
+      expect(committed, isEmpty);
+      for (final s in subs) {
+        await s.cancel();
+      }
+    });
+
+    test('an accepted write reports the match as written on turnCommitted',
+        () async {
+      final c = await MatchController.create<_CounterState, _CounterMove>(
+        game: game,
+        transport: LocalTransport(),
+        matchId: 'accepted',
+        playerIds: const ['a', 'b'],
+        localPlayerId: 'a',
+        seed: 0,
+      );
+      addTearDown(c.dispose);
+      final committed = <Match>[];
+      final sub = c.turnCommitted.listen(committed.add);
+
+      expect(await c.submitMove(const _CounterMove()), isTrue);
+      await _settle();
+
+      expect(committed, hasLength(1));
+      expect(committed.single.turnCount, 1);
+      expect(committed.single.lastMoverId, 'a');
+      await sub.cancel();
     });
   });
 

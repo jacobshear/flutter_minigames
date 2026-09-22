@@ -57,6 +57,11 @@ class MatchController<S, M> {
   final StreamController<bool> _replayActivity =
       StreamController<bool>.broadcast();
 
+  final StreamController<Match> _turnCommitted =
+      StreamController<Match>.broadcast();
+  final StreamController<Object> _turnRejected =
+      StreamController<Object>.broadcast();
+
   /// How long a replay shows the pre-turn snapshot before landing the first
   /// frame. Long enough for a board's entrance animation to finish so the
   /// replayed move reads as a move, not a flash.
@@ -75,6 +80,20 @@ class MatchController<S, M> {
   /// snapshot, or disposed) — see [isReplayPlaybackActive]. Hosts use it to
   /// show and hide fast-forward controls and to reset time dilation.
   Stream<bool> get replayActivity => _replayActivity.stream;
+
+  /// Emits the match as written, each time a local move is accepted by the
+  /// transport. Hosts use it as the handoff signal (announce the turn, push
+  /// the opponent) — boards call [submitMove] themselves, so the host never
+  /// sees the move go by otherwise.
+  Stream<Match> get turnCommitted => _turnCommitted.stream;
+
+  /// Emits the error each time the transport refuses a local move: an
+  /// optimistic-concurrency abort (the opponent's turn landed first —
+  /// typically a [StateError]) or the backend rejecting the write outright.
+  /// State needs no repair: the controller only adopts state from
+  /// [GameTransport.watchMatch], so the authoritative snapshot arrives on the
+  /// next event. Use this to tell the player.
+  Stream<Object> get turnRejected => _turnRejected.stream;
 
   /// Emits the decoded game state on every change.
   Stream<S> get stateStream => _stateController.stream;
@@ -319,7 +338,10 @@ class MatchController<S, M> {
   /// Validate [move], apply it, and submit the resulting turn to the transport.
   ///
   /// Returns false (and does nothing) if there's no match yet, it isn't a
-  /// legal move, or it isn't this client's turn.
+  /// legal move, or it isn't this client's turn — and also when the transport
+  /// refuses the write, which is reported on [turnRejected] rather than
+  /// thrown. Never throws for a transport failure: boards call this
+  /// unawaited.
   ///
   /// Records the replay trail: [Match.prevState] is the board before this
   /// player's turn began and [Match.turnSteps] the snapshots in between,
@@ -356,7 +378,16 @@ class MatchController<S, M> {
       lastMoverId: acting,
     );
 
-    await transport.submitTurn(updated);
+    // Boards call submitMove without awaiting it, so a refused write must
+    // never escape as an error — it would surface as an unhandled async error
+    // no host can catch. Report it on [turnRejected] instead.
+    try {
+      await transport.submitTurn(updated);
+    } catch (e) {
+      if (!_turnRejected.isClosed) _turnRejected.add(e);
+      return false;
+    }
+    if (!_turnCommitted.isClosed) _turnCommitted.add(updated);
     return true;
   }
 
@@ -399,5 +430,7 @@ class MatchController<S, M> {
     await _sub?.cancel();
     await _stateController.close();
     await _replayActivity.close();
+    await _turnCommitted.close();
+    await _turnRejected.close();
   }
 }
