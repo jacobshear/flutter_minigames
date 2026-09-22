@@ -438,7 +438,7 @@ class _WordHuntBoardState extends State<WordHuntBoard>
             final remaining = (total * (1 - _roundCtrl.value)).ceil();
             final urgent = remaining <= 10;
             return Padding(
-              padding: const EdgeInsets.only(bottom: 10, left: 4, right: 4),
+              padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
               child: Row(
                 children: [
                   _statBlock(
@@ -464,6 +464,16 @@ class _WordHuntBoardState extends State<WordHuntBoard>
               ),
             );
           },
+        ),
+        // The traced-word notice's gutter. The stat row sits directly above
+        // the grid with no slack of its own, so the notice gets a dedicated
+        // strip here instead — a fixed height, reserved whether or not a
+        // notice is up, so nothing shifts when one arrives or retracts. This
+        // guarantees the notice can never land on a tile: it lives outside
+        // the grid's own Stack entirely.
+        SizedBox(
+          height: 38,
+          child: IgnorePointer(child: Center(child: _noticeWidget())),
         ),
         AspectRatio(
           aspectRatio: 1,
@@ -654,13 +664,6 @@ class _WordHuntBoardState extends State<WordHuntBoard>
             ),
           ),
         ),
-        // The word you just traced.
-        Positioned(
-          top: geom.side * 0.035,
-          left: 0,
-          right: 0,
-          child: IgnorePointer(child: Center(child: _noticeWidget())),
-        ),
       ],
     );
   }
@@ -685,6 +688,7 @@ class _WordHuntBoardState extends State<WordHuntBoard>
         scale: selected ? 1.06 : 1.0,
         duration: const Duration(milliseconds: 90),
         child: Container(
+          key: ValueKey('word_hunt_tile_$index'),
           decoration: BoxDecoration(
             color: selected ? traceColor : tile,
             borderRadius: BorderRadius.circular(rect.width * 0.22),
