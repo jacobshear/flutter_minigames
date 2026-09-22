@@ -1158,6 +1158,34 @@ class GinRummyGame extends TurnGame<GinRummyState, GinRummyMove> {
         seat == 1 ? List.unmodifiable(hand) : state.hands[1],
       ];
 
+  /// Draw (or take the upcard) then discard is one turn; so is the
+  /// defender's lay-off run. Beats are the table's controllers
+  /// (gin_rummy_table.dart): 300ms card flight, plus the 260ms discard-pile
+  /// pulse that follows a discard / knock / gin; 620ms summary reveal on a
+  /// scored hand; 900ms deal-in on a new hand; a lay-off is a reflow.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(GinRummyState from, GinRummyState to) {
+    final action = to.lastAction;
+    if (action == GinRummyAction.discard ||
+        action == GinRummyAction.knock ||
+        action == GinRummyAction.gin) {
+      return const Duration(milliseconds: 560);
+    }
+    if (action == GinRummyAction.handScored) {
+      return const Duration(milliseconds: 620);
+    }
+    if (action == GinRummyAction.newHand) {
+      return const Duration(milliseconds: 900);
+    }
+    if (action == GinRummyAction.layOff) {
+      return const Duration(milliseconds: 150);
+    }
+    return const Duration(milliseconds: 300);
+  }
+
   @override
   GameOutcome? outcome(GinRummyState state) {
     final match = state.matchResult;

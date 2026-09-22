@@ -30,6 +30,34 @@ void main() {
     );
   }
 
+  // Same as [slide], but also carries the launch input a real board records —
+  // used to exercise [ShuffleboardState.lastShot].
+  ShuffleboardMove slideWithShot(
+    ShuffleboardState s,
+    String owner,
+    String puckId,
+    double nx,
+    double ny, {
+    double startNx = 0.5,
+    double impulseX = 0,
+    double impulseY = -9,
+    List<PuckPosition> carryOver = const [],
+    bool removed = false,
+  }) {
+    return ShuffleboardMove(
+      launchedPuckId: puckId,
+      owner: owner,
+      positions: [
+        ...carryOver,
+        PuckPosition(
+            id: puckId, owner: owner, nx: nx, ny: ny, removed: removed),
+      ],
+      launchStartNx: startNx,
+      launchImpulseX: impulseX,
+      launchImpulseY: impulseY,
+    );
+  }
+
   // Snapshot all current pucks as carry-over positions (physics reports them).
   List<PuckPosition> carry(ShuffleboardState s) => [
         for (final p in s.pucks)
@@ -272,6 +300,108 @@ void main() {
       expect(decoded.launchedPuckId, move.launchedPuckId);
       expect(decoded.owner, move.owner);
       expect(decoded.positions.single.ny, closeTo(0.12, 1e-9));
+    });
+
+    test('move with launch input round-trips its shot fields through JSON', () {
+      final s = fresh();
+      final move = slideWithShot(s, 'p1', 'p1-0', 0.5, 0.12,
+          startNx: 0.63, impulseX: 1.2, impulseY: -10.5);
+      final decoded = game.decodeMove(game.encodeMove(move));
+      expect(decoded.launchStartNx, closeTo(0.63, 1e-9));
+      expect(decoded.launchImpulseX, closeTo(1.2, 1e-9));
+      expect(decoded.launchImpulseY, closeTo(-10.5, 1e-9));
+    });
+
+    test('move without launch input round-trips as null', () {
+      final s = fresh();
+      final move = slide(s, 'p1', 'p1-0', 0.5, 0.12);
+      final decoded = game.decodeMove(game.encodeMove(move));
+      expect(decoded.launchStartNx, isNull);
+      expect(decoded.launchImpulseX, isNull);
+      expect(decoded.launchImpulseY, isNull);
+    });
+  });
+
+  group('shot replay recording (lastShot)', () {
+    test('applyMove records a ShuffleboardShot when launch input is given', () {
+      var s = fresh();
+      s = game.applyMove(
+          s,
+          slideWithShot(s, 'p1', 'p1-0', 0.5, 0.05,
+              startNx: 0.4, impulseX: 0.5, impulseY: -8));
+      final shot = s.lastShot;
+      expect(shot, isNotNull);
+      expect(shot!.puckId, 'p1-0');
+      expect(shot.owner, 'p1');
+      expect(shot.startNx, closeTo(0.4, 1e-9));
+      expect(shot.impulseX, closeTo(0.5, 1e-9));
+      expect(shot.impulseY, closeTo(-8, 1e-9));
+      expect(shot.shotId, 1, reason: 'first slide of the match');
+    });
+
+    test('shotId is monotonic across slides', () {
+      var s = fresh();
+      s = game.applyMove(s, slideWithShot(s, 'p1', 'p1-0', 0.5, 0.05));
+      expect(s.lastShot!.shotId, 1);
+      s = game.applyMove(
+          s, slideWithShot(s, 'p2', 'p2-0', 0.5, 0.05, carryOver: carry(s)));
+      expect(s.lastShot!.shotId, 2);
+    });
+
+    test('applyMove leaves lastShot null when no launch input is recorded', () {
+      var s = fresh();
+      s = game.applyMove(s, slide(s, 'p1', 'p1-0', 0.5, 0.05));
+      expect(s.lastShot, isNull);
+    });
+
+    test('applyMove requires all three launch fields together', () {
+      var s = fresh();
+      // Only startNx set; the move constructor otherwise mirrors `slide`.
+      final move = ShuffleboardMove(
+        launchedPuckId: 'p1-0',
+        owner: 'p1',
+        positions: const [
+          PuckPosition(id: 'p1-0', owner: 'p1', nx: 0.5, ny: 0.05),
+        ],
+        launchStartNx: 0.5,
+      );
+      s = game.applyMove(s, move);
+      expect(s.lastShot, isNull,
+          reason: 'a partial launch input records no shot at all');
+    });
+
+    test('state round-trips lastShot through JSON', () {
+      var s = fresh();
+      s = game.applyMove(
+          s,
+          slideWithShot(s, 'p1', 'p1-0', 0.5, 0.05,
+              startNx: 0.35, impulseX: -0.2, impulseY: -9.4));
+      final decoded =
+          game.decodeState(game.encodeState(s), game.stateSchemaVersion);
+      final shot = decoded.lastShot;
+      expect(shot, isNotNull);
+      expect(shot!.puckId, s.lastShot!.puckId);
+      expect(shot.owner, s.lastShot!.owner);
+      expect(shot.startNx, closeTo(s.lastShot!.startNx, 1e-9));
+      expect(shot.impulseX, closeTo(s.lastShot!.impulseX, 1e-9));
+      expect(shot.impulseY, closeTo(s.lastShot!.impulseY, 1e-9));
+      expect(shot.shotId, s.lastShot!.shotId);
+    });
+
+    test('a fresh state has no lastShot and encodes without the key', () {
+      final s = fresh();
+      expect(s.lastShot, isNull);
+      expect(game.encodeState(s).containsKey('lastShot'), isFalse);
+    });
+
+    test('LEGACY state JSON (no lastShot key) decodes to null', () {
+      var s = fresh();
+      s = game.applyMove(s, slide(s, 'p1', 'p1-0', 0.5, 0.05));
+      final legacyJson = game.encodeState(s);
+      expect(legacyJson.containsKey('lastShot'), isFalse,
+          reason: 'sanity: this move never recorded a shot to begin with');
+      final decoded = game.decodeState(legacyJson, game.stateSchemaVersion);
+      expect(decoded.lastShot, isNull);
     });
   });
 }

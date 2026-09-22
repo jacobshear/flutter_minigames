@@ -202,8 +202,32 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
       playerIds: state.playerIds,
       seed: state.seed,
       shots: shots,
+      lastShot: move.hasAim
+          ? ArcheryLastShot(
+              shooter: move.shooter,
+              targetIndex: move.targetIndex,
+              arrowIndex: move.arrowIndex,
+              power: move.power!,
+              aimYaw: move.aimYaw!,
+              aimPitch: move.aimPitch!,
+            )
+          : null,
     );
   }
+
+  /// One archer shoots the whole end — twelve arrows — before the other.
+  /// The receiving face now replays each arrow's flight
+  /// (archery_range.dart `_beginReplay`, re-firing `ArcheryBallistics.fire`
+  /// with the recorded draw) before mirroring the stuck arrow and ticking
+  /// the score chips. 2.6s comfortably covers a full-range flight (the
+  /// local board caps its own `_flight` controller at 4s for a slow-motion
+  /// bullseye) plus the `_wobble` settle (620ms).
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(ArcheryState from, ArcheryState to) =>
+      const Duration(milliseconds: 2600);
 
   @override
   GameOutcome? outcome(ArcheryState state) {
@@ -224,6 +248,7 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
           for (final e in state.shots.entries)
             e.key: [for (final s in e.value) s.toJson()],
         },
+        'lastShot': state.lastShot?.toJson(),
       };
 
   @override
@@ -241,6 +266,13 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
               ArrowShot.fromJson(Map<String, dynamic>.from(s as Map)),
           ],
       },
+      // Absent on states encoded before this field existed — decodes to
+      // null, same as an arrow that simply didn't carry a draw.
+      lastShot: ArcheryLastShot.fromJson(
+        json['lastShot'] == null
+            ? null
+            : (json['lastShot'] as Map).cast<String, dynamic>(),
+      ),
     );
   }
 
@@ -253,6 +285,9 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
         'offsetX': move.offsetX,
         'offsetY': move.offsetY,
         'onFace': move.onFace,
+        'power': move.power,
+        'aimYaw': move.aimYaw,
+        'aimPitch': move.aimPitch,
       };
 
   @override
@@ -264,6 +299,9 @@ class ArcheryGame extends TurnGame<ArcheryState, ArcheryMove> {
         offsetX: (json['offsetX'] as num).toDouble(),
         offsetY: (json['offsetY'] as num).toDouble(),
         onFace: json['onFace'] as bool,
+        power: (json['power'] as num?)?.toDouble(),
+        aimYaw: (json['aimYaw'] as num?)?.toDouble(),
+        aimPitch: (json['aimPitch'] as num?)?.toDouble(),
       );
 }
 
@@ -392,6 +430,16 @@ class ArcheryMove {
   final double offsetY;
   final bool onFace;
 
+  /// The draw this arrow was shot with — [ArcheryBallistics.fire]'s `power`,
+  /// `aimYaw` and `aimPitch` (sway already folded in). Carried so a
+  /// receiving board can re-fire the identical, deterministic shot and
+  /// replay its flight rather than only snap to [offsetX]/[offsetY]. Null on
+  /// a move recorded before this field existed, or when the sender didn't
+  /// supply one.
+  final double? power;
+  final double? aimYaw;
+  final double? aimPitch;
+
   const ArcheryMove({
     required this.shooter,
     required this.targetIndex,
@@ -400,7 +448,13 @@ class ArcheryMove {
     required this.offsetX,
     required this.offsetY,
     required this.onFace,
+    this.power,
+    this.aimYaw,
+    this.aimPitch,
   });
+
+  /// True when this move carries enough to replay the flight.
+  bool get hasAim => power != null && aimYaw != null && aimPitch != null;
 
   /// Builds the move for a hit at ([offsetX], [offsetY]) metres from centre,
   /// scoring it with the pure ring rules.
@@ -410,6 +464,9 @@ class ArcheryMove {
     required int arrowIndex,
     required double offsetX,
     required double offsetY,
+    double? power,
+    double? aimYaw,
+    double? aimPitch,
   }) {
     final on = ArcheryGame.onFace(offsetX, offsetY);
     return ArcheryMove(
@@ -420,6 +477,9 @@ class ArcheryMove {
       offsetX: offsetX,
       offsetY: offsetY,
       onFace: on,
+      power: power,
+      aimYaw: aimYaw,
+      aimPitch: aimPitch,
     );
   }
 
@@ -442,6 +502,55 @@ class ArcheryMove {
       );
 }
 
+/// The most recent arrow shot — who shot it, the exact draw, and which arrow
+/// it was — carried on [ArcheryState] so a receiving board can replay the
+/// flight (re-firing [ArcheryBallistics.fire] with the same inputs is
+/// deterministic and reproduces it exactly) instead of only snapping to the
+/// outcome already in [ArcheryState.shots].
+///
+/// There's no separate throw id: [ArcheryState.totalShots] — the sum of both
+/// players' arrow counts, which strictly increases by one per arrow — already
+/// serves as the monotonic tick a board compares against what it has already
+/// animated.
+class ArcheryLastShot {
+  final String shooter;
+  final int targetIndex;
+  final int arrowIndex;
+  final double power;
+  final double aimYaw;
+  final double aimPitch;
+
+  const ArcheryLastShot({
+    required this.shooter,
+    required this.targetIndex,
+    required this.arrowIndex,
+    required this.power,
+    required this.aimYaw,
+    required this.aimPitch,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'shooter': shooter,
+        'targetIndex': targetIndex,
+        'arrowIndex': arrowIndex,
+        'power': power,
+        'aimYaw': aimYaw,
+        'aimPitch': aimPitch,
+      };
+
+  static ArcheryLastShot? fromJson(Map<String, dynamic>? json) {
+    if (json == null) return null;
+    return ArcheryLastShot(
+      shooter: json['shooter'] as String,
+      targetIndex: (json['targetIndex'] as num).toInt(),
+      arrowIndex: (json['arrowIndex'] as num).toInt(),
+      power: (json['power'] as num).toDouble(),
+      aimYaw: (json['aimYaw'] as num).toDouble(),
+      aimPitch: (json['aimPitch'] as num).toDouble(),
+    );
+  }
+}
+
 /// Full match state: who has shot what, and nothing else. Everything about the
 /// *format* (whose turn, which target, which arrow, the phase) is derived, so
 /// there is exactly one source of truth and no counter can drift.
@@ -454,15 +563,26 @@ class ArcheryState {
   /// Arrows shot so far, in order, per player.
   final Map<String, List<ArrowShot>> shots;
 
+  /// The most recent arrow shot, including the draw a receiving board needs
+  /// to replay its flight. Null on a fresh match, and on any state whose
+  /// arrow didn't carry a draw (legacy data).
+  final ArcheryLastShot? lastShot;
+
   const ArcheryState({
     required this.playerIds,
     required this.seed,
     required this.shots,
+    this.lastShot,
   });
 
   List<ArrowShot> shotsOf(String playerId) => shots[playerId] ?? const [];
 
   int arrowsShotBy(String playerId) => shotsOf(playerId).length;
+
+  /// Arrows shot by both players combined — strictly increases by one per
+  /// arrow, so it doubles as the monotonic id [lastShot] is compared against.
+  int get totalShots =>
+      arrowsShotBy(playerIds.first) + arrowsShotBy(playerIds.last);
 
   bool isDone(String playerId) =>
       arrowsShotBy(playerId) >= ArcheryGame.arrowsPerPlayer;

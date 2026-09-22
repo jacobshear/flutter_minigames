@@ -24,6 +24,9 @@ import 'package:flutter_minigames/core.dart';
 /// JSON string and decoded on read — games stay backend-agnostic and never have
 /// to know RTDB's quirks. Scalar metadata (currentPlayerId, turnCount, …) stays
 /// as native fields so server-side rules / "your turn" functions can read them.
+/// [Match.prevState] and [Match.turnSteps] are opaque game state too, so
+/// they're stored the same way — JSON-encoded to a string when present
+/// (the steps as one encoded list), decoded back on read.
 class FirebaseGameTransport implements GameTransport {
   final FirebaseDatabase database;
 
@@ -81,6 +84,12 @@ class FirebaseGameTransport implements GameTransport {
   Map<String, dynamic> _toNode(Match match) {
     final node = match.toJson();
     node['state'] = jsonEncode(match.state); // opaque blob — see class doc
+    if (match.prevState != null) {
+      node['prevState'] = jsonEncode(match.prevState); // opaque blob too
+    }
+    if (match.turnSteps != null) {
+      node['turnSteps'] = jsonEncode(match.turnSteps); // one blob for the list
+    }
     node.removeWhere((_, value) => value == null); // RTDB omits nulls anyway
     return node;
   }
@@ -90,6 +99,16 @@ class FirebaseGameTransport implements GameTransport {
     final rawState = node['state'];
     if (rawState is String) {
       node['state'] = jsonDecode(rawState) as Map<String, dynamic>;
+    }
+    final rawPrevState = node['prevState'];
+    if (rawPrevState is String) {
+      node['prevState'] = jsonDecode(rawPrevState) as Map<String, dynamic>;
+    }
+    final rawTurnSteps = node['turnSteps'];
+    if (rawTurnSteps is String) {
+      node['turnSteps'] = (jsonDecode(rawTurnSteps) as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
     }
     return Match.fromJson(node);
   }

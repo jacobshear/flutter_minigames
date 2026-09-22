@@ -22,7 +22,9 @@ export 'basketball_court.dart'
 export 'basketball_game.dart';
 export 'basketball_results.dart';
 export 'basketball_round_board.dart';
+export 'basketball_round_replay.dart';
 export 'basketball_scoreboard.dart';
+export 'basketball_shot.dart';
 export 'basketball_sim.dart';
 export 'basketball_sounds.dart';
 export 'basketball_style.dart';

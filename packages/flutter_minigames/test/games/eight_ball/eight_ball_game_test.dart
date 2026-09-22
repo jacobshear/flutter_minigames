@@ -484,4 +484,182 @@ void main() {
       expect(decoded.cueNy, closeTo(0.66, 1e-9));
     });
   });
+
+  group('shot replay recording (lastShot)', () {
+    // Same as [shot], but also carries the launch impulse a real board
+    // records — used to exercise [EightBallState.lastShot].
+    EightBallMove shotWithImpulse(
+      EightBallState s,
+      String owner, {
+      List<int> pocket = const [],
+      int? firstHit,
+      bool cueScratch = false,
+      double impulseX = 0,
+      double impulseY = -12,
+    }) {
+      final base = shot(
+        s,
+        owner,
+        pocket: pocket,
+        firstHit: firstHit,
+        cueScratch: cueScratch,
+      );
+      return EightBallMove.shot(
+        owner: owner,
+        positions: base.positions!,
+        firstHitNumber: base.firstHitNumber,
+        shotImpulseX: impulseX,
+        shotImpulseY: impulseY,
+      );
+    }
+
+    test('applyMove records an EightBallShot when impulse input is given', () {
+      var s = fresh();
+      final cueBefore = s.cue;
+      s = game.applyMove(
+          s, shotWithImpulse(s, 'p1', firstHit: 1, impulseX: 3, impulseY: -18));
+      final recorded = s.lastShot;
+      expect(recorded, isNotNull);
+      expect(recorded!.owner, 'p1');
+      expect(recorded.cueStartNx, closeTo(cueBefore.nx, 1e-9));
+      expect(recorded.cueStartNy, closeTo(cueBefore.ny, 1e-9));
+      expect(recorded.impulseX, closeTo(3, 1e-9));
+      expect(recorded.impulseY, closeTo(-18, 1e-9));
+      expect(recorded.shotId, 1, reason: 'first shot of the match');
+    });
+
+    test('shotId is monotonic across shots', () {
+      var s = fresh();
+      s = game.applyMove(s, shotWithImpulse(s, 'p1', firstHit: 1)); // break
+      expect(s.lastShot!.shotId, 1);
+      s = game.applyMove(
+          s, shotWithImpulse(s, 'p2', pocket: [11], firstHit: 11)); // assign
+      expect(s.lastShot!.shotId, 2);
+    });
+
+    test('applyMove leaves lastShot null when no impulse input is recorded',
+        () {
+      var s = fresh();
+      s = game.applyMove(s, shot(s, 'p1', firstHit: 1));
+      expect(s.lastShot, isNull);
+    });
+
+    test('applyMove requires both impulse fields together', () {
+      var s = fresh();
+      final base = shot(s, 'p1', firstHit: 1);
+      // Only shotImpulseX set — the other half of the pair is missing.
+      final move = EightBallMove.shot(
+        owner: 'p1',
+        positions: base.positions!,
+        firstHitNumber: base.firstHitNumber,
+        shotImpulseX: 2,
+      );
+      s = game.applyMove(s, move);
+      expect(s.lastShot, isNull,
+          reason: 'a partial impulse pair records no shot at all');
+    });
+
+    test('a ball-in-hand placement clears a previously recorded lastShot', () {
+      var s = fresh();
+      // A foul on the break: no contact, so a scratch-free contact foul —
+      // simplest is a scratch, which always fouls regardless of table state.
+      s = game.applyMove(
+          s, shotWithImpulse(s, 'p1', cueScratch: true, firstHit: 1));
+      expect(s.lastShot, isNotNull, reason: 'sanity: the shot recorded one');
+      expect(s.ballInHand, isTrue);
+      s = game.applyMove(
+          s, EightBallMove.place(owner: 'p2', cueNx: 0.5, cueNy: 0.5));
+      expect(s.lastShot, isNull,
+          reason: 'a placement carries no shot input to replay');
+    });
+
+    test('state round-trips lastShot through JSON', () {
+      var s = fresh();
+      s = game.applyMove(
+          s,
+          shotWithImpulse(s, 'p1',
+              firstHit: 1, impulseX: -1.5, impulseY: -14.2));
+      final decoded =
+          game.decodeState(game.encodeState(s), game.stateSchemaVersion);
+      final shotRecord = decoded.lastShot;
+      expect(shotRecord, isNotNull);
+      expect(shotRecord!.owner, s.lastShot!.owner);
+      expect(shotRecord.cueStartNx, closeTo(s.lastShot!.cueStartNx, 1e-9));
+      expect(shotRecord.cueStartNy, closeTo(s.lastShot!.cueStartNy, 1e-9));
+      expect(shotRecord.impulseX, closeTo(s.lastShot!.impulseX, 1e-9));
+      expect(shotRecord.impulseY, closeTo(s.lastShot!.impulseY, 1e-9));
+      expect(shotRecord.shotId, s.lastShot!.shotId);
+    });
+
+    test('a fresh state has no lastShot and encodes without the key', () {
+      final s = fresh();
+      expect(s.lastShot, isNull);
+      expect(game.encodeState(s).containsKey('lastShot'), isFalse);
+    });
+
+    test('LEGACY state JSON (no lastShot key) decodes to null', () {
+      var s = fresh();
+      s = game.applyMove(s, shot(s, 'p1', firstHit: 1));
+      final legacyJson = game.encodeState(s);
+      expect(legacyJson.containsKey('lastShot'), isFalse,
+          reason: 'sanity: this move never recorded a shot to begin with');
+      final decoded = game.decodeState(legacyJson, game.stateSchemaVersion);
+      expect(decoded.lastShot, isNull);
+    });
+
+    test('shot move round-trips shotImpulseX/Y through JSON', () {
+      final s = fresh();
+      final move =
+          shotWithImpulse(s, 'p1', firstHit: 1, impulseX: 4, impulseY: -9);
+      final decoded = game.decodeMove(game.encodeMove(move));
+      expect(decoded.shotImpulseX, closeTo(4, 1e-9));
+      expect(decoded.shotImpulseY, closeTo(-9, 1e-9));
+    });
+
+    test('a legacy move with no impulse fields decodes them as null', () {
+      final s = fresh();
+      final move = shot(s, 'p1', firstHit: 1);
+      final decoded = game.decodeMove(game.encodeMove(move));
+      expect(decoded.shotImpulseX, isNull);
+      expect(decoded.shotImpulseY, isNull);
+    });
+  });
+
+  group('replayStepDelay sizes the replay from the recorded impulse', () {
+    const game = EightBallGame();
+
+    EightBallState withShot(double ix, double iy) {
+      final s = game.initialState(seed: 1, playerIds: const ['a', 'b']);
+      return s.copyWith(
+        shotsTaken: s.shotsTaken + 1,
+        lastShot: EightBallShot(
+          owner: 'a',
+          cueStartNx: 0.25,
+          cueStartNy: 0.5,
+          impulseX: ix,
+          impulseY: iy,
+          shotId: s.shotsTaken + 1,
+        ),
+      );
+    }
+
+    test('a full-power shot holds past the measured ~10s break settle', () {
+      final s = withShot(0, -EightBallGame.maxShotImpulse);
+      expect(game.replayStepDelay(s, s).inMilliseconds,
+          greaterThanOrEqualTo(10000));
+    });
+
+    test('a soft tap holds far less than a break', () {
+      final soft = withShot(2.5, 0);
+      final hard = withShot(0, -EightBallGame.maxShotImpulse);
+      expect(game.replayStepDelay(soft, soft),
+          lessThan(game.replayStepDelay(hard, hard)));
+      expect(game.replayStepDelay(soft, soft).inMilliseconds, lessThan(6000));
+    });
+
+    test('a placement (no shot) keeps the short hold', () {
+      final s = game.initialState(seed: 1, playerIds: const ['a', 'b']);
+      expect(game.replayStepDelay(s, s), const Duration(milliseconds: 900));
+    });
+  });
 }

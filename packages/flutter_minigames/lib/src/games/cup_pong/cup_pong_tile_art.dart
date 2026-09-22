@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 import 'cup_pong_game.dart';
 import 'cup_pong_painter.dart';
 import 'cup_pong_sounds.dart';
@@ -43,20 +44,19 @@ class CupPongTileArt extends StatefulWidget {
 
 class _CupPongTileArtState extends State<CupPongTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
+  late final TileArtDriver _c = TileArtDriver(
+    vsync: this,
+    period: const Duration(milliseconds: 2600),
+    animate: widget.animate,
+  );
 
   /// The looping arc, precomputed once — the tile should not run a solver.
-  late final List<Vec3> _arc;
+  late final List<Vec3> _arc = _buildArc();
 
   @override
-  void initState() {
-    super.initState();
-    _c = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2600),
-    );
-    if (widget.animate) _c.repeat();
-    _arc = _buildArc();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
   }
 
   @override

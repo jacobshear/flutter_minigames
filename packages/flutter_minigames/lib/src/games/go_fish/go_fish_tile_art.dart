@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/cards/cards.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 
 /// Launcher-tile miniature for Go Fish: a pond of backs up top and three
 /// sevens in a tray below, with the fourth seven sailing across from the
@@ -20,15 +21,21 @@ class GoFishTileArt extends StatefulWidget {
 
 class _GoFishTileArtState extends State<GoFishTileArt>
     with SingleTickerProviderStateMixin {
-  AnimationController? _c;
+  TileArtDriver? _c;
 
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(
+    _c = TileArtDriver(
       vsync: this,
-      duration: const Duration(milliseconds: 5600),
-    )..repeat();
+      period: const Duration(milliseconds: 5600),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c?.attach(context);
   }
 
   @override

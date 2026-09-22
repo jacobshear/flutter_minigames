@@ -56,15 +56,89 @@ class CupPongThrow {
   final double ballX;
   final double ballZ;
 
+  /// The launch velocity the thrower's [CupPongThrowSim] fired with, world
+  /// m/s — carried so a receiving board can replay the same flight rather
+  /// than only the outcome. Null on a throw recorded before this field
+  /// existed, or when the sender didn't supply one; [CupPongGame.applyMove]
+  /// then leaves [CupPongState.lastThrow] null for that throw.
+  final double? velocityX;
+  final double? velocityY;
+  final double? velocityZ;
+
   const CupPongThrow({
     required this.owner,
     required this.target,
     required this.hitCupId,
     this.ballX = 0,
     this.ballZ = 0,
+    this.velocityX,
+    this.velocityY,
+    this.velocityZ,
   });
 
   bool get isHit => hitCupId != null;
+
+  /// True when this throw carries enough to replay the flight.
+  bool get hasVelocity =>
+      velocityX != null && velocityY != null && velocityZ != null;
+}
+
+/// The most recent ball thrown — who threw it, the exact launch velocity, and
+/// the result — carried on [CupPongState] so a receiving board can replay the
+/// flight instead of only snapping to the outcome.
+///
+/// [throwId] is [CupPongState.throws] at the moment this throw resolved: a
+/// monotonic tick a board compares against what it has already animated to
+/// tell a genuinely new throw from a re-emitted state.
+class CupPongLastThrow {
+  final String owner;
+  final String target;
+  final double velocityX;
+  final double velocityY;
+  final double velocityZ;
+  final int? hitCupId;
+  final double ballX;
+  final double ballZ;
+  final int throwId;
+
+  const CupPongLastThrow({
+    required this.owner,
+    required this.target,
+    required this.velocityX,
+    required this.velocityY,
+    required this.velocityZ,
+    required this.hitCupId,
+    required this.ballX,
+    required this.ballZ,
+    required this.throwId,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'owner': owner,
+        'target': target,
+        'velocityX': velocityX,
+        'velocityY': velocityY,
+        'velocityZ': velocityZ,
+        'hitCupId': hitCupId,
+        'ballX': ballX,
+        'ballZ': ballZ,
+        'throwId': throwId,
+      };
+
+  static CupPongLastThrow? fromJson(Map<String, dynamic>? json) {
+    if (json == null) return null;
+    return CupPongLastThrow(
+      owner: json['owner'] as String,
+      target: json['target'] as String,
+      velocityX: (json['velocityX'] as num).toDouble(),
+      velocityY: (json['velocityY'] as num).toDouble(),
+      velocityZ: (json['velocityZ'] as num).toDouble(),
+      hitCupId: (json['hitCupId'] as num?)?.toInt(),
+      ballX: (json['ballX'] as num?)?.toDouble() ?? 0,
+      ballZ: (json['ballZ'] as num?)?.toDouble() ?? 0,
+      throwId: (json['throwId'] as num).toInt(),
+    );
+  }
 }
 
 /// The full Cup Pong board state.
@@ -93,6 +167,11 @@ class CupPongState {
   /// fresh board from a resumed one.
   final int throws;
 
+  /// The most recent ball thrown, including the launch velocity a receiving
+  /// board needs to replay its flight. Null on a fresh match, and on any
+  /// state whose throw didn't carry a velocity (legacy data).
+  final CupPongLastThrow? lastThrow;
+
   const CupPongState({
     required this.playerIds,
     required this.currentPlayerId,
@@ -102,6 +181,7 @@ class CupPongState {
     this.ballsBack = false,
     this.didRerack = false,
     this.throws = 0,
+    this.lastThrow,
   });
 
   /// Cups [playerId] still has standing.
@@ -120,6 +200,10 @@ class CupPongState {
   /// Which ball of the turn is up next, 1-based, for the UI.
   int get ballNumber => ballsThrown + 1;
 
+  /// Note: [lastThrow] always overrides (no `??` fallback to the existing
+  /// value) — every caller in this file passes it explicitly, even as null,
+  /// because a state without a fresh throw to report should not keep
+  /// pointing at a stale one.
   CupPongState copyWith({
     String? currentPlayerId,
     Map<String, List<CupPongCup>>? cups,
@@ -128,6 +212,7 @@ class CupPongState {
     bool? ballsBack,
     bool? didRerack,
     int? throws,
+    CupPongLastThrow? lastThrow,
   }) =>
       CupPongState(
         playerIds: playerIds,
@@ -138,6 +223,7 @@ class CupPongState {
         ballsBack: ballsBack ?? this.ballsBack,
         didRerack: didRerack ?? this.didRerack,
         throws: throws ?? this.throws,
+        lastThrow: lastThrow,
       );
 }
 
@@ -292,6 +378,20 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
 
     final balls = state.ballsThrown + 1;
     final hits = state.hitsThisTurn + (hit != null ? 1 : 0);
+    final throwId = state.throws + 1;
+    final lastThrow = move.hasVelocity
+        ? CupPongLastThrow(
+            owner: move.owner,
+            target: move.target,
+            velocityX: move.velocityX!,
+            velocityY: move.velocityY!,
+            velocityZ: move.velocityZ!,
+            hitCupId: hit,
+            ballX: move.ballX,
+            ballZ: move.ballZ,
+            throwId: throwId,
+          )
+        : null;
 
     // Mid-turn: same player, second ball still to come.
     if (balls < ballsPerTurn) {
@@ -301,7 +401,8 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
         hitsThisTurn: hits,
         ballsBack: false,
         didRerack: didRerack,
-        throws: state.throws + 1,
+        throws: throwId,
+        lastThrow: lastThrow,
       );
     }
 
@@ -314,9 +415,25 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
       hitsThisTurn: 0,
       ballsBack: ballsBack,
       didRerack: didRerack,
-      throws: state.throws + 1,
+      throws: throwId,
+      lastThrow: lastThrow,
     );
   }
+
+  /// Two balls a turn. The receiving board now replays the whole flight (the
+  /// ball leaves the hand and arcs down the table exactly as it did for the
+  /// thrower) before the outcome effects — the drop/splash (`_dropSeconds`)
+  /// and, on a sink, the 850ms cup removal (cup_pong_board.dart
+  /// `_removalSeconds`, held `_removalHold` before it starts) with the
+  /// re-rack slide (500ms) inside it. 2.6s comfortably covers a typical
+  /// flight (well under a second, capped at [CupPongTuning.config]'s
+  /// `maxSteps`) plus that settle.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(CupPongState from, CupPongState to) =>
+      const Duration(milliseconds: 2600);
 
   @override
   GameOutcome? outcome(CupPongState state) {
@@ -348,6 +465,7 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
         'ballsBack': state.ballsBack,
         'didRerack': state.didRerack,
         'throws': state.throws,
+        'lastThrow': state.lastThrow?.toJson(),
       };
 
   @override
@@ -367,6 +485,13 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
         ballsBack: json['ballsBack'] as bool? ?? false,
         didRerack: json['didRerack'] as bool? ?? false,
         throws: (json['throws'] as num?)?.toInt() ?? 0,
+        // Absent on states encoded before this field existed — decodes to
+        // null, same as a throw that simply didn't carry a velocity.
+        lastThrow: CupPongLastThrow.fromJson(
+          json['lastThrow'] == null
+              ? null
+              : (json['lastThrow'] as Map).cast<String, dynamic>(),
+        ),
       );
 
   @override
@@ -376,6 +501,9 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
         'hitCupId': move.hitCupId,
         'ballX': move.ballX,
         'ballZ': move.ballZ,
+        'velocityX': move.velocityX,
+        'velocityY': move.velocityY,
+        'velocityZ': move.velocityZ,
       };
 
   @override
@@ -385,5 +513,8 @@ class CupPongGame extends TurnGame<CupPongState, CupPongThrow> {
         hitCupId: (json['hitCupId'] as num?)?.toInt(),
         ballX: (json['ballX'] as num?)?.toDouble() ?? 0,
         ballZ: (json['ballZ'] as num?)?.toDouble() ?? 0,
+        velocityX: (json['velocityX'] as num?)?.toDouble(),
+        velocityY: (json['velocityY'] as num?)?.toDouble(),
+        velocityZ: (json['velocityZ'] as num?)?.toDouble(),
       );
 }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 import 'eight_ball_style.dart';
 
 /// Launcher-tile miniature for 8-Ball: a green felt slab with a wood rail, a
@@ -20,10 +21,16 @@ class EightBallTileArt extends StatefulWidget {
 
 class _EightBallTileArtState extends State<EightBallTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 5200),
-  )..repeat();
+    period: const Duration(milliseconds: 5200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

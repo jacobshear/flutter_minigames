@@ -52,6 +52,31 @@ class _KnockoutBoardState extends State<KnockoutBoard>
   KnockoutState? _state;
   GameOutcome? _outcome;
 
+  // Opponent-resolution replay bookkeeping. `_lastResolutionFrame` is the
+  // resolution frame id already reflected on screen (either resolved here
+  // locally or already replayed); a new incoming state whose
+  // `lastResolution.frame` differs is a resolution this board hasn't shown
+  // yet. `_pendingLocalResolutionFrame` is the frame id THIS board's own
+  // local release is about to produce — its echo back through `stateStream`
+  // must be adopted directly, never replayed (it already played out live in
+  // the scene). `_replaying` / `_replayTarget` track a physics replay in
+  // flight.
+  int? _lastResolutionFrame;
+  int? _pendingLocalResolutionFrame;
+  bool _replaying = false;
+  KnockoutState? _replayTarget;
+
+  /// The state currently reflected on screen — including mid-replay, where
+  /// it is still the pre-release snapshot until the replay settles. Exposed
+  /// for widget tests to assert the board eventually converges on the
+  /// authoritative outcome.
+  @visibleForTesting
+  KnockoutState? get debugState => _state;
+
+  /// Whether a physics replay of a remote resolution is currently animating.
+  @visibleForTesting
+  bool get debugIsReplaying => _replaying;
+
   // The transient centre message. A single GameNotice owns the animation and
   // the retract timer, so repeating the same text — "No contact" twice in a
   // row is ordinary play — can never collide with its own outgoing copy.
@@ -101,15 +126,23 @@ class _KnockoutBoardState extends State<KnockoutBoard>
       ..onLaunch = _onLaunch
       ..onCollision = _onCollision
       ..onSettled = _onRoundSettled
+      ..onReplaySettled = _onReplaySettled
       ..onWindupChanged = _onWindupChanged
       ..onAimChanged = () => setState(() {});
     _scene = scene;
     _celebrated = false;
     _clearNotice();
     _confetti = const [];
+    _replaying = false;
+    _replayTarget = null;
+    _pendingLocalResolutionFrame = null;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
+    // A cold mount never replays: whatever resolution is already reflected
+    // in `s` (including a mid-match resume, or none at all on a fresh match)
+    // is simply shown as-is — see contract point 3 ("cold-mount: no replay").
+    _lastResolutionFrame = s?.lastResolution?.frame;
     if (s != null) {
       scene.applyState(s, _actingFor(s));
       // Whose turn it is is a standing fact and lives in the header GamePill,
@@ -214,7 +247,10 @@ class _KnockoutBoardState extends State<KnockoutBoard>
 
     if (state.awaitingResolution) {
       // Both sides are wound up — release everything in the same frame. The
-      // settle handler submits the outcome.
+      // settle handler submits the outcome. This board already runs the
+      // release live, so the echo of this exact resolution frame coming
+      // back through the stream must be adopted as-is, never replayed.
+      _pendingLocalResolutionFrame = state.frame + 1;
       scene.releaseRound(state.pendingAims);
       return;
     }
@@ -230,8 +266,10 @@ class _KnockoutBoardState extends State<KnockoutBoard>
     setState(() => _showNotice('LOCKED IN', tone: GameNoticeTone.info));
   }
 
-  void _onRoundSettled(KnockoutMove move, KnockoutShotResult result) {
-    if (!mounted) return;
+  /// Sound + haptic cue for a settled release — shared by the local live
+  /// release and a replayed remote one, which get the identical cue once
+  /// their sim settles.
+  void _playShotEffects(KnockoutShotResult result) {
     final style = widget.style;
     if (result.oppKnocked > 0) {
       style.sounds.onKnockOff?.call();
@@ -241,24 +279,39 @@ class _KnockoutBoardState extends State<KnockoutBoard>
       style.sounds.onOwnLoss?.call();
       if (style.haptics) HapticFeedback.mediumImpact();
     }
-    final opp = _state?.playerIds.firstWhere((p) => p != move.owner) ?? '';
-    final String text;
-    final GameNoticeTone tone;
+  }
+
+  /// The centre-notice text + tone for a settled release — shared by the
+  /// local live release and a replayed remote one.
+  (String, GameNoticeTone) _noticeForResult(
+    KnockoutShotResult result,
+    String opp,
+  ) {
     if (result.isOwnGoal) {
       // Knocking your own puck off is the sting of this game — it shakes.
-      text = result.ownLost == 1
-          ? 'OWN PUCK LOST'
-          : '${result.ownLost} OWN PUCKS LOST';
-      tone = GameNoticeTone.warn;
-    } else if (result.isCleanHit) {
-      text = result.oppKnocked == 1
-          ? '${_labelFor(opp).toUpperCase()} KNOCKED OFF'
-          : '${result.oppKnocked} KNOCKED OFF';
-      tone = GameNoticeTone.score;
-    } else {
-      text = 'NO CONTACT';
-      tone = GameNoticeTone.warn;
+      return (
+        result.ownLost == 1
+            ? 'OWN PUCK LOST'
+            : '${result.ownLost} OWN PUCKS LOST',
+        GameNoticeTone.warn,
+      );
     }
+    if (result.isCleanHit) {
+      return (
+        result.oppKnocked == 1
+            ? '${_labelFor(opp).toUpperCase()} KNOCKED OFF'
+            : '${result.oppKnocked} KNOCKED OFF',
+        GameNoticeTone.score,
+      );
+    }
+    return ('NO CONTACT', GameNoticeTone.warn);
+  }
+
+  void _onRoundSettled(KnockoutMove move, KnockoutShotResult result) {
+    if (!mounted) return;
+    _playShotEffects(result);
+    final opp = _state?.playerIds.firstWhere((p) => p != move.owner) ?? '';
+    final (text, tone) = _noticeForResult(result, opp);
     // Submit the settled outcome as the resolving move.
     widget.controller.submitMove(move);
     if (!mounted) return;
@@ -271,6 +324,99 @@ class _KnockoutBoardState extends State<KnockoutBoard>
   }
 
   void _onState(KnockoutState next) {
+    if (!mounted) return;
+
+    // This state is the echo of our own local release (already animated
+    // live in the scene, already scored) — adopt it directly, no replay.
+    final pending = _pendingLocalResolutionFrame;
+    final res = next.lastResolution;
+    if (pending != null && res?.frame == pending) {
+      _pendingLocalResolutionFrame = null;
+      _lastResolutionFrame = pending;
+      _applyIncomingState(next);
+      return;
+    }
+
+    final prevState = _state;
+
+    if (_replaying) {
+      // A newer state landed before the replay in flight settled (e.g. the
+      // host fast-forwarded past it, or another resolution queued up faster
+      // than it can be shown) — abandon that sim and jump straight to the
+      // newest snapshot rather than layering another replay on top.
+      _replaying = false;
+      _replayTarget = null;
+      _lastResolutionFrame = res?.frame ?? _lastResolutionFrame;
+      _applyIncomingState(next);
+      return;
+    }
+
+    if (res != null && prevState != null && res.frame != _lastResolutionFrame) {
+      // This device did not produce [next] locally — the opponent resolved
+      // the round. Replay the physics that produced it from the board this
+      // device already had, rather than snapping straight to the result.
+      _lastResolutionFrame = res.frame;
+      _replaying = true;
+      _replayTarget = next;
+      _scene?.beginReplay(prevState, res.aims, prevState.currentPlayerId);
+      // Shot effects + outcome celebration land once the replay settles
+      // (see _onReplaySettled) — nothing else to reflect right now besides
+      // the input lock the scene already enforces.
+      setState(() {});
+      return;
+    }
+
+    _lastResolutionFrame = res?.frame ?? _lastResolutionFrame;
+    _applyIncomingState(next);
+  }
+
+  /// Fired once the scene's physics replay of a remote resolution has
+  /// settled. Runs the same shot effects a live release gets (using the
+  /// authoritative outcome, not the sim's own approximation of it), then
+  /// reconciles the board to that authoritative state.
+  void _onReplaySettled() {
+    if (!mounted) return;
+    _replaying = false;
+    final next = _replayTarget;
+    _replayTarget = null;
+    if (next == null) return;
+
+    // `prevState` (still `_state` — the replay never advanced it) was
+    // awaiting resolution, so its currentPlayerId is the resolver: the same
+    // identity `move.owner` carries on the local live path (see
+    // KnockoutGame.applyMove's resolving branch, which keeps the resolver as
+    // currentPlayerId too). A minimal synthetic move recreates just enough
+    // for classifyShot — it only reads which ids fell, not their positions.
+    final prevState = _state;
+    if (prevState != null) {
+      final resolver = prevState.currentPlayerId;
+      final survivorIds = {for (final p in next.pucks) p.id};
+      final fellPositions = [
+        for (final p in prevState.pucks)
+          if (!survivorIds.contains(p.id))
+            KnockoutPosition(
+                id: p.id, owner: p.owner, nx: p.nx, ny: p.ny, fell: true),
+      ];
+      final result = _game.classifyShot(
+        prevState,
+        KnockoutMove(owner: resolver, aims: const [], positions: fellPositions),
+      );
+      _playShotEffects(result);
+      final opp = prevState.playerIds.firstWhere((p) => p != resolver);
+      final (text, tone) = _noticeForResult(result, opp);
+      setState(() => _showNotice(
+            text,
+            tone: tone,
+            accent: tone == GameNoticeTone.score ? _accentFor(resolver) : null,
+          ));
+    }
+    _applyIncomingState(next);
+  }
+
+  /// Reconciles the scene + board state to [next] — the authoritative
+  /// outcome, whether it arrived live, as an already-shown echo of a local
+  /// release, or after a replayed remote one settled.
+  void _applyIncomingState(KnockoutState next) {
     if (!mounted) return;
     final outcome = _game.outcome(next);
     final isFresh = next.frame == 0;
@@ -624,6 +770,12 @@ class KnockoutScene extends FlameGame {
   bool _launched = false;
   double _accum = 0;
 
+  // True while running a physics REPLAY of a remote resolution (see
+  // [beginReplay]): input stays locked (via [_launched]) and settling
+  // reports through [onReplaySettled] instead of [onSettled] — a replay
+  // never re-submits a move.
+  bool _replaying = false;
+
   // Off-the-lip fall animation: purely visual, decoupled from the (trusted)
   // physics. When a disc is removed at an edge we spawn a [_Falling] that tips
   // over the lip; the reducer already treats it as gone.
@@ -678,8 +830,14 @@ class KnockoutScene extends FlameGame {
   void Function()? onAimChanged;
   void Function(KnockoutMove move, KnockoutShotResult result)? onSettled;
 
+  /// Fired once a [beginReplay] run settles. The caller (the board) owns
+  /// reconciling to the authoritative outcome and running the shot effects —
+  /// this scene only ran the sim.
+  void Function()? onReplaySettled;
+
   bool get canAim =>
       !_launched &&
+      !_replaying &&
       !_sim.isRunning &&
       (_state != null && _game.outcome(_state!) == null);
 
@@ -716,11 +874,15 @@ class KnockoutScene extends FlameGame {
     return sim;
   }
 
-  /// Rebuild the sim to match [state] before each flick.
+  /// Rebuild the sim to match [state] before each flick. Also the
+  /// reconciliation step after a replayed resolution: rebuilding discs
+  /// straight from [state.pucks] snaps them onto the authoritative outcome
+  /// regardless of where the replay sim's own approximation settled.
   void applyState(KnockoutState state, String acting) {
     _state = state;
     _acting = acting;
     _launched = false;
+    _replaying = false;
     _shooter = null;
     _aimStart = null;
     _aimNow = null;
@@ -841,6 +1003,48 @@ class KnockoutScene extends FlameGame {
     _sim.launchAll(shots);
   }
 
+  /// Starts a physics replay of a remote resolution on behalf of the board.
+  ///
+  /// Rebuilds the sim from [from] (the pre-release state) exactly like
+  /// [applyState] does, then launches every recorded [aims] entry in the same
+  /// frame — input locked (via [_launched]) — exactly like [releaseRound] but
+  /// sourced entirely from state instead of this device's own wind-ups. The
+  /// same [update]/[_handleSettled] machinery a local release uses runs it
+  /// out, including collisions and knock-offs. Settling reports through
+  /// [onReplaySettled] rather than [onSettled]: a replay never submits a
+  /// move, it only reconstructs one.
+  void beginReplay(
+    KnockoutState from,
+    List<KnockoutAim> aims,
+    String acting,
+  ) {
+    applyState(from, acting);
+    _replaying = true;
+    _launched = true; // input-locked for the duration of the replay
+    final shots = <(DiscBody, Vector2)>[];
+    for (final d in _sim.discs) {
+      if (d.removed) continue;
+      for (final a in aims) {
+        if (a.puckId == d.id) {
+          shots.add((d, Vector2(a.ix, a.iy)));
+          break;
+        }
+      }
+    }
+    if (shots.isEmpty) {
+      // Nothing recorded to launch (e.g. an empty aim set, or a malformed
+      // resolution that shouldn't happen given how [_handleSettled] records
+      // one) — report done rather than hang the caller waiting on a settle
+      // that will never come.
+      _replaying = false;
+      _launched = false;
+      onReplaySettled?.call();
+      return;
+    }
+    onLaunch?.call();
+    _sim.launchAll(shots);
+  }
+
   // -- loop --
 
   @override
@@ -864,7 +1068,14 @@ class KnockoutScene extends FlameGame {
     _accum += dt;
     var steps = 0;
     final h = _sim.config.fixedDt;
-    while (_accum >= h && steps < 8) {
+    // A replayed resolution steps a FIXED dt per iteration rather than by
+    // elapsed time, so fast-forward (`ReplayTimeDilation`, applied globally
+    // by the host while a replay is on screen) only reaches it if the
+    // per-frame step budget scales up too — see the class doc on
+    // ReplayTimeDilation. A live local flick is never fast-forwarded, so it
+    // keeps the plain cap.
+    final maxSteps = _replaying ? 8 * ReplayTimeDilation.stepsPerTick : 8;
+    while (_accum >= h && steps < maxSteps) {
       _applyGlideFriction(h);
       _sim.step();
       _integrateSpin();
@@ -986,6 +1197,16 @@ class KnockoutScene extends FlameGame {
   }
 
   void _handleSettled(SimOutcome outcome) {
+    // A replay run settling just means "the reconstruction is done" — the
+    // caller reconciles to the authoritative outcome itself and never wants
+    // this run resubmitted as a move.
+    if (_replaying) {
+      _replaying = false;
+      _launched = false;
+      onReplaySettled?.call();
+      return;
+    }
+
     final positions = <KnockoutPosition>[];
     for (final d in _sim.discs) {
       final n = _toNorm(d.position);

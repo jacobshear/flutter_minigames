@@ -82,6 +82,17 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
     final before = state.scoreOf(player);
     final visit = [...state.visit, hit];
     final after = before - hit.value;
+    final throwId = state.dartsThrown + 1;
+    final lastThrow = move.hasVelocity
+        ? DartsLastThrow(
+            playerId: player,
+            velocityX: move.velocityX!,
+            velocityY: move.velocityY!,
+            velocityZ: move.velocityZ!,
+            hit: hit,
+            throwId: throwId,
+          )
+        : null;
 
     // Bust: below zero, stranded on 1 (no double available), or zero without a
     // double. The whole visit is void.
@@ -98,6 +109,7 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
           busted: true,
           startScore: state.visitStartScore,
         ),
+        lastThrow: lastThrow,
       );
     }
 
@@ -109,13 +121,14 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
         scores: scores,
         visit: visit,
         winnerId: player,
-        dartsThrown: state.dartsThrown + 1,
+        dartsThrown: throwId,
         lastVisit: DartsVisit(
           playerId: player,
           darts: visit,
           busted: false,
           startScore: state.visitStartScore,
         ),
+        lastThrow: lastThrow,
       );
     }
 
@@ -129,13 +142,15 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
           busted: false,
           startScore: state.visitStartScore,
         ),
+        lastThrow: lastThrow,
       );
     }
 
     return state.copyWith(
       scores: scores,
       visit: visit,
-      dartsThrown: state.dartsThrown + 1,
+      dartsThrown: throwId,
+      lastThrow: lastThrow,
     );
   }
 
@@ -144,6 +159,7 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
     DartsState state, {
     required Map<String, int> scores,
     required DartsVisit finished,
+    required DartsLastThrow? lastThrow,
   }) {
     final next = state.playerIds.firstWhere((p) => p != finished.playerId);
     return state.copyWith(
@@ -153,10 +169,24 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
       visitStartScore: scores[next] ?? 0,
       lastVisit: finished,
       dartsThrown: state.dartsThrown + 1,
+      lastThrow: lastThrow,
     );
   }
 
   /// 501 has no draw — the match runs until somebody checks out.
+
+  /// Three darts a visit. The receiving board now flies each dart the same
+  /// way the thrower's did before showing it stuck on the visit strip; the
+  /// BUST / SCORED notice lands with the third. 1.5s per dart covers a
+  /// typical flight (well under a second at these ranges — see
+  /// `DartsWorld.config`) plus the wobble settle (`_wobbleCtrl`, 520ms).
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(DartsState from, DartsState to) =>
+      const Duration(milliseconds: 1500);
+
   @override
   GameOutcome? outcome(DartsState state) =>
       state.winnerId == null ? null : GameOutcome.win(state.winnerId!);
@@ -172,6 +202,7 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
         'winnerId': state.winnerId,
         'dartsThrown': state.dartsThrown,
         'dartsPerVisit': state.dartsPerVisit,
+        'lastThrow': state.lastThrow?.toJson(),
       };
 
   @override
@@ -194,18 +225,31 @@ class DartsGame extends TurnGame<DartsState, DartsMove> {
         winnerId: json['winnerId'] as String?,
         dartsThrown: (json['dartsThrown'] as num).toInt(),
         dartsPerVisit: (json['dartsPerVisit'] as num?)?.toInt() ?? 3,
+        // Absent on states encoded before this field existed — decodes to
+        // null, same as a dart that simply didn't carry a velocity.
+        lastThrow: DartsLastThrow.fromJson(
+          json['lastThrow'] == null
+              ? null
+              : (json['lastThrow'] as Map).cast<String, dynamic>(),
+        ),
       );
 
   @override
   Map<String, dynamic> encodeMove(DartsMove move) => {
         'playerId': move.playerId,
         'hit': move.hit.toJson(),
+        'velocityX': move.velocityX,
+        'velocityY': move.velocityY,
+        'velocityZ': move.velocityZ,
       };
 
   @override
   DartsMove decodeMove(Map<String, dynamic> json) => DartsMove(
         playerId: json['playerId'] as String,
         hit: DartHit.fromJson(Map<String, dynamic>.from(json['hit'] as Map)),
+        velocityX: (json['velocityX'] as num?)?.toDouble(),
+        velocityY: (json['velocityY'] as num?)?.toDouble(),
+        velocityZ: (json['velocityZ'] as num?)?.toDouble(),
       );
 }
 
@@ -214,10 +258,74 @@ class DartsMove {
   final String playerId;
   final DartHit hit;
 
-  const DartsMove({required this.playerId, required this.hit});
+  /// The launch velocity the thrower's [DartsFlight] fired with, world m/s —
+  /// carried so a receiving board can replay the same flight rather than
+  /// only snap to the outcome. Null on a move recorded before this field
+  /// existed, or when the sender didn't supply one.
+  final double? velocityX;
+  final double? velocityY;
+  final double? velocityZ;
+
+  const DartsMove({
+    required this.playerId,
+    required this.hit,
+    this.velocityX,
+    this.velocityY,
+    this.velocityZ,
+  });
+
+  /// True when this move carries enough to replay the flight.
+  bool get hasVelocity =>
+      velocityX != null && velocityY != null && velocityZ != null;
 
   @override
   String toString() => 'DartsMove($playerId, ${hit.label})';
+}
+
+/// The most recent dart thrown — who threw it, the exact launch velocity, and
+/// the result — carried on [DartsState] so a receiving board can replay the
+/// flight instead of only snapping to the outcome.
+///
+/// [throwId] is [DartsState.dartsThrown] at the moment this dart resolved: a
+/// monotonic tick a board compares against what it has already animated to
+/// tell a genuinely new dart from a re-emitted state.
+class DartsLastThrow {
+  final String playerId;
+  final double velocityX;
+  final double velocityY;
+  final double velocityZ;
+  final DartHit hit;
+  final int throwId;
+
+  const DartsLastThrow({
+    required this.playerId,
+    required this.velocityX,
+    required this.velocityY,
+    required this.velocityZ,
+    required this.hit,
+    required this.throwId,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'playerId': playerId,
+        'velocityX': velocityX,
+        'velocityY': velocityY,
+        'velocityZ': velocityZ,
+        'hit': hit.toJson(),
+        'throwId': throwId,
+      };
+
+  static DartsLastThrow? fromJson(Map<String, dynamic>? json) {
+    if (json == null) return null;
+    return DartsLastThrow(
+      playerId: json['playerId'] as String,
+      velocityX: (json['velocityX'] as num).toDouble(),
+      velocityY: (json['velocityY'] as num).toDouble(),
+      velocityZ: (json['velocityZ'] as num).toDouble(),
+      hit: DartHit.fromJson(Map<String, dynamic>.from(json['hit'] as Map)),
+      throwId: (json['throwId'] as num).toInt(),
+    );
+  }
 }
 
 /// A completed visit to the oche, kept for the scoreboard after play has moved
@@ -282,6 +390,11 @@ class DartsState {
 
   final int dartsPerVisit;
 
+  /// The most recent dart thrown, including the launch velocity a receiving
+  /// board needs to replay its flight. Null on a fresh match, and on any
+  /// state whose dart didn't carry a velocity (legacy data).
+  final DartsLastThrow? lastThrow;
+
   const DartsState({
     required this.playerIds,
     required this.scores,
@@ -292,6 +405,7 @@ class DartsState {
     required this.winnerId,
     required this.dartsThrown,
     required this.dartsPerVisit,
+    this.lastThrow,
   });
 
   int scoreOf(String playerId) => scores[playerId] ?? 0;
@@ -318,6 +432,10 @@ class DartsState {
     return route?.map((d) => d.label).join(' ');
   }
 
+  /// Note: [lastThrow] always overrides (no `??` fallback to the existing
+  /// value) — every caller in this file passes it explicitly, even as null,
+  /// because a state without a fresh dart to report should not keep
+  /// pointing at a stale one.
   DartsState copyWith({
     Map<String, int>? scores,
     String? currentPlayerId,
@@ -326,6 +444,7 @@ class DartsState {
     DartsVisit? lastVisit,
     String? winnerId,
     int? dartsThrown,
+    DartsLastThrow? lastThrow,
   }) =>
       DartsState(
         playerIds: playerIds,
@@ -337,6 +456,7 @@ class DartsState {
         winnerId: winnerId ?? this.winnerId,
         dartsThrown: dartsThrown ?? this.dartsThrown,
         dartsPerVisit: dartsPerVisit,
+        lastThrow: lastThrow,
       );
 }
 

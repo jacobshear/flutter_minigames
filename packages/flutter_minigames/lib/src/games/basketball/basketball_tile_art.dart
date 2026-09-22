@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/engine3d/engine3d.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 import 'basketball_court.dart';
 import 'basketball_style.dart';
 import 'basketball_view.dart';
@@ -26,15 +27,21 @@ class BasketballTileArt extends StatefulWidget {
 class _BasketballTileArtState extends State<BasketballTileArt>
     with SingleTickerProviderStateMixin {
   // Built in initState, never a `late` inline initializer (dispose safety).
-  late final AnimationController _c;
+  late final TileArtDriver _c;
 
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(
+    _c = TileArtDriver(
       vsync: this,
-      duration: const Duration(milliseconds: 3200),
-    )..repeat();
+      period: const Duration(milliseconds: 3200),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
   }
 
   @override

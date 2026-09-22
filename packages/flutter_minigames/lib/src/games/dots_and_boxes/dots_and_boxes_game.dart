@@ -218,6 +218,16 @@ class DotsAndBoxesGame extends TurnGame<DotsAndBoxesState, DotsAndBoxesMove> {
     );
   }
 
+  /// Closing a box keeps the turn, so a chain of boxes is several
+  /// [applyMove]s; replay the whole run. The board draws an edge in 280ms
+  /// and fills the box in 420ms — a beat covers both.
+  @override
+  bool get replaysWholeTurn => true;
+
+  @override
+  Duration replayStepDelay(DotsAndBoxesState from, DotsAndBoxesState to) =>
+      const Duration(milliseconds: 700);
+
   @override
   GameOutcome? outcome(DotsAndBoxesState state) {
     if (!state.allBoxesClaimed) return null;

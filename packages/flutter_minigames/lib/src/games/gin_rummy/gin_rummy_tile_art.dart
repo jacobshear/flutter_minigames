@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_minigames/src/cards/cards.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 
 /// Launcher-tile miniature for Gin Rummy: a felt tray with the stock and
 /// discard up top and a small hand below, where a run of three sits in its
@@ -20,15 +21,21 @@ class GinRummyTileArt extends StatefulWidget {
 
 class _GinRummyTileArtState extends State<GinRummyTileArt>
     with SingleTickerProviderStateMixin {
-  AnimationController? _c;
+  TileArtDriver? _c;
 
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(
+    _c = TileArtDriver(
       vsync: this,
-      duration: const Duration(milliseconds: 6400),
-    )..repeat();
+      period: const Duration(milliseconds: 6400),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c?.attach(context);
   }
 
   @override

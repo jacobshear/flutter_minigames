@@ -9,6 +9,7 @@ export 'package:flutter_minigames/src/words/words.dart' show WordDictionary;
 
 export 'word_hunt_board.dart';
 export 'word_hunt_game.dart';
+export 'word_hunt_round_replay.dart';
 export 'word_hunt_sounds.dart';
 export 'word_hunt_style.dart';
 export 'word_hunt_tile_art.dart';

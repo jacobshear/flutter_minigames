@@ -317,4 +317,90 @@ void main() {
       expect(decoded.aims.length, 3);
     });
   });
+
+  group('resolution replay data (KnockoutState.lastResolution)', () {
+    test('the opening commit carries no resolution', () {
+      var s = fresh();
+      s = game.applyMove(s, open(s, 'p1'));
+      expect(s.lastResolution, isNull,
+          reason: 'nothing released yet — see the opening-commit branch');
+    });
+
+    test('a fresh match starts with no resolution', () {
+      expect(fresh().lastResolution, isNull);
+    });
+
+    test(
+        'the resolving commit records every aim that fired, tagged with a '
+        'fresh frame id', () {
+      var s = fresh();
+      final beforeResolveFrame = s.frame;
+      s = game.applyMove(s, open(s, 'p1'));
+      s = game.applyMove(s, resolve(s, 'p2', fell: {'p1-0'}));
+
+      final res = s.lastResolution;
+      expect(res, isNotNull);
+      expect(res!.frame, s.frame,
+          reason: 'the frame id names the state it produced');
+      expect(res.frame, greaterThan(beforeResolveFrame));
+      // One aim per live puck on BOTH sides — the opener's held wind-up plus
+      // the resolver's own, since a round releases everyone at once.
+      expect(res.aims.length, 6);
+      final aimedIds = res.aims.map((a) => a.puckId).toSet();
+      expect(aimedIds, {'p1-0', 'p1-1', 'p1-2', 'p2-0', 'p2-1', 'p2-2'});
+    });
+
+    test('each round produces a strictly increasing resolution frame id', () {
+      var s = fresh();
+      s = playRound(s); // round 1: p1 opens, p2 resolves
+      final first = s.lastResolution!.frame;
+      s = playRound(s); // round 2: p2 opens, p1 resolves
+      final second = s.lastResolution!.frame;
+      expect(second, greaterThan(first));
+    });
+
+    test('a resolution round-trips through encode/decode', () {
+      var s = fresh();
+      s = game.applyMove(s, open(s, 'p1'));
+      s = game.applyMove(s, resolve(s, 'p2', fell: {'p1-1'}));
+
+      final decoded =
+          game.decodeState(game.encodeState(s), game.stateSchemaVersion);
+
+      final res = decoded.lastResolution;
+      expect(res, isNotNull);
+      expect(res!.frame, s.lastResolution!.frame);
+      expect(res.aims.length, s.lastResolution!.aims.length);
+      final a = res.aims.firstWhere((a) => a.puckId == 'p1-0');
+      final b = s.lastResolution!.aims.firstWhere((a) => a.puckId == 'p1-0');
+      expect(a.ix, b.ix);
+      expect(a.iy, b.iy);
+    });
+
+    test('a legacy payload with no lastResolution key decodes to null', () {
+      var s = fresh();
+      s = game.applyMove(s, open(s, 'p1'));
+      s = game.applyMove(s, resolve(s, 'p2', fell: {'p1-1'}));
+
+      final legacyJson = game.encodeState(s)..remove('lastResolution');
+      final decoded = game.decodeState(legacyJson, game.stateSchemaVersion);
+
+      expect(decoded.lastResolution, isNull,
+          reason: 'a payload written before replay support existed must '
+              'never replay');
+      // Everything else still round-trips normally.
+      expect(decoded.pucks.length, s.pucks.length);
+      expect(decoded.frame, s.frame);
+    });
+
+    test('an explicit null lastResolution in the payload also decodes null',
+        () {
+      final s = fresh();
+      final json = game.encodeState(s);
+      expect(json['lastResolution'], isNull,
+          reason: 'a fresh match has nothing to resolve yet');
+      final decoded = game.decodeState(json, game.stateSchemaVersion);
+      expect(decoded.lastResolution, isNull);
+    });
+  });
 }

@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/tile_art_clock.dart';
+
 /// Launcher-tile miniature for Word Hunt: a parchment 4×4 letter grid with a
 /// word ("HUNT") being traced on a smooth loop — the capsule trail draws
 /// tile-by-tile, flashes green on completion, then clears. Matches the
@@ -18,10 +20,16 @@ class WordHuntTileArt extends StatefulWidget {
 
 class _WordHuntTileArtState extends State<WordHuntTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 5200),
-  )..repeat();
+    period: const Duration(milliseconds: 5200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

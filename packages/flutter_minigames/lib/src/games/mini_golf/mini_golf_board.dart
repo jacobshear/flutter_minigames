@@ -71,6 +71,32 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   MiniGolfState? _state;
   GameOutcome? _outcome;
 
+  // Opponent-stroke replay bookkeeping. `_lastStrokeId` is the highest
+  // stroke id already reflected on screen (locally putted, or already
+  // replayed); a new incoming state whose `lastStroke.strokeId` is newer is
+  // a stroke this board hasn't shown yet. `_pendingLocalStrokeId` is the id
+  // THIS board's own local putt (via `_launch`/`_settlePutt`) is about to
+  // produce — its echo back through `stateStream` must be adopted directly,
+  // never replayed, since it already played out live. `_replaying` tracks a
+  // stroke replay in flight; `_replayGen` guards a stale replay's completion
+  // callback against a newer state superseding it mid-flight, or the board
+  // rebinding to a different controller.
+  int? _lastStrokeId;
+  int? _pendingLocalStrokeId;
+  bool _replaying = false;
+  int _replayGen = 0;
+
+  /// The state currently reflected on screen — including mid-replay, where
+  /// it is still the pre-stroke snapshot until the replay settles. Exposed
+  /// for widget tests to assert the board eventually converges on the
+  /// authoritative outcome.
+  @visibleForTesting
+  MiniGolfState? get debugState => _state;
+
+  /// Whether an opponent-stroke replay is currently animating.
+  @visibleForTesting
+  bool get debugIsReplaying => _replaying;
+
   // The transient centre message. A single GameNotice owns the animation and
   // the retract timer, so repeating the same text — two "Out of bounds" in a
   // row is ordinary play — can never collide with its own outgoing copy.
@@ -89,8 +115,12 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   final math.Random _rnd = math.Random();
   List<_Confetto> _confetti = const [];
 
-  // Live putt playback.
+  // Live putt playback. `_puttDirection`/`_puttPower` are the local aim
+  // input for the putt currently in `_putt` — captured in `_launch` so
+  // `_settlePutt` can record them on the submitted move for replay.
   PuttResult? _putt;
+  Offset? _puttDirection;
+  double? _puttPower;
   int _firedThrough = -1;
   int _lastSoundSample = -999;
 
@@ -143,6 +173,8 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     _handoffFor = null;
     _confetti = const [];
     _putt = null;
+    _puttDirection = null;
+    _puttPower = null;
     _dragFrom = null;
     _dragTo = null;
     _rig = null;
@@ -150,9 +182,18 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     _wantPreview = widget.style.previewPan;
     _phase =
         _wantPreview ? MiniGolfCameraPhase.preview : MiniGolfCameraPhase.aim;
+    _pendingLocalStrokeId = null;
+    _replaying = false;
+    // Invalidates any in-flight replay-settle callback from a previous
+    // binding — it must never touch this bind's `_state`.
+    _replayGen++;
     final s = widget.controller.state;
     _state = s;
     _outcome = s == null ? null : _game.outcome(s);
+    // A cold mount never replays: whatever stroke is already reflected in
+    // `s` (a fresh match, a mid-match resume, or none at all) is simply
+    // shown as-is.
+    _lastStrokeId = s?.lastStroke?.strokeId;
     if (s != null) {
       // Hole, par and stroke number are standing facts: they live in the
       // header hole chip and the on-course stroke pill, not in a message.
@@ -442,6 +483,8 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
     _firedThrough = -1;
     _lastSoundSample = -999;
     _putt = result;
+    _puttDirection = direction;
+    _puttPower = power;
     _puttCtrl.duration = Duration(
       milliseconds: math.max(120, (_durationOf(result) * 1000).round()),
     );
@@ -534,8 +577,18 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       ballNy: n.dy,
       sunk: putt.sunk,
       outOfBounds: putt.outOfBounds,
+      dirX: _puttDirection?.dx,
+      dirY: _puttDirection?.dy,
+      power: _puttPower,
+      holeIndex: s.currentHole,
     );
+    // This board already ran the putt live; the echo of this exact stroke
+    // coming back through the stream must be adopted as-is, never replayed
+    // (see `_onState`).
+    _pendingLocalStrokeId = s.strokeSeq + 1;
     _putt = null;
+    _puttDirection = null;
+    _puttPower = null;
     _phase = MiniGolfCameraPhase.settle;
     _pumpCamera();
     final strokes = s.holeStrokesOf(owner) + 1;
@@ -564,6 +617,48 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   // ---------------------------------------------------------------------------
 
   void _onState(MiniGolfState next) {
+    if (!mounted) return;
+
+    // This state is the echo of our own local putt (already animated live
+    // via `_launch`/`_settlePutt`) — adopt it directly, no replay.
+    final pending = _pendingLocalStrokeId;
+    final stroke = next.lastStroke;
+    if (pending != null && stroke?.strokeId == pending) {
+      _pendingLocalStrokeId = null;
+      _lastStrokeId = pending;
+      _applyIncomingState(next);
+      return;
+    }
+
+    if (_replaying) {
+      // A newer state landed before the replay in flight settled (a
+      // multi-stroke turn outrunning its own pacing, or the host fast-
+      // forwarding past it) — abandon that animation and jump straight to
+      // the newest snapshot rather than layering another replay on top.
+      _replaying = false;
+      _replayGen++;
+      _putt = null;
+      _lastStrokeId = stroke?.strokeId ?? _lastStrokeId;
+      _applyIncomingState(next);
+      return;
+    }
+
+    if (stroke != null &&
+        (_lastStrokeId == null || stroke.strokeId > _lastStrokeId!)) {
+      _lastStrokeId = stroke.strokeId;
+      _beginStrokeReplay(stroke, next);
+      return;
+    }
+
+    _lastStrokeId = stroke?.strokeId ?? _lastStrokeId;
+    _applyIncomingState(next);
+  }
+
+  /// Reconciles the board to [next] — the authoritative state, whether it
+  /// arrived live, as an already-shown echo of a local putt, or after a
+  /// replayed remote stroke settled just above in `_settleReplayStroke`.
+  /// Exactly what `_onState` did inline before stroke replay existed.
+  void _applyIncomingState(MiniGolfState next) {
     if (!mounted) return;
     final prev = _state;
     final outcome = _game.outcome(next);
@@ -601,6 +696,181 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       _outcome = outcome;
     });
     _pumpCamera();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Opponent-stroke replay
+  // ---------------------------------------------------------------------------
+
+  /// Starts a physics replay of a remote [stroke] recorded on [resultState].
+  ///
+  /// Shows the hole the stroke was actually played on — which may differ
+  /// from the hole [resultState] itself shows, when this was the stroke that
+  /// holed out and the reducer already advanced past it in the same step
+  /// (see [MiniGolfStroke.holeIndex]) — with the acting player's ball
+  /// rewound to the stroke's recorded start, then launches the same putt
+  /// animation a local stroke gets, input-locked via `_rolling`.
+  void _beginStrokeReplay(MiniGolfStroke stroke, MiniGolfState resultState) {
+    final gen = ++_replayGen;
+    _replaying = true;
+    final course = resultState.holeCourse(stroke.holeIndex);
+    setState(() => _state = _preStrokeDisplayState(resultState, stroke));
+    _launchReplay(gen, stroke, course, resultState);
+  }
+
+  /// The board's display state the instant before [stroke]: the acting
+  /// player's ball rewound to its recorded start, on the hole it was played
+  /// on. Everything else is a best-effort carry-over from [authoritative] —
+  /// it only has to hold the screen for the brief replay animation before
+  /// `_settleReplayStroke` hands off to `_applyIncomingState` with the real
+  /// thing.
+  MiniGolfState _preStrokeDisplayState(
+    MiniGolfState authoritative,
+    MiniGolfStroke stroke,
+  ) {
+    final ballNx = Map<String, double>.of(authoritative.ballNx);
+    final ballNy = Map<String, double>.of(authoritative.ballNy);
+    ballNx[stroke.owner] = stroke.fromNx;
+    ballNy[stroke.owner] = stroke.fromNy;
+
+    if (authoritative.currentHole == stroke.holeIndex) {
+      final holeStrokes = Map<String, int>.of(authoritative.holeStrokes);
+      holeStrokes[stroke.owner] =
+          (authoritative.holeStrokesOf(stroke.owner) - 1).clamp(0, 1 << 30);
+      final holedOut = Map<String, bool>.of(authoritative.holedOut);
+      holedOut[stroke.owner] = false;
+      return authoritative.copyWith(
+        currentPlayerId: stroke.owner,
+        ballNx: ballNx,
+        ballNy: ballNy,
+        holeStrokes: holeStrokes,
+        holedOut: holedOut,
+      );
+    }
+
+    // The hole has already advanced past this stroke in `authoritative` (it
+    // sank and completed the hole in the same reducer step). The exact
+    // per-player counts for that earlier hole aren't recoverable from the
+    // snapshot alone — a fresh-looking hole is a fine stand-in for the brief
+    // window before the replay settles and `_applyIncomingState`'s ordinary
+    // hole-transition handling (the same path live play uses) takes over.
+    return authoritative.copyWith(
+      currentHole: stroke.holeIndex,
+      currentPlayerId: stroke.owner,
+      ballNx: ballNx,
+      ballNy: ballNy,
+      holeStrokes: {for (final p in authoritative.playerIds) p: 0},
+      holedOut: {for (final p in authoritative.playerIds) p: false},
+    );
+  }
+
+  void _launchReplay(
+    int gen,
+    MiniGolfStroke stroke,
+    MiniGolfCourse course,
+    MiniGolfState resultState,
+  ) {
+    final result = MiniGolfPutt.simulate(
+      course: course,
+      from: course.denormalize(stroke.fromNx, stroke.fromNy),
+      direction: Offset(stroke.dirX, stroke.dirY),
+      power: stroke.power,
+    );
+    _firedThrough = -1;
+    _lastSoundSample = -999;
+    _putt = result;
+    _puttCtrl.duration = Duration(
+      milliseconds: math.max(120, (_durationOf(result) * 1000).round()),
+    );
+    _clearNotice();
+    _phase = MiniGolfCameraPhase.flight;
+    _pumpCamera();
+    setState(() {});
+    _puttCtrl.forward(from: 0).whenCompleteOrCancel(
+          () => _settleReplayStroke(gen, stroke, course, result, resultState),
+        );
+  }
+
+  /// Fired once a replayed remote stroke's animation has settled. Runs the
+  /// same notice effects a live putt gets — using OUR OWN local
+  /// re-simulation's sunk/outOfBounds outcome, which is deterministic from
+  /// the recorded input and so matches what actually happened on the
+  /// opponent's device — then reconciles the board to the authoritative
+  /// [resultState], snapping the ball to it if the two ever disagree, and
+  /// finally hands off to `_applyIncomingState` for the ordinary
+  /// handoff/hole-transition/scorecard handling live play also gets.
+  void _settleReplayStroke(
+    int gen,
+    MiniGolfStroke stroke,
+    MiniGolfCourse course,
+    PuttResult putt,
+    MiniGolfState resultState,
+  ) {
+    if (!mounted) {
+      _putt = null;
+      return;
+    }
+    if (gen != _replayGen) {
+      // Superseded by a newer stroke (or a rebind) mid-flight — that caller
+      // already owns finishing up; touching shared animation state here
+      // would stomp on it.
+      return;
+    }
+    for (final e in putt.events) {
+      if (e.sample > _firedThrough) _fire(e);
+    }
+    _firedThrough = putt.path.length;
+    _putt = null;
+    _phase = MiniGolfCameraPhase.settle;
+    _pumpCamera();
+
+    // The authoritative settled spot for this stroke: on the hole it was
+    // played on unless it sank and moved the match on, in which case only
+    // the cup explains that (see MiniGolfGame.applyMove — a hole only
+    // advances once its mover holes out).
+    final sameHole = resultState.currentHole == stroke.holeIndex;
+    final settledN = sameHole
+        ? Offset(
+            resultState.ballNx[stroke.owner] ?? course.normalizedCup.dx,
+            resultState.ballNy[stroke.owner] ?? course.normalizedCup.dy,
+          )
+        : course.normalizedCup;
+    final card = resultState.scorecard[stroke.owner] ?? const <int>[];
+    final strokes = sameHole
+        ? resultState.holeStrokesOf(stroke.owner)
+        : (stroke.holeIndex < card.length
+            ? card[stroke.holeIndex]
+            : resultState.holeStrokesOf(stroke.owner));
+
+    final basis = _state ?? resultState;
+    final reconciled = basis.copyWith(
+      ballNx: {...basis.ballNx, stroke.owner: settledN.dx},
+      ballNy: {...basis.ballNy, stroke.owner: settledN.dy},
+      holeStrokes: {...basis.holeStrokes, stroke.owner: strokes},
+      holedOut: {
+        ...basis.holedOut,
+        stroke.owner: sameHole && resultState.holedOutOf(stroke.owner),
+      },
+    );
+
+    setState(() {
+      _state = reconciled;
+      if (putt.sunk) {
+        _showNotice(
+          strokes == 1 ? 'HOLE IN ONE' : 'IN THE HOLE',
+          tone: strokes == 1 ? GameNoticeTone.win : GameNoticeTone.score,
+          accent: strokes == 1 ? null : _accentFor(stroke.owner),
+          strong: strokes == 1,
+        );
+      } else if (putt.outOfBounds) {
+        _showNotice('OUT OF BOUNDS', tone: GameNoticeTone.warn);
+      } else {
+        _clearNotice();
+      }
+    });
+
+    _replaying = false;
+    _applyIncomingState(resultState);
   }
 
   void _dismissHandoff() {

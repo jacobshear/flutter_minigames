@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/tile_art_clock.dart';
 import 'darts_board_geometry.dart';
 
 /// Launcher-tile miniature for Darts: a board seen face-on with a dart looping
@@ -46,16 +47,16 @@ class DartsTileArt extends StatefulWidget {
 
 class _DartsTileArtState extends State<DartsTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
+  late final TileArtDriver _c = TileArtDriver(
+    vsync: this,
+    period: const Duration(milliseconds: 4200),
+    animate: widget.animate,
+  );
 
   @override
-  void initState() {
-    super.initState();
-    _c = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 4200),
-    );
-    if (widget.animate) _c.repeat();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
   }
 
   @override

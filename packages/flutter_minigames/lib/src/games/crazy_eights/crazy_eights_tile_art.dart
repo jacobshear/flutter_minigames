@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../ui/classic_game_tile_art.dart' show tileSilhouette;
+import '../../ui/tile_art_clock.dart';
 import 'crazy_eights_card_art.dart';
 
 /// Launcher-tile miniature for Crazy 8s: a green felt tray with a small fan
@@ -43,10 +44,16 @@ class CrazyEightsTileArt extends StatefulWidget {
 
 class _CrazyEightsTileArtState extends State<CrazyEightsTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 6800),
-  )..repeat();
+    period: const Duration(milliseconds: 6800),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

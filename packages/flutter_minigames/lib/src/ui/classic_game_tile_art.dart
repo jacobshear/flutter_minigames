@@ -4,6 +4,8 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:flutter_minigames/games/chess.dart' show ChessPieceArt;
 
+import 'tile_art_clock.dart';
+
 // Fixed toy palette (iOS system hues), lifted verbatim from the demo app so
 // the dioramas read identically wherever the library is embedded.
 const Color _ink = Color(0xFF1C1C1E);
@@ -43,9 +45,9 @@ class _GameTileArtState extends State<GameTileArt>
     with SingleTickerProviderStateMixin {
   final _rng = math.Random();
 
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: switch (widget.kind) {
+    period: switch (widget.kind) {
       GameTileKind.ticTacToe => const Duration(milliseconds: 5600),
       GameTileKind.connectFour => const Duration(milliseconds: 7000),
       GameTileKind.dotsAndBoxes => const Duration(milliseconds: 7800),
@@ -55,10 +57,17 @@ class _GameTileArtState extends State<GameTileArt>
       GameTileKind.gomoku => const Duration(milliseconds: 7400),
       GameTileKind.chess => const Duration(milliseconds: 7600),
     },
-  )..repeat();
+  );
 
   late int _script = _rng.nextInt(1 << 20);
   double _lastT = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Shared clock under a TileArtClock (a picker grid), own ticker else.
+    _c.attach(context);
+  }
 
   @override
   void dispose() {

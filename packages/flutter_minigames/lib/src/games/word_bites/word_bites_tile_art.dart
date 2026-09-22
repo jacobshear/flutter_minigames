@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/tile_art_clock.dart';
+
 /// Launcher-tile miniature for Word Bites: a couple of biscuit dominoes and
 /// singles on a kitchen-tile backdrop, spelling "BITE", with a stray domino
 /// and single gently bobbing. Self-contained (no example-app imports),
@@ -17,10 +19,16 @@ class WordBitesTileArt extends StatefulWidget {
 
 class _WordBitesTileArtState extends State<WordBitesTileArt>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
+  late final TileArtDriver _c = TileArtDriver(
     vsync: this,
-    duration: const Duration(milliseconds: 4600),
-  )..repeat();
+    period: const Duration(milliseconds: 4600),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.attach(context);
+  }
 
   @override
   void dispose() {
