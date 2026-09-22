@@ -62,6 +62,14 @@ class _Bands {
   final double pondW;
   final double chipH;
 
+  /// The hand, already split into one or two rows — computed once here so
+  /// [_buildHand] lays out exactly what this band reserved height for.
+  final _HandLayout hand;
+
+  /// Height of a single tray row (label strip + card + padding). Two-row
+  /// hands stack this twice with [_kRowGap] between.
+  final double handRowH;
+
   const _Bands({
     required this.backsTop,
     required this.backsCountTop,
@@ -75,9 +83,20 @@ class _Bands {
     required this.backW,
     required this.pondW,
     required this.chipH,
+    required this.hand,
+    required this.handRowH,
   });
 
   double get pondCenterY => pondTop + pondW * kCardAspectRatio / 2;
+}
+
+/// The hand's rows (rank groups, trays kept whole) and the card width shared
+/// across all of them.
+class _HandLayout {
+  final List<List<GoFishGroup>> rows;
+  final double cardW;
+
+  const _HandLayout(this.rows, this.cardW);
 }
 
 /// Felt showing around a rank tray.
@@ -95,6 +114,17 @@ const double _kTrayLabelH = 12;
 const double _kCountH = 19;
 const double _kNoticeH = 44;
 const double _kActionH = 38;
+
+/// A hand card narrower than this stops reading as a face, not just a
+/// number — the point where the rank/suit corner index and the pips
+/// crowd each other. Below it, the hand wraps to a second row instead of
+/// shrinking further. Chosen from renders: on a 402pt table a fragmented
+/// six-rank hand solves to ~49pt in one row (already under this floor) and
+/// ~66pt (the tray's own cap) once split across two.
+const double _kHandCardFloor = 52.0;
+
+/// Felt between the two hand rows when the hand has wrapped.
+const double _kRowGap = 6.0;
 
 class _GoFishTableState extends State<GoFishTable>
     with TickerProviderStateMixin {
@@ -384,10 +414,15 @@ class _GoFishTableState extends State<GoFishTable>
     // phone — it now takes the room the dead band used to.
     final pondW = (size.height * 0.125).clamp(46.0, 92.0);
     final chipH = (size.height * 0.052).clamp(22.0, 34.0);
-    // Tray = label strip + padding + the card itself.
-    final handH = _handCardWidth(size, s) * kCardAspectRatio +
-        _kTrayPad * 2 +
-        _kTrayLabelH;
+
+    final hand = _handLayout(size, s);
+    // Tray = label strip + padding + the card itself; wrapped hands stack a
+    // second row under the first with a strip of felt between them.
+    final handRowH =
+        hand.cardW * kCardAspectRatio + _kTrayPad * 2 + _kTrayLabelH;
+    final handH = hand.rows.isEmpty
+        ? 0.0
+        : handRowH * hand.rows.length + _kRowGap * (hand.rows.length - 1);
 
     // An empty books row contributes nothing, so no game opens with two
     // reserved strips of nothing above and below the pond.
@@ -437,6 +472,8 @@ class _GoFishTableState extends State<GoFishTable>
       backW: backW,
       pondW: pondW,
       chipH: chipH,
+      hand: hand,
+      handRowH: handRowH,
     );
   }
 
@@ -720,60 +757,92 @@ class _GoFishTableState extends State<GoFishTable>
 
   // -- the hand --------------------------------------------------------------
 
-  /// The width one hand card gets. Solved from the row rather than guessed at,
-  /// and hoisted out of [_buildHand] so the layout can reserve exactly the
-  /// height the hand will take.
-  double _handCardWidth(Size size, GoFishState s) {
+  /// The hand's rows and shared card width. Solved from the row rather than
+  /// guessed at, and hoisted out of [_buildHand] so the layout can reserve
+  /// exactly the height the hand will take.
+  ///
+  /// A single row is used whenever it can, since that is what makes "which
+  /// rank do I ask for" a one-glance decision. But a row is genuinely
+  /// width-bound: once enough rank groups are in play, cramming them into one
+  /// row pushes the card below [_kHandCardFloor] and faces stop being
+  /// readable. Past that point the fix is to wrap onto a second row, not to
+  /// keep shrinking — a tray is never split across the two.
+  _HandLayout _handLayout(Size size, GoFishState s) {
     final groups = s.groupedHand(_bottomSeat);
+    if (groups.isEmpty) return const _HandLayout([], 0);
+
+    final available = size.width - 12;
+    final oneRowWidth = _rowCardWidth(groups, available);
+    if (groups.length <= 1 || oneRowWidth >= _kHandCardFloor) {
+      return _HandLayout([groups], math.min(oneRowWidth, size.height * 0.16));
+    }
+
+    final rows = _splitHandRows(groups);
+    final cardW = math.min(
+      _rowCardWidth(rows[0], available),
+      _rowCardWidth(rows[1], available),
+    );
+    return _HandLayout(rows, math.min(cardW, size.height * 0.16));
+  }
+
+  /// The card width one row of [groups] gets, solved from that row alone —
+  /// used both to judge whether a single row still fits and, once wrapped, to
+  /// size each of the two rows the same way.
+  double _rowCardWidth(List<GoFishGroup> groups, double available) {
     if (groups.isEmpty) return 0;
     final total = groups.fold<int>(0, (n, g) => n + g.cards.length);
     final groupCount = groups.length;
     final denom = _kOverlap * total +
         (1 - _kOverlap + _kTrayGap) * groupCount -
         _kTrayGap;
-    final available = size.width - 12;
-    final cardW = ((available - _kTrayPad * 2 * (groupCount - 1)) / denom)
+    return ((available - _kTrayPad * 2 * (groupCount - 1)) / denom)
         .clamp(20.0, 66.0);
-    return math.min(cardW, size.height * 0.16);
   }
 
-  /// The hand, grouped by rank, each group in its own tray. The tray is the
-  /// tap target: picking a rank and picking a group are the same gesture, so
-  /// there is no way to ask for a rank you are not holding.
-  List<Widget> _buildHand(Size size, GoFishState s, _Bands b) {
-    final groups = s.groupedHand(_bottomSeat);
-    if (groups.isEmpty) return const [];
+  /// Splits [groups] into two rows at the rank boundary that balances card
+  /// counts best. A tray is a unit — this only chooses where between two
+  /// trays the row breaks, never inside one — and balancing keeps neither row
+  /// starved of width relative to the other.
+  List<List<GoFishGroup>> _splitHandRows(List<GoFishGroup> groups) {
+    final counts = [for (final g in groups) g.cards.length];
+    final total = counts.fold<int>(0, (a, c) => a + c);
+    var splitAt = (groups.length / 2).ceil();
+    var bestDiff = 1 << 30;
+    var running = 0;
+    for (var i = 1; i < groups.length; i++) {
+      running += counts[i - 1];
+      final diff = (2 * running - total).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        splitAt = i;
+      }
+    }
+    return [groups.sublist(0, splitAt), groups.sublist(splitAt)];
+  }
 
-    final total = groups.fold<int>(0, (n, g) => n + g.cards.length);
+  /// The hand, grouped by rank, each group in its own tray, wrapped onto a
+  /// second row once [_handLayout] decides one row runs the cards too small.
+  /// The tray is the tap target: picking a rank and picking a group are the
+  /// same gesture, so there is no way to ask for a rank you are not holding.
+  List<Widget> _buildHand(Size size, GoFishState s, _Bands b) {
+    final rows = b.hand.rows;
+    if (rows.isEmpty) return const [];
+
     const trayPad = _kTrayPad;
     const labelH = _kTrayLabelH;
     const overlap = _kOverlap; // fraction of a card the next one steps by
     const trayGap = _kTrayGap; // extra felt between two trays, in card widths
 
-    final groupCount = groups.length;
     final available = size.width - 12;
-    final cardW = _handCardWidth(size, s);
+    final cardW = b.hand.cardW;
     final cardH = cardW * kCardAspectRatio;
 
-    final gap = cardW * trayGap + trayPad * 2;
-    var step = cardW * overlap;
-    // A long hand in few groups overflows before the cards get small: tighten
-    // the fan first, since a sliver of card still shows its corner index.
-    final fixed = groupCount * cardW + gap * (groupCount - 1);
-    if (total > groupCount && fixed + step * (total - groupCount) > available) {
-      step = ((available - fixed) / (total - groupCount))
-          .clamp(cardW * 0.24, step);
-    }
-
-    final width = groups.fold<double>(0, (w, g) {
-          return w + cardW + step * (g.cards.length - 1) + gap;
-        }) -
-        gap;
-    var x = (size.width - width) / 2;
-    // The tray's label strip sits above the cards, so the band's top is the
-    // tray top and the cards start one label down.
-    final top = b.trayTop + trayPad + labelH;
-
+    // The entrance stagger runs across the whole hand in deal order —
+    // top row first, then the bottom row — regardless of how it was split.
+    final total = rows.fold<int>(
+      0,
+      (n, row) => n + row.fold<int>(0, (m, g) => m + g.cards.length),
+    );
     final enter = Curves.easeOutCubic.transform(
       ((_entrance!.value - 0.2) / 0.8).clamp(0.0, 1.0),
     );
@@ -782,54 +851,82 @@ class _GoFishTableState extends State<GoFishTable>
     final cards = <Widget>[];
     var dealt = 0;
 
-    for (final group in groups) {
-      final selected = _selected == group.rank;
-      final groupW = cardW + step * (group.cards.length - 1);
-      final lift = selected ? 12.0 : 0.0;
+    for (var r = 0; r < rows.length; r++) {
+      final groups = rows[r];
+      final groupCount = groups.length;
+      final rowTotal = groups.fold<int>(0, (n, g) => n + g.cards.length);
 
-      trays.add(Positioned(
-        left: x - trayPad,
-        top: top - trayPad - labelH - lift,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _tapGroup(group.rank),
-          child: _RankTray(
-            width: groupW + trayPad * 2,
-            height: cardH + trayPad * 2 + labelH,
-            labelHeight: labelH,
-            rank: group.rank,
-            count: group.cards.length,
-            color: selected
-                ? widget.style.selection
-                : Colors.white.withValues(alpha: 0.55),
-            selected: selected,
-          ),
-        ),
-      ));
+      final gap = cardW * trayGap + trayPad * 2;
+      var step = cardW * overlap;
+      // A long row in few groups overflows before the cards get small:
+      // tighten the fan first, since a sliver of card still shows its
+      // corner index.
+      final fixed = groupCount * cardW + gap * (groupCount - 1);
+      if (rowTotal > groupCount &&
+          fixed + step * (rowTotal - groupCount) > available) {
+        step = ((available - fixed) / (rowTotal - groupCount))
+            .clamp(cardW * 0.24, step);
+      }
 
-      for (var i = 0; i < group.cards.length; i++) {
-        final stagger = Curves.easeOutCubic.transform(
-          ((enter * (total + 2)) - dealt).clamp(0.0, 1.0),
-        );
-        dealt++;
-        if (stagger <= 0.01) continue;
-        cards.add(Positioned(
-          left: x + i * step,
-          top: top - lift + (1 - stagger) * size.height * 0.14,
-          child: Opacity(
-            opacity: stagger,
-            child: IgnorePointer(
-              child: CardView(
-                card: group.cards[i],
-                width: cardW,
-                style: widget.style.cards,
-                shadow: i == group.cards.length - 1,
-              ),
+      final width = groups.fold<double>(0, (w, g) {
+            return w + cardW + step * (g.cards.length - 1) + gap;
+          }) -
+          gap;
+      var x = (size.width - width) / 2;
+      // The tray's label strip sits above the cards, so the band's top is
+      // the tray top and the cards start one label down. Each row stacks
+      // under the last with a strip of felt between.
+      final top = b.trayTop + r * (b.handRowH + _kRowGap) + trayPad + labelH;
+
+      for (final group in groups) {
+        final selected = _selected == group.rank;
+        final groupW = cardW + step * (group.cards.length - 1);
+        final lift = selected ? 12.0 : 0.0;
+
+        trays.add(Positioned(
+          left: x - trayPad,
+          top: top - trayPad - labelH - lift,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _tapGroup(group.rank),
+            child: _RankTray(
+              width: groupW + trayPad * 2,
+              height: cardH + trayPad * 2 + labelH,
+              labelHeight: labelH,
+              rank: group.rank,
+              count: group.cards.length,
+              color: selected
+                  ? widget.style.selection
+                  : Colors.white.withValues(alpha: 0.55),
+              selected: selected,
             ),
           ),
         ));
+
+        for (var i = 0; i < group.cards.length; i++) {
+          final stagger = Curves.easeOutCubic.transform(
+            ((enter * (total + 2)) - dealt).clamp(0.0, 1.0),
+          );
+          dealt++;
+          if (stagger <= 0.01) continue;
+          cards.add(Positioned(
+            left: x + i * step,
+            top: top - lift + (1 - stagger) * size.height * 0.14,
+            child: Opacity(
+              opacity: stagger,
+              child: IgnorePointer(
+                child: CardView(
+                  card: group.cards[i],
+                  width: cardW,
+                  style: widget.style.cards,
+                  shadow: i == group.cards.length - 1,
+                ),
+              ),
+            ),
+          ));
+        }
+        x += groupW + gap;
       }
-      x += groupW + gap;
     }
 
     return [...trays, ...cards];
