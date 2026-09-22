@@ -119,8 +119,9 @@ class MiniGolfCamera {
   static const double aimMidFraction = 0.60;
 
   /// Tall phones may crop peripheral rough instead of pulling the whole course
-  /// away. Below this aspect the useful shot corridor keeps a phone-width
-  /// framing, while the actual projection still clips against the real canvas.
+  /// away. Below this aspect the aim fit treats the corridor RAILS as if the
+  /// canvas were phone-width; the ball and the aim interest are always fitted
+  /// to the real canvas, and the flight rig ignores the floor entirely.
   static const double _minFramingAspect = 0.68;
 
   /// FLIGHT: the ball itself is pinned here, low-ish in frame so most of the
@@ -384,10 +385,14 @@ class MiniGolfCamera {
     final tauMid = tauFor(aimMidFraction);
     final spread = math.max(0.5, tauFar - tauNear);
 
-    final aspect = viewport.height <= 0
-        ? 1.0
-        : math.max(_minFramingAspect, viewport.width / viewport.height);
-    final tanX = math.max(0.30, aspect * tanY);
+    // The phone-width floor only relaxes the corridor rails (peripheral
+    // rough may crop on a tall phone). The ball and the point being played
+    // toward are fitted to the REAL canvas width, or on a tall phone they can
+    // land just past the screen edge.
+    final realAspect =
+        viewport.height <= 0 ? 1.0 : viewport.width / viewport.height;
+    final tanX = math.max(0.30, math.max(_minFramingAspect, realAspect) * tanY);
+    final realTanX = math.max(0.30, realAspect * tanY);
 
     // Everything that has to stay on canvas: the ball, the point it's being
     // played toward, and the rails of the corridor between them.
@@ -425,7 +430,8 @@ class MiniGolfCamera {
       var widened = back;
       for (final p in points) {
         final camZ = (p.dy - eyeZ) * c + height * s;
-        final want = ((p.dx - eyeX).abs() + 0.7) / tanX;
+        final fit = (p == ball || p == interest) ? realTanX : tanX;
+        final want = ((p.dx - eyeX).abs() + 0.7) / fit;
         if (want > camZ) {
           widened = math.max(widened, back + (want - camZ) / c);
         }
@@ -471,9 +477,10 @@ class MiniGolfCamera {
     final rBall = (0.5 - flightBallFraction) * 2 * tanY;
     final tauBall = (rBall * s + c) / (s - rBall * c);
 
-    final aspect = viewport.height <= 0
-        ? 1.0
-        : math.max(_minFramingAspect, viewport.width / viewport.height);
+    // Real aspect, no phone-width floor: in flight the width fit's only job is
+    // keeping the rolling ball on canvas.
+    final aspect =
+        viewport.height <= 0 ? 1.0 : viewport.width / viewport.height;
     final tanX = math.max(0.30, aspect * tanY);
 
     final focusX = focus.dx + _openBias(course, ball);

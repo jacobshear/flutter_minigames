@@ -45,6 +45,14 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    test('the camera side is the canvas on a square, zoomed on a tall one', () {
+      // Every table-relative size keys off this, so a square canvas renders
+      // exactly as before and a tall one scales the whole table together.
+      expect(knockoutCameraSide(const Size(400, 400)), 400);
+      expect(knockoutCameraSide(const Size(420, 525)), closeTo(483, 1e-9));
+      expect(knockoutCameraSide(const Size(600, 300)), 300);
+    });
+
     test('zooms a square platform by cropping only the outer void', () {
       const viewport = Size(420, 525);
       final platform = knockoutPlatformRect(viewport);

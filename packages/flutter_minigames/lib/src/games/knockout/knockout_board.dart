@@ -646,7 +646,9 @@ class _KnockoutBoardState extends State<KnockoutBoard>
                                       painter: _ConfettiPainter(
                                         confetti: _confetti,
                                         t: _confettiCtrl.value,
-                                        boardSize: c.maxWidth,
+                                        boardSize: knockoutCameraSide(
+                                          Size(c.maxWidth, c.maxHeight),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1699,7 +1701,9 @@ void paintKnockoutTable(
   final voidColor = style.resolveVoid(scheme);
   final platformColor = style.resolvePlatform(scheme);
 
-  final w = size.width;
+  // Table-relative sizes scale with the camera, not the raw canvas: on a
+  // tall scene the canvas width no longer measures the table.
+  final w = knockoutCameraSide(size);
   final full = Offset.zero & size;
 
   final platRect = knockoutPlatformRect(size);
@@ -2252,7 +2256,7 @@ void _paintAim(
   double platWidth,
   Size size,
 ) {
-  final maxLen = size.height * 0.34;
+  final maxLen = knockoutCameraSide(size) * 0.34;
   final len = maxLen * (0.25 + 0.75 * aim.power);
   final tip = origin + aim.dir * len;
 
@@ -2476,12 +2480,21 @@ class _Confetto {
 /// The margin is deliberately generous: knocking pucks off IS this game, so
 /// the fall needs somewhere to happen. Too tight a ring of void and a puck
 /// leaves the canvas before it has finished tipping.
+/// Side of the square camera the table is framed in: the canvas width on a
+/// square canvas, up to [_knockoutCameraZoom] times it on a tall one (only the
+/// outer void crops), the height on a short one. Every table-relative size —
+/// the platform, its radius and wall, the aim arrow, confetti — scales from
+/// this, so the whole scene zooms together.
+double knockoutCameraSide(Size size) =>
+    math.min(size.height, size.width * _knockoutCameraZoom);
+
+const double _knockoutCameraZoom = 1.15;
+
 Rect knockoutPlatformRect(Size size) {
   // Treat the painter as a square camera that can zoom into a taller viewport.
   // Only the outer void is cropped; the normalized physics slab stays square,
   // and this same rect remains the single painter/hit-test mapping.
-  const cameraZoom = 1.15;
-  final cameraSide = math.min(size.height, size.width * cameraZoom);
+  final cameraSide = knockoutCameraSide(size);
   final cameraLeft = (size.width - cameraSide) / 2;
   final cameraTop = (size.height - cameraSide) / 2;
   final margin = cameraSide * 0.135;

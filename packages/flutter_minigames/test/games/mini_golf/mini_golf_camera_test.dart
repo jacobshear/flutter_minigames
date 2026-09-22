@@ -288,6 +288,54 @@ void main() {
   });
 
   group('framing across a putt', () {
+    test(
+        'on tall phones the ball and aim point never leave the real screen '
+        '(aim and flight, every hole)', () {
+      // The phone-width framing floor may crop peripheral rough, but never
+      // the two things a putt is played between, nor the rolling ball.
+      const sizes = [Size(402, 874), Size(390, 844), Size(375, 667)];
+      final misses = <String>[];
+      bool onScreen(Camera3 cam, Offset p, Size size) {
+        final pr = cam.project(Vec3(p.dx, 0, p.dy));
+        return pr.visible && pr.screen.dx >= 0 && pr.screen.dx <= size.width;
+      }
+
+      for (final size in sizes) {
+        for (var seed = 0; seed < 20; seed++) {
+          for (var hole = 0; hole < 9; hole++) {
+            final course = MiniGolfCourse.forHole(seed, hole);
+            for (final f in const [0.0, 0.25, 0.5, 0.75]) {
+              final ball = Offset.lerp(course.tee, course.cup, f)!;
+              final cam = MiniGolfCamera.settledOnTarget(
+                viewport: size,
+                course: course,
+                ball: ball,
+              ).toCamera(size);
+              final interest = MiniGolfCamera.aimInterest(course, ball);
+              if (!onScreen(cam, ball, size) ||
+                  !onScreen(cam, interest, size)) {
+                misses.add('aim $size s$seed h$hole f$f');
+              }
+            }
+            final ball = Offset.lerp(course.tee, course.cup, 0.4)!;
+            for (final v in const [Offset(4, 0.5), Offset(-4, 0.5)]) {
+              final cam = MiniGolfCamera.settledOnTarget(
+                viewport: size,
+                course: course,
+                ball: ball,
+                phase: MiniGolfCameraPhase.flight,
+                velocity: v,
+              ).toCamera(size);
+              if (!onScreen(cam, ball, size)) {
+                misses.add('flight $size s$seed h$hole v$v');
+              }
+            }
+          }
+        }
+      }
+      expect(misses, isEmpty, reason: misses.take(5).join('\n'));
+    });
+
     test('a tall phone uses its height without pulling the course away', () {
       const tall = Size(420, 798);
       final course = MiniGolfCourse.forHole(0, 0);
