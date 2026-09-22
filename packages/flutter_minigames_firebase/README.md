@@ -1,11 +1,11 @@
-# minigames_firebase
+# flutter_minigames_firebase
 
 A [Firebase Realtime Database](https://firebase.google.com/docs/database) transport for [flutter_minigames](https://github.com/jacobshear/flutter_minigames). Implements `GameTransport`, so any async turn-based game plays over RTDB with no changes to the game code.
 
 ## Usage
 
 ```dart
-import 'package:minigames_core/minigames_core.dart';
+import 'package:flutter_minigames/core.dart';
 import 'package:flutter_minigames_firebase/flutter_minigames_firebase.dart';
 
 // Anywhere you'd use LocalTransport, use this instead:
@@ -54,7 +54,8 @@ runtime behaviour, run the shared conformance suite against the
 [Firebase Emulator](https://firebase.google.com/docs/emulator-suite):
 
 ```dart
-// test/firebase_conformance_test.dart  (requires: firebase emulators:start)
+// packages/example_app/test/firebase_emulator_conformance_test.dart
+// (requires: firebase emulators:start)
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_minigames_firebase/flutter_minigames_firebase.dart';
 import 'package:minigames_test/minigames_test.dart';

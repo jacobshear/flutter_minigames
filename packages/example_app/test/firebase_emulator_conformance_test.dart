@@ -10,11 +10,15 @@ import 'package:minigames_test/conformance.dart';
 /// Runs the shared GameTransport conformance suite against a real Firebase
 /// Realtime Database — the emulator.
 ///
+/// Lives in the (unpublished) example app rather than in
+/// flutter_minigames_firebase so the published package carries no dev
+/// dependency on the unpublished minigames_test kit.
+///
 /// Prerequisites (see repo README): a running database emulator on
 /// 127.0.0.1:9000. Run with:
 ///
 ///   flutter test --platform chrome \
-///     packages/minigames_firebase/test/firebase_emulator_conformance_test.dart
+///     packages/example_app/test/firebase_emulator_conformance_test.dart
 ///
 /// Tagged `browser` so the default VM `flutter test` skips it (Firebase needs a
 /// platform runtime).
