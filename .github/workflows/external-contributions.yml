@@ -1,0 +1,54 @@
+name: External contributions
+
+# Makes sure an outside contribution reaches the maintainer's inbox even if
+# nobody is "Watching" the repo: GitHub emails REVIEW REQUESTS and ASSIGNMENTS
+# under "Participating", which is on by default. Issue #4's PR sat unseen for
+# four weeks because the repo had zero watchers.
+#
+# pull_request_target runs in the BASE repo's context so the token can write
+# to a fork's PR. That is only safe because this job never checks out or runs
+# the PR's code — it only calls the GitHub API. Do not add a checkout step.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+  issues:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  flag:
+    # OWNER / MEMBER / COLLABORATOR are the maintainers; everyone else
+    # (CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, FIRST_TIMER, NONE) is outside.
+    if: >-
+      ${{ !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+          github.event.pull_request.author_association ||
+          github.event.issue.author_association) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const issue = context.payload.issue;
+            const number = (pr || issue).number;
+
+            // Label it so outside work is filterable at a glance. The labels
+            // endpoint creates a missing label on first use.
+            await github.rest.issues.addLabels({
+              owner, repo, issue_number: number, labels: ['external'],
+            });
+
+            if (pr) {
+              // A review request is what lands in the maintainer's inbox.
+              await github.rest.pulls.requestReviewers({
+                owner, repo, pull_number: number, reviewers: [owner],
+              });
+            } else {
+              await github.rest.issues.addAssignees({
+                owner, repo, issue_number: number, assignees: [owner],
+              });
+            }
