@@ -252,17 +252,23 @@ class _AnagramsRoundReplayState extends State<AnagramsRoundReplay>
               ),
             ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _scoreHeader(f.liveScore),
-              const SizedBox(height: 12),
-              _foundStrip(f),
-              const SizedBox(height: 14),
-              _wordInProgressRow(scheme, f),
-              const SizedBox(height: 14),
-              _rack(scheme, f),
-            ],
+          child: Semantics(
+            container: true,
+            explicitChildNodes: true,
+            label: 'Anagrams replay. Score ${f.liveScore}, '
+                '${f.foundCount} of ${_words.length} words found.',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _scoreHeader(f.liveScore),
+                const SizedBox(height: 12),
+                _foundStrip(f),
+                const SizedBox(height: 14),
+                _wordInProgressRow(scheme, f),
+                const SizedBox(height: 14),
+                _rack(scheme, f),
+              ],
+            ),
           ),
         );
       },
@@ -361,7 +367,10 @@ class _AnagramsRoundReplayState extends State<AnagramsRoundReplay>
             ),
           if (f.poppingWord != null)
             Positioned(
-              top: -4 - 22 * f.poppingProgress,
+              // Reduce Motion fades the popup in place, not floating it.
+              top: GameMotion.reduced(context)
+                  ? -15
+                  : -4 - 22 * f.poppingProgress,
               child: Opacity(
                 opacity: (1 - f.poppingProgress).clamp(0.0, 1.0),
                 child: Text(

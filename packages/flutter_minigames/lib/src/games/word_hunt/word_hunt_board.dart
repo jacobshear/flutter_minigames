@@ -269,10 +269,16 @@ class _WordHuntBoardState extends State<WordHuntBoard>
 
     final table = _style.resolveTable(scheme);
     final outcome = _game.outcome(state);
+    final reduced = GameMotion.reduced(context);
 
     final Widget body;
     if (outcome != null) {
-      body = _buildResults(state, outcome, scheme);
+      body = _buildResults(
+        state,
+        outcome,
+        scheme,
+        hostOwnsStatus: GameHostChrome.hostOwnsStatusOf(context),
+      );
     } else if (_roundActive) {
       body = _buildRound(state, scheme);
     } else {
@@ -285,7 +291,11 @@ class _WordHuntBoardState extends State<WordHuntBoard>
         final enter = Curves.easeOutCubic.transform(_entrance.value);
         return Opacity(
           opacity: enter.clamp(0.0, 1.0),
-          child: Transform.scale(scale: 0.96 + 0.04 * enter, child: child),
+          // Reduce Motion keeps the fade and drops the settle-in scale.
+          child: Transform.scale(
+            scale: reduced ? 1 : 0.96 + 0.04 * enter,
+            child: child,
+          ),
         );
       },
       child: Container(
@@ -480,13 +490,21 @@ class _WordHuntBoardState extends State<WordHuntBoard>
           child: LayoutBuilder(
             builder: (context, c) {
               final geom = _GridGeom(c.maxWidth, state.size);
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onPanStart: (d) => _onPanStart(d.localPosition, geom, state),
-                onPanUpdate: (d) => _onPanUpdate(d.localPosition, geom, state),
-                onPanEnd: (_) => _onPanEnd(state),
-                onPanCancel: () => _onPanEnd(state),
-                child: _buildGrid(state, geom, scheme),
+              return Semantics(
+                container: true,
+                // The label already names every letter; without this the
+                // tile Texts merge in and each letter is read a second time.
+                excludeSemantics: true,
+                label: _gridLabel(state),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (d) => _onPanStart(d.localPosition, geom, state),
+                  onPanUpdate: (d) =>
+                      _onPanUpdate(d.localPosition, geom, state),
+                  onPanEnd: (_) => _onPanEnd(state),
+                  onPanCancel: () => _onPanEnd(state),
+                  child: _buildGrid(state, geom, scheme),
+                ),
               );
             },
           ),
@@ -496,6 +514,19 @@ class _WordHuntBoardState extends State<WordHuntBoard>
     );
   }
 
+  /// The letter grid read row by row — what a sighted player sees. Tracing a
+  /// word stays a drag; this only says what is on the board.
+  String _gridLabel(WordHuntState state) {
+    final n = state.size;
+    final rows = [
+      for (var r = 0; r < n; r++)
+        'Row ${r + 1}: ${[
+          for (var c = 0; c < n; c++) state.letters[r * n + c].toUpperCase(),
+        ].join(', ')}',
+    ];
+    return 'Word hunt. Letter grid, $n by $n. ${rows.join('. ')}.';
+  }
+
   /// The words taken so far this round, newest first.
   ///
   /// The counter alone told you *how many* you had while the board sat over a
@@ -503,64 +534,73 @@ class _WordHuntBoardState extends State<WordHuntBoard>
   /// one you already have, and they earn the space.
   Widget _buildFoundRail(ColorScheme scheme) {
     final valid = _style.resolveValid(scheme);
-    return SizedBox(
-      height: 44,
-      child: _roundWords.isEmpty
-          ? Center(
-              child: Text(
-                'Trace three letters or more',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.42),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                ),
-              ),
-            )
-          : ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              itemCount: _roundWords.length,
-              itemBuilder: (context, i) {
-                final w = _roundWords[_roundWords.length - 1 - i].word;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 5),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      // The newest sits brightest, so the eye lands on what
-                      // just happened without re-reading the row.
-                      color: valid.withValues(alpha: i == 0 ? 0.60 : 0.22),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(
-                          w.toUpperCase(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          '${WordHuntGame.scoreForLength(w.length)}',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.72),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: _roundWords.isEmpty
+          ? 'No words found yet'
+          : 'Words found: ${[
+              for (final w in _roundWords.reversed) w.word.toUpperCase(),
+            ].join(', ')}',
+      child: SizedBox(
+        height: 44,
+        child: _roundWords.isEmpty
+            ? Center(
+                child: Text(
+                  'Trace three letters or more',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.42),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
                   ),
-                );
-              },
-            ),
+                ),
+              )
+            : ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                itemCount: _roundWords.length,
+                itemBuilder: (context, i) {
+                  final w = _roundWords[_roundWords.length - 1 - i].word;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 5),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        // The newest sits brightest, so the eye lands on what
+                        // just happened without re-reading the row.
+                        color: valid.withValues(alpha: i == 0 ? 0.60 : 0.22),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            w.toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '${WordHuntGame.scoreForLength(w.length)}',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.72),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
     );
   }
 
@@ -740,8 +780,9 @@ class _WordHuntBoardState extends State<WordHuntBoard>
   Widget _buildResults(
     WordHuntState state,
     GameOutcome outcome,
-    ColorScheme scheme,
-  ) {
+    ColorScheme scheme, {
+    required bool hostOwnsStatus,
+  }) {
     final solutions = _solutions ??= _game.solveBoard(state.letters);
     final foundByAnyone = <String>{
       for (final id in state.playerIds) ...state.wordsOf(id),
@@ -755,13 +796,16 @@ class _WordHuntBoardState extends State<WordHuntBoard>
       mainAxisSize: MainAxisSize.min,
       children: [
         // The result is not news by the time this screen is up — it is the
-        // heading of a page you sit and read. A pill, not a notice.
-        GamePill(
-          text: banner,
-          strong: true,
-          accent: outcome.isDraw ? null : const Color(0xFFF4B740),
-        ),
-        const SizedBox(height: 12),
+        // heading of a page you sit and read. A pill, not a notice. A host
+        // that draws the result itself leaves it out; the scores stay.
+        if (!hostOwnsStatus) ...[
+          GamePill(
+            text: banner,
+            strong: true,
+            accent: outcome.isDraw ? null : const Color(0xFFF4B740),
+          ),
+          const SizedBox(height: 12),
+        ],
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

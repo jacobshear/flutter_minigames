@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'anagrams_game.dart';
 import 'anagrams_style.dart';
@@ -66,6 +67,9 @@ class _AnagramsResultsViewState extends State<AnagramsResultsView>
         return byLen != 0 ? byLen : a.compareTo(b);
       });
 
+    // The host draws the result; the word lists below it stay.
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
+    final reduced = GameMotion.reduced(context);
     final String banner;
     if (outcome.isDraw) {
       banner = 'DRAW';
@@ -81,7 +85,11 @@ class _AnagramsResultsViewState extends State<AnagramsResultsView>
         final enter = Curves.easeOutCubic.transform(_entrance.value);
         return Opacity(
           opacity: enter.clamp(0.0, 1.0),
-          child: Transform.scale(scale: 0.96 + 0.04 * enter, child: child),
+          // Reduce Motion keeps the fade and drops the settle-in scale.
+          child: Transform.scale(
+            scale: reduced ? 1 : 0.96 + 0.04 * enter,
+            child: child,
+          ),
         );
       },
       child: Container(
@@ -110,28 +118,32 @@ class _AnagramsResultsViewState extends State<AnagramsResultsView>
           mainAxisSize: MainAxisSize.min,
           children: [
             // Winner pill (black translucent, repo convention).
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.58),
-                borderRadius: BorderRadius.circular(10),
-                border: outcome.isWin
-                    ? Border.all(
-                        color: const Color(0xFFFFCC00).withValues(alpha: 0.65),
-                      )
-                    : null,
-              ),
-              child: Text(
-                banner,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
-                  letterSpacing: 1.1,
+            if (!hostOwnsStatus) ...[
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.58),
+                  borderRadius: BorderRadius.circular(10),
+                  border: outcome.isWin
+                      ? Border.all(
+                          color:
+                              const Color(0xFFFFCC00).withValues(alpha: 0.65),
+                        )
+                      : null,
+                ),
+                child: Text(
+                  banner,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    letterSpacing: 1.1,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             // The round letters as mini tiles.
             Row(
               mainAxisAlignment: MainAxisAlignment.center,

@@ -167,6 +167,14 @@ class _CupPongBoardState extends State<CupPongBoard>
       ColorScheme.fromSeed(seedColor: const Color(0xFF007AFF));
   ColorScheme _scheme = _fallbackScheme;
 
+  // Reduce Motion, cached from build() like [_scheme]: _celebrate fires off the
+  // build path and must not read MediaQuery there.
+  bool _reduceMotion = false;
+
+  /// Cached from [GameHostChrome] in `build`, like [_reduceMotion]: the
+  /// match-end callback fires from the sim, not from a build.
+  bool _hostOwnsStatus = false;
+
   @override
   void initState() {
     super.initState();
@@ -504,6 +512,20 @@ class _CupPongBoardState extends State<CupPongBoard>
       '${_labelFor(s.currentPlayerId)} · ball ${s.ballNumber}/'
       '${CupPongGame.ballsPerTurn}';
 
+  /// What a sighted player reads off the table: the cups left on each side,
+  /// from the thrower's side, and the balls still in hand this turn.
+  String _semanticsLabel(CupPongState s, String acting) {
+    final defender = s.opponentOf(acting);
+    String cups(int n) => '$n ${n == 1 ? 'cup' : 'cups'}';
+    final yours = _hotSeat ? '${_labelFor(acting)}’s side' : 'Your side';
+    final theirs = _hotSeat ? '${_labelFor(defender)}’s side' : 'Their side';
+    final left = CupPongGame.ballsPerTurn - s.ballsThrown;
+    return 'Cup pong. $theirs: ${cups(s.remainingOf(defender))}. '
+        '$yours: ${cups(s.remainingOf(acting))}.'
+        '${_outcome == null ? ' $left of ${CupPongGame.ballsPerTurn} '
+            'balls left this turn.' : ''}';
+  }
+
   void _onState(CupPongState next) {
     if (!mounted) return;
     final prev = _state;
@@ -682,15 +704,18 @@ class _CupPongBoardState extends State<CupPongBoard>
       style.sounds.onWin?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    _showNotice(
-      outcome.isDraw
-          ? 'DRAW'
-          : '${_labelFor(outcome.winnerId!)} wins'.toUpperCase(),
-      tone: GameNoticeTone.win,
-      strong: true,
-      sticky: true,
-    );
-    if (style.confetti && !outcome.isDraw) {
+    // The host shows the result itself (GameHostChrome).
+    if (!_hostOwnsStatus) {
+      _showNotice(
+        outcome.isDraw
+            ? 'DRAW'
+            : '${_labelFor(outcome.winnerId!)} wins'.toUpperCase(),
+        tone: GameNoticeTone.win,
+        strong: true,
+        sticky: true,
+      );
+    }
+    if (style.confetti && !_reduceMotion && !outcome.isDraw) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -900,6 +925,9 @@ class _CupPongBoardState extends State<CupPongBoard>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     _scheme = scheme;
+    _reduceMotion = GameMotion.reduced(context);
+    final hostOwnsStatus =
+        _hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     final style = widget.style;
     final state = _state;
     if (state == null) {
@@ -949,93 +977,107 @@ class _CupPongBoardState extends State<CupPongBoard>
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onPanStart: _panStart,
-                      onPanUpdate: _panUpdate,
-                      onPanEnd: _panEnd,
-                      child: CustomPaint(
-                        painter: _CupPongPainter(
-                          view: _buildView(),
-                          style: style,
-                          scheme: scheme,
+            child: Semantics(
+              container: true,
+              explicitChildNodes: true,
+              label: _semanticsLabel(state, acting),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onPanStart: _panStart,
+                        onPanUpdate: _panUpdate,
+                        onPanEnd: _panEnd,
+                        child: CustomPaint(
+                          painter: _CupPongPainter(
+                            view: _buildView(),
+                            style: style,
+                            scheme: scheme,
+                          ),
+                          size: Size.infinite,
                         ),
-                        size: Size.infinite,
                       ),
                     ),
-                  ),
-                  if (style.confetti && _confetti.isNotEmpty)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: AnimatedBuilder(
-                          animation: _confettiCtrl,
-                          builder: (context, _) => LayoutBuilder(
-                            builder: (context, c) => CustomPaint(
-                              painter: _ConfettiPainter(
-                                confetti: _confetti,
-                                t: _confettiCtrl.value,
-                                boardSize: c.maxWidth,
+                    if (style.confetti && _confetti.isNotEmpty)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: AnimatedBuilder(
+                            animation: _confettiCtrl,
+                            builder: (context, _) => LayoutBuilder(
+                              builder: (context, c) => CustomPaint(
+                                painter: _ConfettiPainter(
+                                  confetti: _confetti,
+                                  t: _confettiCtrl.value,
+                                  boardSize: c.maxWidth,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  if (_outcome == null)
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: IgnorePointer(
-                        child: GamePill(
-                          text: _turnLabel(state),
-                          accent: style.colorFor(
-                            scheme,
-                            state.currentPlayerId,
-                            state.playerIds,
+                    // The host draws whose throw it is; the ball dots above the
+                    // table already count the balls in hand.
+                    if (_outcome == null && !hostOwnsStatus)
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: IgnorePointer(
+                          child: GamePill(
+                            text: _turnLabel(state),
+                            accent: style.colorFor(
+                              scheme,
+                              state.currentPlayerId,
+                              state.playerIds,
+                            ),
+                            dot: true,
                           ),
-                          dot: true,
+                        ),
+                      ),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Center(
+                          // One animating node. 'MISS' twice running is ordinary
+                          // play, and an AnimatedSwitcher keyed on the text put
+                          // two live 'MISS' children in its Stack and threw
+                          // "Duplicate keys found" on the second one.
+                          child: GameNotice(
+                            message: _notice,
+                            tone: _noticeTone,
+                            strong: _noticeStrong,
+                            autoDismiss: _noticeDismiss,
+                            token: _noticeSeq,
+                          ),
                         ),
                       ),
                     ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Center(
-                        // One animating node. 'MISS' twice running is ordinary
-                        // play, and an AnimatedSwitcher keyed on the text put
-                        // two live 'MISS' children in its Stack and threw
-                        // "Duplicate keys found" on the second one.
-                        child: GameNotice(
-                          message: _notice,
-                          tone: _noticeTone,
-                          strong: _noticeStrong,
-                          autoDismiss: _noticeDismiss,
-                          token: _noticeSeq,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            _outcome != null
-                ? 'Tap New game to play again'
-                : (_canThrow
-                    ? 'Swipe up from the ball to throw — '
-                        'angle steers, length powers'
-                    : 'Throwing…'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+          // Under a host that owns the result the end hint goes quiet (its own
+          // button says how to play again). The blank keeps the line's height
+          // so the table doesn't resize when the match ends; the blank is
+          // hidden from semantics so it is not an empty node.
+          ExcludeSemantics(
+            excluding: _outcome != null && hostOwnsStatus,
+            child: Text(
+              _outcome != null
+                  ? (hostOwnsStatus ? ' ' : 'Tap New game to play again')
+                  : (_canThrow
+                      ? 'Swipe up from the ball to throw — '
+                          'angle steers, length powers'
+                      : 'Throwing…'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(height: 8),

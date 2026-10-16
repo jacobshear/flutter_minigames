@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'basketball_game.dart';
 import 'basketball_style.dart';
@@ -29,6 +30,7 @@ class _BasketballResultsViewState extends State<BasketballResultsView>
   late final AnimationController _confettiCtrl;
   final math.Random _rnd = math.Random();
   List<_Confetto> _confetti = const [];
+  bool _burstChecked = false;
 
   @override
   void initState() {
@@ -37,8 +39,20 @@ class _BasketballResultsViewState extends State<BasketballResultsView>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     );
+  }
+
+  // The burst is decided here rather than in initState: Reduce Motion is read
+  // from MediaQuery, which an element may not depend on before it is mounted.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_burstChecked) return;
+    _burstChecked = true;
     final outcome = widget.game.outcome(widget.state);
-    if (widget.style.confetti && outcome != null && !outcome.isDraw) {
+    if (widget.style.confetti &&
+        !GameMotion.reduced(context) &&
+        outcome != null &&
+        !outcome.isDraw) {
       _confetti = _spawn();
       _confettiCtrl.forward(from: 0);
     }
@@ -82,7 +96,8 @@ class _BasketballResultsViewState extends State<BasketballResultsView>
     final p2 = state.playerIds.last;
     final outcome = widget.game.outcome(state);
 
-    final banner = outcome == null
+    // The host draws the result; the round breakdown below it stays.
+    final banner = outcome == null || GameHostChrome.hostOwnsStatusOf(context)
         ? ''
         : outcome.isDraw
             ? 'Draw'
@@ -116,16 +131,18 @@ class _BasketballResultsViewState extends State<BasketballResultsView>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                banner.toUpperCase(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 23,
-                  letterSpacing: 0.5,
+              if (banner.isNotEmpty) ...[
+                Text(
+                  banner.toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 23,
+                    letterSpacing: 0.5,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
+                const SizedBox(height: 18),
+              ],
               Row(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,

@@ -88,6 +88,14 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
   final math.Random _rnd = math.Random();
   List<_Confetto> _confetti = const [];
 
+  // Reduce Motion, cached from build() like [_scheme]: _celebrate fires from
+  // the sim, off the build path, and must not read MediaQuery there.
+  bool _reduceMotion = false;
+
+  /// Cached from [GameHostChrome] in `build`, like [_reduceMotion]: the
+  /// match-end callback fires from the sim, not from a build.
+  bool _hostOwnsStatus = false;
+
   bool get _hotSeat => widget.controller.hotSeat;
 
   @override
@@ -385,14 +393,17 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
       style.sounds.onWin?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    _showNotice(
-      outcome.isDraw
-          ? 'DRAW'
-          : '${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
-      tone: outcome.isDraw ? GameNoticeTone.info : GameNoticeTone.win,
-      sticky: true,
-    );
-    if (style.confetti && !outcome.isDraw) {
+    // The host shows the result itself (GameHostChrome).
+    if (!_hostOwnsStatus) {
+      _showNotice(
+        outcome.isDraw
+            ? 'DRAW'
+            : '${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
+        tone: outcome.isDraw ? GameNoticeTone.info : GameNoticeTone.win,
+        sticky: true,
+      );
+    }
+    if (style.confetti && !_reduceMotion && !outcome.isDraw) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -453,6 +464,22 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
         : widget.style.player2Label;
   }
 
+  /// What a sighted player reads off the lane: the score and the pucks left,
+  /// from the local seat's side (seat one in a hot-seat match).
+  String _semanticsLabel(ShuffleboardState s) {
+    final local = widget.controller.localPlayerId;
+    final me = !_hotSeat && s.playerIds.contains(local)
+        ? local
+        : s.playerIds.first;
+    final them = s.playerIds.firstWhere((id) => id != me);
+    final left = s.remainingOf(me);
+    final theirLeft = s.remainingOf(them);
+    String pucks(int n) => '$n ${n == 1 ? 'puck' : 'pucks'}';
+    return 'Shuffleboard. Score ${s.scoreOf(me)} to ${s.scoreOf(them)}. '
+        '${pucks(left)} left for ${_hotSeat ? _labelFor(me) : 'you'}, '
+        '${pucks(theirLeft)} for ${_labelFor(them)}.';
+  }
+
   /// Seat colour, resolved against the cached scheme so callbacks off the
   /// build path can use it too.
   Color _accentFor(String playerId) {
@@ -467,6 +494,10 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = widget.style;
+    // Cached before the early return so a callback never reads a stale value.
+    _reduceMotion = GameMotion.reduced(context);
+    final hostOwnsStatus =
+        _hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     final state = _state;
     final scene = _scene;
     if (state == null || scene == null) {
@@ -517,21 +548,25 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
                 active: _outcome == null && state.currentPlayerId == p2,
                 winner: _outcome?.winnerId == p2,
               ),
-              const SizedBox(width: 8),
-              // No Spacer here: a Spacer is a flex-1 Expanded, so it split the
-              // free width with the pill and left it ellipsising its own
-              // player name. spaceBetween does the same job for free.
-              Flexible(
-                child: GamePill(
-                  text: _outcome == null
-                      ? '${_labelFor(state.currentPlayerId)}’s slide'
-                      : 'Match over',
-                  accent: _outcome == null
-                      ? _accentFor(state.currentPlayerId)
-                      : null,
-                  dot: _outcome == null,
+              // The host draws whose slide it is and the result; the chip
+              // above already carries the name, score and pucks left.
+              if (!hostOwnsStatus) ...[
+                const SizedBox(width: 8),
+                // No Spacer here: a Spacer is a flex-1 Expanded, so it split
+                // the free width with the pill and left it ellipsising its own
+                // player name. spaceBetween does the same job for free.
+                Flexible(
+                  child: GamePill(
+                    text: _outcome == null
+                        ? '${_labelFor(state.currentPlayerId)}’s slide'
+                        : 'Match over',
+                    accent: _outcome == null
+                        ? _accentFor(state.currentPlayerId)
+                        : null,
+                    dot: _outcome == null,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 8),
@@ -545,52 +580,57 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
                   // Matches the sim table W:L (6:13) — tall lane.
                   aspectRatio:
                       ShuffleboardScene.tableW / ShuffleboardScene.tableL,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onPanStart: _panStart,
-                            onPanUpdate: _panUpdate,
-                            onPanEnd: _panEnd,
-                            child: GameWidget(game: scene),
-                          ),
-                        ),
-                        if (style.confetti && _confetti.isNotEmpty)
+                  child: Semantics(
+                    container: true,
+                    explicitChildNodes: true,
+                    label: _semanticsLabel(state),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Stack(
+                        children: [
                           Positioned.fill(
-                            child: IgnorePointer(
-                              child: AnimatedBuilder(
-                                animation: _confettiCtrl,
-                                builder: (context, _) => LayoutBuilder(
-                                  builder: (context, c) => CustomPaint(
-                                    painter: _ConfettiPainter(
-                                      confetti: _confetti,
-                                      t: _confettiCtrl.value,
-                                      boardSize: c.maxWidth,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onPanStart: _panStart,
+                              onPanUpdate: _panUpdate,
+                              onPanEnd: _panEnd,
+                              child: GameWidget(game: scene),
+                            ),
+                          ),
+                          if (style.confetti && _confetti.isNotEmpty)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: AnimatedBuilder(
+                                  animation: _confettiCtrl,
+                                  builder: (context, _) => LayoutBuilder(
+                                    builder: (context, c) => CustomPaint(
+                                      painter: _ConfettiPainter(
+                                        confetti: _confetti,
+                                        t: _confettiCtrl.value,
+                                        boardSize: c.maxWidth,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Center(
-                              child: GameNotice(
-                                message: _notice,
-                                tone: _noticeTone,
-                                accent: _noticeAccent,
-                                strong: _noticeSticky,
-                                autoDismiss: _noticeSticky
-                                    ? null
-                                    : const Duration(milliseconds: 1700),
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: Center(
+                                child: GameNotice(
+                                  message: _notice,
+                                  tone: _noticeTone,
+                                  accent: _noticeAccent,
+                                  strong: _noticeSticky,
+                                  autoDismiss: _noticeSticky
+                                      ? null
+                                      : const Duration(milliseconds: 1700),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -636,17 +676,24 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            _outcome != null
-                ? 'Tap New game to play again'
-                : (scene.canAim
-                    ? 'Slide to aim left/right, then drag back from the puck to shoot'
-                    : 'Sliding…'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+          // After the match the line goes quiet under a host that owns the
+          // result (its own button says how to play again). The blank keeps
+          // the line's height so the lane doesn't resize when the match ends,
+          // and is hidden from semantics so it is not an empty node.
+          ExcludeSemantics(
+            excluding: _outcome != null && hostOwnsStatus,
+            child: Text(
+              _outcome != null
+                  ? (hostOwnsStatus ? ' ' : 'Tap New game to play again')
+                  : (scene.canAim
+                      ? 'Slide to aim left/right, then drag back from the puck to shoot'
+                      : 'Sliding…'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -695,18 +742,44 @@ class ShuffleboardScene extends FlameGame {
   static const double startEdgeInset = puckR / tableW;
 
   // Power mapping. Measured against the sim (see the tuning note on
-  // [_glideFriction]): with the friction model below, an impulse of 14 is the
-  // point where a straight slide just runs off the far lip, so mapping full
-  // drag to 14 spends the *whole* drag range on outcomes the player wants —
-  // foul → on-board → 1 → 2 → 3 → off the end. The old maxImpulse of 20 threw
-  // away the top 40% of the drag (everything above ~0.6 power was "off the
-  // end"), which is what made hard shots feel unreadable.
-  static const _aim = AimToImpulse(
-    maxDrag: 200,
-    maxImpulse: 14,
-    minImpulse: 4,
-    deadZone: 10,
-  );
+  // [_glideFriction]): with the friction model below, a straight slide stops
+  // on the far line at an impulse of ~12.9 and runs off the lip from ~13.1, so
+  // mapping full drag to 14 spends the *whole* drag range on outcomes the
+  // player wants — foul → on-board → 1 → 2 → 3 → off the end, with the top
+  // ~9% of the range the overshoot risk. The old maxImpulse of 20 threw away
+  // the top 40% of the drag (everything above ~0.6 power was "off the end"),
+  // which is what made hard shots feel unreadable.
+  static const double _maxImpulse = 14;
+  static const double _minImpulse = 4;
+  static const double _deadZone = 10;
+
+  /// The pull, in points, that reaches full power: [_fullPullOfLane] of the
+  /// lane's on-screen height, clamped to [_minFullPull]..[_maxFullPull].
+  ///
+  /// A fixed 200pt pull used to sit here. The lane is aspect-limited and
+  /// small on a phone (≈186×402pt on a 6.1" iPhone), the shooter rests at 93%
+  /// of it, and the pull goes DOWN from there toward the screen's bottom edge
+  /// — so a straight 200pt pull did not fit below the puck on an SE (167pt of
+  /// board left) and only just fit on larger phones. Overshoot (≳190pt) was
+  /// out of reach, and every point of pull bought too little slide. Scaling to
+  /// the lane keeps the same feel on every phone and puts full power (and the
+  /// overshoot band above ~91% of it) inside the room below the puck.
+  static const double _fullPullOfLane = 0.32;
+  static const double _minFullPull = 96;
+  static const double _maxFullPull = 150;
+
+  /// The pull, in points, that reaches full power on a lane [laneHeight]
+  /// points tall — the mapping [_aim] uses, public so a test can ask the scene
+  /// rather than restate its constants.
+  static double fullPullFor(double laneHeight) =>
+      (laneHeight * _fullPullOfLane).clamp(_minFullPull, _maxFullPull);
+
+  AimToImpulse get _aim => AimToImpulse(
+        maxDrag: fullPullFor(size.y),
+        maxImpulse: _maxImpulse,
+        minImpulse: _minImpulse,
+        deadZone: _deadZone,
+      );
 
   // Lower linear damping than the harness default (1.7) so the disc carries far
   // enough down a 13-unit lane to reach the far scoring bands.

@@ -267,52 +267,61 @@ class _WordHuntRoundReplayState extends State<WordHuntRoundReplay>
             ],
           ),
           const SizedBox(height: 10),
-          AspectRatio(
-            aspectRatio: 1,
-            child: LayoutBuilder(
-              builder: (context, c) {
-                final geom = _ReplayGridGeom(c.maxWidth, state.size);
-                return Stack(
-                  children: [
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(geom.side * 0.05),
-                          color: style.resolveBoard(scheme),
-                        ),
-                      ),
-                    ),
-                    for (var i = 0; i < state.letters.length; i++)
-                      _tile(state, i, geom, scheme, activeSlot, frame),
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: CustomPaint(
-                          painter: _ReplayTracePainter(
-                            geom: geom,
-                            path: activeSlot?.path ?? const [],
-                            progress: frame.activeProgress,
-                            color: style.resolveValid(scheme),
+          Semantics(
+            container: true,
+            // The label already names every letter; keep the tile Texts from
+            // merging in and being read a second time.
+            excludeSemantics: true,
+            label: 'Word hunt replay of $label’s round. '
+                'Letter grid, ${state.size} by ${state.size}. '
+                '${_gridRows(state)}',
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  final geom = _ReplayGridGeom(c.maxWidth, state.size);
+                  return Stack(
+                    children: [
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(geom.side * 0.05),
+                            color: style.resolveBoard(scheme),
                           ),
                         ),
                       ),
-                    ),
-                    Positioned(
-                      top: geom.side * 0.035,
-                      left: 0,
-                      right: 0,
-                      child: IgnorePointer(
-                        child: Center(
-                          child: GameNotice(
-                            message: notice,
-                            tone: GameNoticeTone.score,
-                            token: frame.activeIndex,
+                      for (var i = 0; i < state.letters.length; i++)
+                        _tile(state, i, geom, scheme, activeSlot, frame),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _ReplayTracePainter(
+                              geom: geom,
+                              path: activeSlot?.path ?? const [],
+                              progress: frame.activeProgress,
+                              color: style.resolveValid(scheme),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                );
-              },
+                      Positioned(
+                        top: geom.side * 0.035,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                          child: Center(
+                            child: GameNotice(
+                              message: notice,
+                              tone: GameNoticeTone.score,
+                              token: frame.activeIndex,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -320,6 +329,17 @@ class _WordHuntRoundReplayState extends State<WordHuntRoundReplay>
         ],
       ),
     );
+  }
+
+  /// The letter grid read row by row — what a sighted player sees.
+  String _gridRows(WordHuntState state) {
+    final n = state.size;
+    return [
+      for (var r = 0; r < n; r++)
+        'Row ${r + 1}: ${[
+          for (var c = 0; c < n; c++) state.letters[r * n + c].toUpperCase(),
+        ].join(', ')}.',
+    ].join(' ');
   }
 
   Widget _tile(
@@ -389,6 +409,25 @@ class _WordHuntRoundReplayState extends State<WordHuntRoundReplay>
     Set<String> viewerWords,
   ) {
     final valid = widget.style.resolveValid(scheme);
+    final found = [
+      for (var i = frame.revealedCount - 1; i >= 0; i--)
+        _slots[i].word.toUpperCase(),
+    ];
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: found.isEmpty
+          ? 'No words found yet'
+          : 'Words found: ${found.join(', ')}',
+      child: _foundStripBody(valid, frame, viewerWords),
+    );
+  }
+
+  Widget _foundStripBody(
+    Color valid,
+    _Frame frame,
+    Set<String> viewerWords,
+  ) {
     if (frame.revealedCount == 0) {
       return SizedBox(
         height: 44,

@@ -435,6 +435,16 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
   int get _liveScore =>
       _roundScores.fold(0, (a, b) => a + b) + (_completed ? 0 : _sim.makes);
 
+  /// What a sighted player reads off the court: the round, the clock and the
+  /// running score (this shooter first).
+  String _semanticsLabel() {
+    final seconds = _sim.remaining.ceil();
+    return 'Basketball. Round ${_roundIndex + 1} of '
+        '${BasketballGame.roundCount}, '
+        '$seconds ${seconds == 1 ? 'second' : 'seconds'} left. '
+        'Score $_liveScore to ${widget.opponentScore}.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -466,64 +476,69 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onPanDown: _panDown,
-                    onPanUpdate: _panUpdate,
-                    onPanCancel: _panCancel,
-                    onPanEnd: _panEnd,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: CustomPaint(
-                            painter: _CourtCustomPainter(
-                              view: _buildView(),
-                              style: style,
-                              scheme: scheme,
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          top: 10,
-                          left: 0,
-                          right: 0,
-                          child: IgnorePointer(
-                            child: Center(
-                              child: GamePill(
-                                text: widget.mode == BasketballHoopMode.moving
-                                    ? 'Round ${_roundIndex + 1}/'
-                                        '${BasketballGame.roundCount} · Moving'
-                                    : 'Round ${_roundIndex + 1}/'
-                                        '${BasketballGame.roundCount}',
-                                accent: accent,
-                                dot: true,
+                child: Semantics(
+                  container: true,
+                  explicitChildNodes: true,
+                  label: _semanticsLabel(),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onPanDown: _panDown,
+                      onPanUpdate: _panUpdate,
+                      onPanCancel: _panCancel,
+                      onPanEnd: _panEnd,
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _CourtCustomPainter(
+                                view: _buildView(),
+                                style: style,
+                                scheme: scheme,
                               ),
                             ),
                           ),
-                        ),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Center(
-                              // One animating node. "SWISH!" fires on back-to-
-                              // back makes, so the message genuinely repeats
-                              // inside a single exit — an AnimatedSwitcher
-                              // keyed on the text put two live children in its
-                              // Stack and threw "Duplicate keys found".
-                              child: GameNotice(
-                                message: _notice,
-                                tone: _noticeTone,
-                                strong: _noticeStrong,
-                                accent: _noticeTone == GameNoticeTone.score
-                                    ? null
-                                    : accent,
-                                token: _noticeSeq,
+                          Positioned(
+                            top: 10,
+                            left: 0,
+                            right: 0,
+                            child: IgnorePointer(
+                              child: Center(
+                                child: GamePill(
+                                  text: widget.mode == BasketballHoopMode.moving
+                                      ? 'Round ${_roundIndex + 1}/'
+                                          '${BasketballGame.roundCount} · Moving'
+                                      : 'Round ${_roundIndex + 1}/'
+                                          '${BasketballGame.roundCount}',
+                                  accent: accent,
+                                  dot: true,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: Center(
+                                // One animating node. "SWISH!" fires on back-to-
+                                // back makes, so the message genuinely repeats
+                                // inside a single exit — an AnimatedSwitcher
+                                // keyed on the text put two live children in its
+                                // Stack and threw "Duplicate keys found".
+                                child: GameNotice(
+                                  message: _notice,
+                                  tone: _noticeTone,
+                                  strong: _noticeStrong,
+                                  accent: _noticeTone == GameNoticeTone.score
+                                      ? null
+                                      : accent,
+                                  token: _noticeSeq,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -541,19 +556,30 @@ class _BasketballRoundBoardState extends State<BasketballRoundBoard>
                       ),
                     ),
                   ),
-                  GestureDetector(
+                  Semantics(
+                    button: true,
+                    label: 'End round',
                     onTap: _endRoundEarly,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      child: Text(
-                        'End round',
-                        style: TextStyle(
-                          color: Colors.black.withValues(alpha: 0.4),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                      onTap: _endRoundEarly,
+                      // The whole 44pt box takes the tap, not just the
+                      // 12pt label — it sits on the screen's bottom edge.
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        constraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 44,
+                        ),
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(
+                          'End round',
+                          style: TextStyle(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ),

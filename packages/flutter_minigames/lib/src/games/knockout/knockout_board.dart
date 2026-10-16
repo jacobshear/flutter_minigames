@@ -95,6 +95,14 @@ class _KnockoutBoardState extends State<KnockoutBoard>
   final math.Random _rnd = math.Random();
   List<_Confetto> _confetti = const [];
 
+  // Reduce Motion, cached from build() like [_scheme]: _celebrate fires from
+  // the sim, off the build path, and must not read MediaQuery there.
+  bool _reduceMotion = false;
+
+  /// Cached from [GameHostChrome] in `build`, like [_reduceMotion]: the
+  /// match-end callback fires from the sim, not from a build.
+  bool _hostOwnsStatus = false;
+
   bool get _hotSeat => widget.controller.hotSeat;
 
   @override
@@ -446,14 +454,17 @@ class _KnockoutBoardState extends State<KnockoutBoard>
       style.sounds.onWin?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    _showNotice(
-      outcome.isDraw
-          ? 'DRAW'
-          : '${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
-      tone: outcome.isDraw ? GameNoticeTone.info : GameNoticeTone.win,
-      sticky: true,
-    );
-    if (style.confetti && !outcome.isDraw) {
+    // The host shows the result itself (GameHostChrome).
+    if (!_hostOwnsStatus) {
+      _showNotice(
+        outcome.isDraw
+            ? 'DRAW'
+            : '${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
+        tone: outcome.isDraw ? GameNoticeTone.info : GameNoticeTone.win,
+        sticky: true,
+      );
+    }
+    if (style.confetti && !_reduceMotion && !outcome.isDraw) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -508,16 +519,44 @@ class _KnockoutBoardState extends State<KnockoutBoard>
         : widget.style.player2Label;
   }
 
+  /// What a sighted player reads off the platform: pucks still standing on
+  /// each side, from the local seat's side (seat one in a hot-seat match),
+  /// and how many pucks still owe a wind-up this round.
+  String _semanticsLabel(KnockoutState s, int windupsLeft) {
+    final local = widget.controller.localPlayerId;
+    final me = !_hotSeat && s.playerIds.contains(local)
+        ? local
+        : s.playerIds.first;
+    final them = s.playerIds.firstWhere((id) => id != me);
+    String pucks(int n) => '$n ${n == 1 ? 'puck' : 'pucks'}';
+    final buf = StringBuffer('Knockout. ')
+      ..write('${pucks(s.liveCountOf(me))} on the platform for ')
+      ..write('${_hotSeat ? _labelFor(me) : 'you'}, ')
+      ..write('${pucks(s.liveCountOf(them))} for ${_labelFor(them)}.');
+    if (_outcome == null && windupsLeft > 0) {
+      buf.write(' ${pucks(windupsLeft)} left to wind up.');
+    }
+    return buf.toString();
+  }
+
   /// The bottom hint. Every puck has to be shot before the turn passes, so the
   /// count left in the round is the thing worth saying here — the aiming
   /// instruction is only new information on the first shot of a match.
   /// The bottom hint. A round is every puck at once, so what matters is how
   /// many are still to wind up — and, once they all are, that the release is
   /// waiting on the other player.
-  static String _windupHint(int windupsLeft, {required bool opponentWaiting}) {
+  ///
+  /// Null when the only thing to say is the waiting line and the host owns
+  /// that status.
+  static String? _windupHint(
+    int windupsLeft, {
+    required bool opponentWaiting,
+    required bool hostOwnsStatus,
+  }) {
     if (windupsLeft == 0) {
-      return opponentWaiting
-          ? 'All set — releasing…'
+      if (opponentWaiting) return 'All set — releasing…';
+      return hostOwnsStatus
+          ? null
           : 'All set — waiting for the other player to wind up';
     }
     if (windupsLeft == 1) {
@@ -530,6 +569,10 @@ class _KnockoutBoardState extends State<KnockoutBoard>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = widget.style;
+    // Cached before the early return so a callback never reads a stale value.
+    _reduceMotion = GameMotion.reduced(context);
+    final hostOwnsStatus =
+        _hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     final state = _state;
     final scene = _scene;
     if (state == null || scene == null) {
@@ -549,6 +592,16 @@ class _KnockoutBoardState extends State<KnockoutBoard>
         ? 0
         : state.pucksOf(state.currentPlayerId).length - windupsLeft;
     final shotsLeft = windupsLeft;
+    final hint = _outcome != null
+        ? (hostOwnsStatus ? ' ' : 'Tap New game to play again')
+        : (scene.canAim
+            ? (_windupHint(
+                  shotsLeft,
+                  opponentWaiting: state.awaitingResolution,
+                  hostOwnsStatus: hostOwnsStatus,
+                ) ??
+                ' ')
+            : 'Releasing…');
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -594,21 +647,25 @@ class _KnockoutBoardState extends State<KnockoutBoard>
                 active: _outcome == null && state.currentPlayerId == p2,
                 winner: _outcome?.winnerId == p2,
               ),
-              const SizedBox(width: 8),
-              // No Spacer here: a Spacer is a flex-1 Expanded, so it split the
-              // free width with the pill and left it ellipsising its own
-              // player name. spaceBetween does the same job for free.
-              Flexible(
-                child: GamePill(
-                  text: _outcome == null
-                      ? '${_labelFor(state.currentPlayerId)}’s turn'
-                      : 'Match over',
-                  accent: _outcome == null
-                      ? _accentFor(state.currentPlayerId)
-                      : null,
-                  dot: _outcome == null,
+              // The host draws whose turn it is and the result; the chip
+              // above already carries the name and the pucks left.
+              if (!hostOwnsStatus) ...[
+                const SizedBox(width: 8),
+                // No Spacer here: a Spacer is a flex-1 Expanded, so it split
+                // the free width with the pill and left it ellipsising its own
+                // player name. spaceBetween does the same job for free.
+                Flexible(
+                  child: GamePill(
+                    text: _outcome == null
+                        ? '${_labelFor(state.currentPlayerId)}’s turn'
+                        : 'Match over',
+                    accent: _outcome == null
+                        ? _accentFor(state.currentPlayerId)
+                        : null,
+                    dot: _outcome == null,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 8),
@@ -623,54 +680,59 @@ class _KnockoutBoardState extends State<KnockoutBoard>
                     height: height,
                     // The camera may crop the outer void on a tall phone, but
                     // knockoutPlatformRect keeps the physical slab square.
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onPanStart: _panStart,
-                              onPanUpdate: _panUpdate,
-                              onPanEnd: _panEnd,
-                              child: GameWidget(game: scene),
-                            ),
-                          ),
-                          if (style.confetti && _confetti.isNotEmpty)
+                    child: Semantics(
+                      container: true,
+                      explicitChildNodes: true,
+                      label: _semanticsLabel(state, windupsLeft),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Stack(
+                          children: [
                             Positioned.fill(
-                              child: IgnorePointer(
-                                child: AnimatedBuilder(
-                                  animation: _confettiCtrl,
-                                  builder: (context, _) => LayoutBuilder(
-                                    builder: (context, c) => CustomPaint(
-                                      painter: _ConfettiPainter(
-                                        confetti: _confetti,
-                                        t: _confettiCtrl.value,
-                                        boardSize: knockoutCameraSide(
-                                          Size(c.maxWidth, c.maxHeight),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onPanStart: _panStart,
+                                onPanUpdate: _panUpdate,
+                                onPanEnd: _panEnd,
+                                child: GameWidget(game: scene),
+                              ),
+                            ),
+                            if (style.confetti && _confetti.isNotEmpty)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: AnimatedBuilder(
+                                    animation: _confettiCtrl,
+                                    builder: (context, _) => LayoutBuilder(
+                                      builder: (context, c) => CustomPaint(
+                                        painter: _ConfettiPainter(
+                                          confetti: _confetti,
+                                          t: _confettiCtrl.value,
+                                          boardSize: knockoutCameraSide(
+                                            Size(c.maxWidth, c.maxHeight),
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: Center(
-                                child: GameNotice(
-                                  message: _notice,
-                                  tone: _noticeTone,
-                                  accent: _noticeAccent,
-                                  strong: _noticeSticky,
-                                  autoDismiss: _noticeSticky
-                                      ? null
-                                      : const Duration(milliseconds: 1700),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Center(
+                                  child: GameNotice(
+                                    message: _notice,
+                                    tone: _noticeTone,
+                                    accent: _noticeAccent,
+                                    strong: _noticeSticky,
+                                    autoDismiss: _noticeSticky
+                                        ? null
+                                        : const Duration(milliseconds: 1700),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -679,20 +741,20 @@ class _KnockoutBoardState extends State<KnockoutBoard>
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            _outcome != null
-                ? 'Tap New game to play again'
-                : (scene.canAim
-                    ? _windupHint(
-                        shotsLeft,
-                        opponentWaiting: state.awaitingResolution,
-                      )
-                    : 'Releasing…'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+          // Under a host that owns turn and result status the end hint and the
+          // "waiting for the other player" line go quiet. The blank keeps the
+          // line's height so the platform doesn't resize when they do, and is
+          // hidden from semantics so it is not an empty node.
+          ExcludeSemantics(
+            excluding: hint.trim().isEmpty,
+            child: Text(
+              hint,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(height: 8),

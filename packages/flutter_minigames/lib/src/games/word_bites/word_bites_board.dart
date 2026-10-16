@@ -444,29 +444,61 @@ class _WordBitesBoardState extends State<WordBitesBoard>
         children: [
           _headerRow(style),
           const SizedBox(height: 10),
-          AspectRatio(
-            aspectRatio: widget.cols / widget.rows,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                _cell = constraints.maxWidth / widget.cols;
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onPanStart: _onPanStart,
-                  onPanUpdate: _onPanUpdate,
-                  onPanEnd: (_) => _onPanEnd(),
-                  onPanCancel: _onPanEnd,
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([_settle, _flash]),
-                    builder: (context, _) => _boardStack(style),
-                  ),
-                );
-              },
+          Semantics(
+            container: true,
+            // The label already names every piece; keep the piece letters from
+            // merging in and being read a second time.
+            excludeSemantics: true,
+            label: _boardLabel(),
+            child: AspectRatio(
+              aspectRatio: widget.cols / widget.rows,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  _cell = constraints.maxWidth / widget.cols;
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: _onPanStart,
+                    onPanUpdate: _onPanUpdate,
+                    onPanEnd: (_) => _onPanEnd(),
+                    onPanCancel: _onPanEnd,
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_settle, _flash]),
+                      builder: (context, _) => _boardStack(style),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
           _foundRail(style),
         ],
       ),
     );
+  }
+
+  /// The pieces on the board in reading order — what a sighted player sees.
+  /// Moving them stays a drag; this only says what is where.
+  String _boardLabel() {
+    final placed = [
+      for (final p in widget.pieces)
+        if (_anchors[p.id] case final anchor?) (p, anchor),
+    ]..sort((a, b) {
+        final byRow = a.$2.$1.compareTo(b.$2.$1);
+        return byRow != 0 ? byRow : a.$2.$2.compareTo(b.$2.$2);
+      });
+    String piece(WordBitesPiece p, WordBitesCell at) {
+      final letters = p.letters.toUpperCase();
+      final dir = switch (p.shape) {
+        WordBitesPieceShape.single => '',
+        WordBitesPieceShape.horizontal => ' across',
+        WordBitesPieceShape.vertical => ' down',
+      };
+      return '$letters$dir, row ${at.$1 + 1} column ${at.$2 + 1}';
+    }
+
+    return 'Word bites. Board of ${widget.rows} rows by ${widget.cols} '
+        'columns. Pieces: '
+        '${placed.map((e) => piece(e.$1, e.$2)).join('; ')}.';
   }
 
   /// The words taken this round, newest first.
@@ -476,64 +508,73 @@ class _WordBitesBoardState extends State<WordBitesBoard>
   /// under it.
   Widget _foundRail(WordBitesStyle style) {
     final words = _scored.keys.toList();
-    return SizedBox(
-      height: 42,
-      child: words.isEmpty
-          ? Center(
-              child: Text(
-                'Slide the bites together to spell words',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.45),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                ),
-              ),
-            )
-          : ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(vertical: 9),
-              itemCount: words.length,
-              itemBuilder: (context, i) {
-                final w = words[words.length - 1 - i];
-                return Padding(
-                  padding: const EdgeInsets.only(right: 5),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      // Newest brightest, so the eye finds the last one taken.
-                      color:
-                          style.flash.withValues(alpha: i == 0 ? 0.62 : 0.24),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(
-                          w.toUpperCase(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          '${WordBitesGame.scoreForLength(w.length)}',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.74),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: words.isEmpty
+          ? 'No words found yet'
+          : 'Words found: ${[
+              for (final w in words.reversed) w.toUpperCase(),
+            ].join(', ')}',
+      child: SizedBox(
+        height: 42,
+        child: words.isEmpty
+            ? Center(
+                child: Text(
+                  'Slide the bites together to spell words',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
                   ),
-                );
-              },
-            ),
+                ),
+              )
+            : ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                itemCount: words.length,
+                itemBuilder: (context, i) {
+                  final w = words[words.length - 1 - i];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 5),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        // Newest brightest, so the eye finds the last one taken.
+                        color:
+                            style.flash.withValues(alpha: i == 0 ? 0.62 : 0.24),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            w.toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '${WordBitesGame.scoreForLength(w.length)}',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.74),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
     );
   }
 

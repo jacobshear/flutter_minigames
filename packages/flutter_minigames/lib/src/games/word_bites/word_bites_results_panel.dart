@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'word_bites_game.dart';
 
@@ -58,23 +59,27 @@ class WordBitesResultsPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-            decoration: BoxDecoration(
-              color: bannerColor,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              banner,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 15,
-                letterSpacing: 1.1,
+          // A host that draws the result itself leaves the banner out; the
+          // scores and word lists below it stay.
+          if (!GameHostChrome.hostOwnsStatusOf(context)) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              decoration: BoxDecoration(
+                color: bannerColor,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                banner,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                  letterSpacing: 1.1,
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

@@ -206,11 +206,15 @@ class _WordBitesRoundReplayState extends State<WordBitesRoundReplay>
         final frame = _frameAt(t);
 
         var runningScore = 0;
+        final revealed = <String>[];
         for (var i = 0; i < _plays.length; i++) {
           if (_isRevealed(i, frame)) {
             runningScore += WordBitesGame.scoreForLength(_plays[i].word.length);
+            revealed.add(_plays[i].word.toUpperCase());
           }
         }
+
+        final words = 'Words found: ${revealed.join(', ')}.';
 
         return Container(
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
@@ -239,13 +243,21 @@ class _WordBitesRoundReplayState extends State<WordBitesRoundReplay>
             children: [
               _header(style, runningScore),
               const SizedBox(height: 10),
-              AspectRatio(
-                aspectRatio: widget.state.cols / widget.state.rows,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final cell = constraints.maxWidth / widget.state.cols;
-                    return _boardStack(style, cell, frame);
-                  },
+              Semantics(
+                container: true,
+                // The label already names the words; keep the piece letters
+                // from merging in and being read a second time.
+                excludeSemantics: true,
+                label: 'Word bites replay. Score $runningScore. '
+                    '${revealed.isEmpty ? 'No words found yet.' : words}',
+                child: AspectRatio(
+                  aspectRatio: widget.state.cols / widget.state.rows,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final cell = constraints.maxWidth / widget.state.cols;
+                      return _boardStack(style, cell, frame);
+                    },
+                  ),
                 ),
               ),
               const SizedBox(height: 10),

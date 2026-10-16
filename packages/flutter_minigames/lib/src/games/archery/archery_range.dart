@@ -141,6 +141,10 @@ class _ArcheryRangeState extends State<ArcheryRange>
       ColorScheme.fromSeed(seedColor: const Color(0xFF007AFF));
   ColorScheme _scheme = _fallbackScheme;
 
+  // Reduce Motion, cached from build() like [_scheme]: _celebrate and
+  // _buildView run off the build path and must not read MediaQuery.
+  bool _reduceMotion = false;
+
   bool get _hotSeat => widget.controller.hotSeat;
 
   @override
@@ -667,7 +671,7 @@ class _ArcheryRangeState extends State<ArcheryRange>
       style.sounds.onWin?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    if (style.confetti && !outcome.isDraw) {
+    if (style.confetti && !_reduceMotion && !outcome.isDraw) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -793,7 +797,13 @@ class _ArcheryRangeState extends State<ArcheryRange>
       // The zoom holds through the flight instead of snapping back to wide.
       zoom: (_resolving || _replaying) ? 1 : progress,
       swayAmplitude: sway,
-      time: _time,
+      // `time` drives the ambient sway of the grass and the wind flag, and
+      // holds still under Reduce Motion. The impact wobble and the focus-break
+      // shake carry state (where the arrow hit, that the draw has gone stale),
+      // so they ride their own clock and stay live: the ambient motion never
+      // snaps from rest to a live phase when one of them runs.
+      time: _reduceMotion ? 0 : _time,
+      shakeTime: _time,
       // Scaled by the arrival: a tired arrow at long range dents the straw far
       // less than one that arrives at fifty metres a second.
       targetWobble: _lastHitFace && _wobble.isAnimating
@@ -816,10 +826,31 @@ class _ArcheryRangeState extends State<ArcheryRange>
     return widget.style.labelFor(s.playerIds.indexOf(playerId));
   }
 
+  /// What a sighted player reads off the range: which target, its distance
+  /// and wind (painted top-left and top-right), the arrows left on it, and the
+  /// running score from the local seat's side (seat one in a hot-seat match).
+  String _semanticsLabel(ArcheryState s) {
+    final local = widget.controller.localPlayerId;
+    final me = !_hotSeat && s.playerIds.contains(local)
+        ? local
+        : s.playerIds.first;
+    final them = s.playerIds.firstWhere((id) => id != me);
+    final c = s.conditions;
+    final left = ArcheryGame.arrowsPerTarget -
+        _stuck.length.clamp(0, ArcheryGame.arrowsPerTarget);
+    return 'Archery. Target ${c.index + 1} of ${ArcheryGame.targetCount}, '
+        '${c.distance.toStringAsFixed(0)} metres, '
+        'wind ${c.windSpeed.toStringAsFixed(1)} metres per second. '
+        '$left ${left == 1 ? 'arrow' : 'arrows'} left on this target. '
+        'Score ${s.totalOf(me)} to ${s.totalOf(them)}.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     _scheme = scheme;
+    _reduceMotion = GameMotion.reduced(context);
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     final style = widget.style;
     final state = _state;
     if (state == null) {
@@ -869,108 +900,121 @@ class _ArcheryRangeState extends State<ArcheryRange>
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(22),
-            child: LayoutBuilder(
-              builder: (context, c) {
-                _size = Size(c.maxWidth, c.maxHeight);
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: _pointerDown,
-                      onPointerMove: _pointerMove,
-                      onPointerUp: _pointerUp,
-                      onPointerCancel: _pointerCancel,
-                      child: CustomPaint(
-                        painter: ArcheryScenePainter(
-                          view: _buildView(),
-                          style: style,
-                          scheme: scheme,
+          child: Semantics(
+            container: true,
+            explicitChildNodes: true,
+            label: _semanticsLabel(state),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  _size = Size(c.maxWidth, c.maxHeight);
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Listener(
+                        behavior: HitTestBehavior.opaque,
+                        onPointerDown: _pointerDown,
+                        onPointerMove: _pointerMove,
+                        onPointerUp: _pointerUp,
+                        onPointerCancel: _pointerCancel,
+                        child: CustomPaint(
+                          painter: ArcheryScenePainter(
+                            view: _buildView(),
+                            style: style,
+                            scheme: scheme,
+                          ),
                         ),
                       ),
-                    ),
-                    if (style.confetti && _confetti.isNotEmpty)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: AnimatedBuilder(
-                            animation: _confettiCtrl,
-                            builder: (context, _) => CustomPaint(
-                              painter: _ConfettiPainter(
-                                confetti: _confetti,
-                                t: _confettiCtrl.value,
-                                boardSize: c.maxWidth,
+                      if (style.confetti && _confetti.isNotEmpty)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: AnimatedBuilder(
+                              animation: _confettiCtrl,
+                              builder: (context, _) => CustomPaint(
+                                painter: _ConfettiPainter(
+                                  confetti: _confetti,
+                                  t: _confettiCtrl.value,
+                                  boardSize: c.maxWidth,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    // No standing chrome pill here on purpose: the scene
-                    // already paints the range readout (TARGET n, the
-                    // distance, the quiver dots) top-left and the wind vane
-                    // with its speed top-right, permanently and in
-                    // perspective. The conditions used to *also* flash past as
-                    // a two-second pill, which was the redundant copy — that
-                    // is what was deleted.
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: Align(
-                          // Below the boss, not over it: the notice used to
-                          // land squarely on the target face and hide the
-                          // arrow it was describing. Down here it reads
-                          // against empty grass instead.
-                          alignment: const Alignment(0, 0.42),
-                          child: GameNotice(
-                            message: _notice,
-                            tone: _noticeTone,
-                            accent: _noticeAccent,
-                            strong: _noticeStrong,
-                            autoDismiss: const Duration(milliseconds: 1800),
+                      // No standing chrome pill here on purpose: the scene
+                      // already paints the range readout (TARGET n, the
+                      // distance, the quiver dots) top-left and the wind vane
+                      // with its speed top-right, permanently and in
+                      // perspective. The conditions used to *also* flash past as
+                      // a two-second pill, which was the redundant copy — that
+                      // is what was deleted.
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: Align(
+                            // Below the boss, not over it: the notice used to
+                            // land squarely on the target face and hide the
+                            // arrow it was describing. Down here it reads
+                            // against empty grass instead.
+                            alignment: const Alignment(0, 0.42),
+                            child: GameNotice(
+                              message: _notice,
+                              tone: _noticeTone,
+                              accent: _noticeAccent,
+                              strong: _noticeStrong,
+                              autoDismiss: const Duration(milliseconds: 1800),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    if (showCover)
-                      _HandoffCover(
-                        label: _labelFor(state.currentPlayerId),
-                        accent: style.resolvePlayer2(scheme),
-                        onReady: () {
-                          setState(() {
-                            _handoffAcknowledged = true;
-                            _displayTarget = state.targetIndex;
-                            _stuck = const [];
-                            _clearNotice();
-                          });
-                        },
-                      ),
-                    if (finished)
-                      _Results(
-                        state: state,
-                        outcome: _outcome,
-                        style: style,
-                        scheme: scheme,
-                      ),
-                  ],
-                );
-              },
+                      if (showCover)
+                        _HandoffCover(
+                          label: _labelFor(state.currentPlayerId),
+                          accent: style.resolvePlayer2(scheme),
+                          onReady: () {
+                            setState(() {
+                              _handoffAcknowledged = true;
+                              _displayTarget = state.targetIndex;
+                              _stuck = const [];
+                              _clearNotice();
+                            });
+                          },
+                        ),
+                      if (finished)
+                        _Results(
+                          state: state,
+                          outcome: _outcome,
+                          style: style,
+                          scheme: scheme,
+                          showHeadline: !hostOwnsStatus,
+                        ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ),
         const SizedBox(height: 8),
-        Text(
-          finished
-              ? 'Tap New game to shoot again'
-              : (showCover
-                  ? 'Pass the phone'
-                  : (_resolving
-                      ? 'Watch it fly…'
-                      : 'Hold to draw, drag to aim, release to loose')),
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 11.5,
-            fontWeight: FontWeight.w600,
+        // Under a host that owns the result the end hint goes quiet (its own
+        // button says how to play again). The blank keeps the line's height so
+        // the range doesn't resize when the match ends; the blank is hidden
+        // from semantics so it is not an empty node.
+        ExcludeSemantics(
+          excluding: finished && hostOwnsStatus,
+          child: Text(
+            finished
+                ? (hostOwnsStatus ? ' ' : 'Tap New game to shoot again')
+                : (showCover
+                    ? 'Pass the phone'
+                    : (_resolving
+                        ? 'Watch it fly…'
+                        : 'Hold to draw, drag to aim, release to loose')),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -1141,11 +1185,15 @@ class _Results extends StatelessWidget {
   final ArcheryStyle style;
   final ColorScheme scheme;
 
+  /// Off when the host draws the result: the table below it stays.
+  final bool showHeadline;
+
   const _Results({
     required this.state,
     required this.outcome,
     required this.style,
     required this.scheme,
+    required this.showHeadline,
   });
 
   @override
@@ -1170,16 +1218,18 @@ class _Results extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                headline,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 24,
-                  letterSpacing: 1.2,
+              if (showHeadline) ...[
+                Text(
+                  headline,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 24,
+                    letterSpacing: 1.2,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               _row(
                 '',
                 style.player1Label,

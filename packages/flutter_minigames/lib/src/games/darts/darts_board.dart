@@ -116,6 +116,14 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
   final math.Random _rnd = math.Random(7);
   List<_Confetto> _confetti = const [];
 
+  // Reduce Motion, cached from build(): _celebrate fires off the build path and
+  // must not read MediaQuery there.
+  bool _reduceMotion = false;
+
+  /// Cached from [GameHostChrome] in `build`, like [_reduceMotion]: the
+  /// match-end callback fires from the sim, not from a build.
+  bool _hostOwnsStatus = false;
+
   @override
   void initState() {
     super.initState();
@@ -347,13 +355,16 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     _celebrated = true;
     widget.style.sounds.onWin?.call();
     if (widget.style.haptics) HapticFeedback.heavyImpact();
-    _showNotice(
-      '${_labelFor(outcome.winnerId ?? state.currentPlayerId)} WINS'
-          .toUpperCase(),
-      tone: GameNoticeTone.win,
-      sticky: true,
-    );
-    if (widget.style.confetti) {
+    // The host shows the result itself (GameHostChrome).
+    if (!_hostOwnsStatus) {
+      _showNotice(
+        '${_labelFor(outcome.winnerId ?? state.currentPlayerId)} WINS'
+            .toUpperCase(),
+        tone: GameNoticeTone.win,
+        sticky: true,
+      );
+    }
+    if (widget.style.confetti && !_reduceMotion) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -387,6 +398,14 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
     if (s == null) return playerId;
     return widget.style.labelFor(playerId, s.playerIds);
   }
+
+  /// What the scene itself says. The points left to check out and the darts
+  /// left in the visit are already read off the player chips and the turn pill,
+  /// so repeating them here would read every number twice; this names the
+  /// board and how it is played, which no sibling does.
+  String get _semanticsLabel => _outcome != null
+      ? 'Darts. Dartboard.'
+      : 'Darts. Dartboard. Swipe up to throw.';
 
   Color _colorFor(String playerId) {
     final s = _state;
@@ -625,6 +644,10 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
 
   @override
   Widget build(BuildContext context) {
+    // Cached before the early return so a callback never reads a stale value.
+    _reduceMotion = GameMotion.reduced(context);
+    final hostOwnsStatus =
+        _hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     final state = _state;
     if (state == null) {
       return const Center(child: CircularProgressIndicator());
@@ -647,15 +670,21 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: AnimatedBuilder(
-                    animation: _wobbleCtrl,
-                    builder: (context, _) => CustomPaint(
-                      painter: _DartsScenePainter(
-                        view: _buildView(state),
-                        style: style,
-                        scheme: scheme,
+                  // Only the scene is labelled; the chips and the pill carry
+                  // their own text.
+                  child: Semantics(
+                    container: true,
+                    label: _semanticsLabel,
+                    child: AnimatedBuilder(
+                      animation: _wobbleCtrl,
+                      builder: (context, _) => CustomPaint(
+                        painter: _DartsScenePainter(
+                          view: _buildView(state),
+                          style: style,
+                          scheme: scheme,
+                        ),
+                        size: size,
                       ),
-                      size: size,
                     ),
                   ),
                 ),
@@ -685,18 +714,21 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
                       const SizedBox(width: 6),
                       // Standing turn state: whose throw, and how many darts
                       // are left in the visit. A fact, so a pill.
-                      Flexible(
-                        child: GamePill(
-                          text: _outcome == null
-                              ? '${state.dartsLeft} '
-                                  '${state.dartsLeft == 1 ? 'dart' : 'darts'} left'
-                              : 'Match over',
-                          accent: _outcome == null
-                              ? _colorFor(state.currentPlayerId)
-                              : null,
-                          dot: _outcome == null,
+                      // "Darts left" is the visit's own count; "Match over" is
+                      // the host's to say.
+                      if (_outcome == null || !hostOwnsStatus)
+                        Flexible(
+                          child: GamePill(
+                            text: _outcome == null
+                                ? '${state.dartsLeft} '
+                                    '${state.dartsLeft == 1 ? 'dart' : 'darts'} left'
+                                : 'Match over',
+                            accent: _outcome == null
+                                ? _colorFor(state.currentPlayerId)
+                                : null,
+                            dot: _outcome == null,
+                          ),
                         ),
-                      ),
                       const SizedBox(width: 6),
                       Flexible(
                         child: FittedBox(
@@ -761,27 +793,29 @@ class _DartsBoardWidgetState extends State<DartsBoardWidget>
                     ),
                   ),
                 ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 8,
-                  child: IgnorePointer(
-                    child: Text(
-                      _outcome != null
-                          ? 'Tap New game to play again'
-                          : (_flight != null
-                              ? 'In flight…'
-                              : 'Swipe up to throw\n'
-                                  'Longer swipe lands higher · angle it to aim across'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: _chalk.withValues(alpha: 0.62),
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
+                // After the match the host's own button says how to replay.
+                if (_outcome == null || !hostOwnsStatus)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 8,
+                    child: IgnorePointer(
+                      child: Text(
+                        _outcome != null
+                            ? 'Tap New game to play again'
+                            : (_flight != null
+                                ? 'In flight…'
+                                : 'Swipe up to throw\n'
+                                    'Longer swipe lands higher · angle it to aim across'),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: _chalk.withValues(alpha: 0.62),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           );

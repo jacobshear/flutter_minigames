@@ -120,8 +120,17 @@ class ArcheryView {
   /// reticle is an honest readout of how steady the shot actually is.
   final double swayAmplitude;
 
-  /// Free-running seconds for ambient motion (flag, grass).
+  /// Free-running seconds for ambient motion (flag, grass). The host holds it
+  /// at 0 under Reduce Motion; see [shakeTime] for the motion that must not.
   final double time;
+
+  /// Free-running seconds for the two shakes that carry state — the target's
+  /// impact wobble and the reticle's focus-break shake. Always live, even under
+  /// Reduce Motion: they say where the arrow hit and that the draw went stale,
+  /// and they only read while [targetWobble] / [focusBreak] is running, so
+  /// sharing a clock with [time] would make the ambient motion snap in
+  /// mid-shake.
+  final double shakeTime;
 
   /// 0..1 impact wobble, decaying.
   ///
@@ -164,6 +173,7 @@ class ArcheryView {
     this.zoom = 0,
     this.swayAmplitude = ArcheryDraw.maxSway,
     this.time = 0,
+    this.shakeTime = 0,
     this.targetWobble = 0,
     this.impactX = 0,
     this.impactY = 0,
@@ -198,6 +208,7 @@ class ArcheryView {
     double? zoom,
     double? swayAmplitude,
     double? time,
+    double? shakeTime,
     double? targetWobble,
     double? impactX,
     double? impactY,
@@ -222,6 +233,7 @@ class ArcheryView {
         zoom: zoom ?? this.zoom,
         swayAmplitude: swayAmplitude ?? this.swayAmplitude,
         time: time ?? this.time,
+        shakeTime: shakeTime ?? this.shakeTime,
         targetWobble: targetWobble ?? this.targetWobble,
         impactX: impactX ?? this.impactX,
         impactY: impactY ?? this.impactY,
@@ -930,7 +942,8 @@ void _paintButt(
     // impact is the compression at the hole, not the target jumping.
     final amp = wobble * wobble * 2.6;
     canvas.translate(
-        math.sin(view.time * 34) * amp, math.sin(view.time * 41) * amp * 0.5);
+        math.sin(view.shakeTime * 34) * amp,
+        math.sin(view.shakeTime * 41) * amp * 0.5);
   }
 
   _paintStand(canvas, camera, style, scheme, d, depth);
@@ -1575,7 +1588,7 @@ void _paintBow(
   final h = size.height;
   final draw = Curves.easeOut.transform(view.drawProgress.clamp(0.0, 1.0));
   final shake = view.focusBreak > 0
-      ? math.sin(view.time * 26) * view.focusBreak * w * 0.012
+      ? math.sin(view.shakeTime * 26) * view.focusBreak * w * 0.012
       : 0.0;
 
   // The bow frames the lower-left corner rather than bisecting the view: you

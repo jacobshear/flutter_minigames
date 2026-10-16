@@ -89,6 +89,14 @@ class _EightBallBoardState extends State<EightBallBoard>
   final math.Random _rnd = math.Random();
   List<_Confetto> _confetti = const [];
 
+  // Reduce Motion, cached from build(): _celebrate fires from the sim, off the
+  // build path, and must not read MediaQuery there.
+  bool _reduceMotion = false;
+
+  /// Cached from [GameHostChrome] in `build`, like [_reduceMotion]: the
+  /// match-end callback fires from the sim, not from a build.
+  bool _hostOwnsStatus = false;
+
   bool get _hotSeat => widget.controller.hotSeat;
 
   @override
@@ -411,9 +419,12 @@ class _EightBallBoardState extends State<EightBallBoard>
       style.sounds.onLoss?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    _showNotice('${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
-        tone: GameNoticeTone.win, sticky: true);
-    if (style.confetti) {
+    // The host shows the result itself (GameHostChrome).
+    if (!_hostOwnsStatus) {
+      _showNotice('${_labelFor(outcome.winnerId!)} WINS'.toUpperCase(),
+          tone: GameNoticeTone.win, sticky: true);
+    }
+    if (style.confetti && !_reduceMotion) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -502,17 +513,47 @@ class _EightBallBoardState extends State<EightBallBoard>
   }
 
   /// The standing phase line: what the table is waiting for right now.
-  String _phaseText(EightBallState s) {
-    if (_outcome != null) return 'Match over';
+  ///
+  /// Null when there is nothing to add to what the host already shows: "To
+  /// shoot" and "Match over" only restate whose turn it is and the result,
+  /// while "Ball in hand" and "To break" are rules of this table.
+  String? _phaseText(EightBallState s, {required bool hostOwnsStatus}) {
+    if (_outcome != null) return hostOwnsStatus ? null : 'Match over';
     if (s.ballInHand) return 'Ball in hand';
     if (s.shotsTaken == 0) return 'To break';
-    return 'To shoot';
+    return hostOwnsStatus ? null : 'To shoot';
+  }
+
+  /// What a sighted player reads off the table: whose group is which and how
+  /// many of each are still down, from the local seat's side (seat one in a
+  /// hot-seat match).
+  String _semanticsLabel(EightBallState s) {
+    final local = widget.controller.localPlayerId;
+    final me = !_hotSeat && s.playerIds.contains(local)
+        ? local
+        : s.playerIds.first;
+    final them = s.playerIds.firstWhere((id) => id != me);
+    String side(String id, String owner) {
+      final g = s.groups[id];
+      if (g == null) return '';
+      final name = g == BallGroup.solids ? 'solids' : 'stripes';
+      return ' $owner: $name, ${s.remainingCountOf(id)} left.';
+    }
+
+    final open = s.groups.isEmpty ? ' The table is open.' : '';
+    return 'Eight ball.$open'
+        '${side(me, _hotSeat ? _labelFor(me) : 'You')}'
+        '${side(them, _labelFor(them))}';
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = widget.style;
+    // Cached before the early return so a callback never reads a stale value.
+    _reduceMotion = GameMotion.reduced(context);
+    final hostOwnsStatus =
+        _hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     final state = _state;
     final scene = _scene;
     if (state == null || scene == null) {
@@ -522,8 +563,13 @@ class _EightBallBoardState extends State<EightBallBoard>
 
     final p1 = state.playerIds.first;
     final p2 = state.playerIds.last;
+    final phase = _phaseText(state, hostOwnsStatus: hostOwnsStatus);
+    // Under a host that owns the result the end hint goes quiet (its own
+    // button says how to play again). The blank keeps the line's height so the
+    // table doesn't resize when the match ends; it is hidden from semantics so
+    // it is not an empty node.
     final hint = _outcome != null
-        ? 'Tap New game to play again'
+        ? (hostOwnsStatus ? ' ' : 'Tap New game to play again')
         : (_placing
             ? 'Drag to place the cue ball, then release'
             : (scene.canAim
@@ -608,53 +654,58 @@ class _EightBallBoardState extends State<EightBallBoard>
                               ),
                             ],
                           ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(18),
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onPanStart: _panStart,
-                                    onPanUpdate: _panUpdate,
-                                    onPanEnd: _panEnd,
-                                    child: GameWidget(game: scene),
-                                  ),
-                                ),
-                                if (style.confetti && _confetti.isNotEmpty)
+                          child: Semantics(
+                            container: true,
+                            explicitChildNodes: true,
+                            label: _semanticsLabel(state),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: Stack(
+                                children: [
                                   Positioned.fill(
-                                    child: IgnorePointer(
-                                      child: AnimatedBuilder(
-                                        animation: _confettiCtrl,
-                                        builder: (context, _) => LayoutBuilder(
-                                          builder: (context, c) => CustomPaint(
-                                            painter: _ConfettiPainter(
-                                              confetti: _confetti,
-                                              t: _confettiCtrl.value,
-                                              boardSize: c.maxWidth,
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onPanStart: _panStart,
+                                      onPanUpdate: _panUpdate,
+                                      onPanEnd: _panEnd,
+                                      child: GameWidget(game: scene),
+                                    ),
+                                  ),
+                                  if (style.confetti && _confetti.isNotEmpty)
+                                    Positioned.fill(
+                                      child: IgnorePointer(
+                                        child: AnimatedBuilder(
+                                          animation: _confettiCtrl,
+                                          builder: (context, _) => LayoutBuilder(
+                                            builder: (context, c) => CustomPaint(
+                                              painter: _ConfettiPainter(
+                                                confetti: _confetti,
+                                                t: _confettiCtrl.value,
+                                                boardSize: c.maxWidth,
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                Positioned.fill(
-                                  child: IgnorePointer(
-                                    child: Center(
-                                      child: GameNotice(
-                                        message: _notice,
-                                        tone: _noticeTone,
-                                        accent: _noticeAccent,
-                                        strong: _noticeStrong || _noticeSticky,
-                                        autoDismiss: _noticeSticky
-                                            ? null
-                                            : const Duration(
-                                                milliseconds: 1800),
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: Center(
+                                        child: GameNotice(
+                                          message: _notice,
+                                          tone: _noticeTone,
+                                          accent: _noticeAccent,
+                                          strong: _noticeStrong || _noticeSticky,
+                                          autoDismiss: _noticeSticky
+                                              ? null
+                                              : const Duration(
+                                                  milliseconds: 1800),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -669,22 +720,39 @@ class _EightBallBoardState extends State<EightBallBoard>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    GamePill(
-                      text: _phaseText(state),
-                      accent: _outcome == null
-                          ? _accentFor(state.currentPlayerId)
-                          : null,
-                      dot: _outcome == null,
-                    ),
-                    const SizedBox(width: 8),
+                    if (phase != null) ...[
+                      GamePill(
+                        text: phase,
+                        accent: _outcome == null
+                            ? _accentFor(state.currentPlayerId)
+                            : null,
+                        dot: _outcome == null,
+                      ),
+                      const SizedBox(width: 8),
+                    ] else if (hostOwnsStatus) ...[
+                      // The host owns "To shoot" / "Match over", but "To break"
+                      // and "Ball in hand" still show: keep the pill's room
+                      // when it is hidden so the table never resizes mid-match.
+                      const Visibility(
+                        visible: false,
+                        maintainSize: true,
+                        maintainAnimation: true,
+                        maintainState: true,
+                        child: GamePill(text: 'To shoot'),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     Flexible(
-                      child: Text(
-                        hint,
-                        maxLines: 2,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
+                      child: ExcludeSemantics(
+                        excluding: hint.trim().isEmpty,
+                        child: Text(
+                          hint,
+                          maxLines: 2,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),

@@ -115,6 +115,10 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   final math.Random _rnd = math.Random();
   List<_Confetto> _confetti = const [];
 
+  // Reduce Motion, cached from build() like [_scheme]: _celebrate fires off the
+  // build path and must not read MediaQuery there.
+  bool _reduceMotion = false;
+
   // Live putt playback. `_puttDirection`/`_puttPower` are the local aim
   // input for the putt currently in `_putt` — captured in `_launch` so
   // `_settlePutt` can record them on the submitted move for replay.
@@ -219,6 +223,24 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   /// The standing stroke label: which shot the player is standing over.
   String _strokePill(MiniGolfState s) =>
       'Stroke ${s.holeStrokesOf(s.currentPlayerId) + 1}';
+
+  /// What a sighted player reads off the course: the hole and its par, and
+  /// the running stroke totals from the local seat's side (seat one in a
+  /// hot-seat match).
+  String _semanticsLabel(MiniGolfState s) {
+    final local = widget.controller.localPlayerId;
+    final me = !_hotSeat && s.playerIds.contains(local)
+        ? local
+        : s.playerIds.first;
+    final them = s.playerIds.firstWhere((id) => id != me);
+    final hole = s.currentHole.clamp(0, s.holeCount - 1) + 1;
+    final course = s.currentCourse;
+    String strokes(int n) => '$n ${n == 1 ? 'stroke' : 'strokes'}';
+    final mine = _hotSeat ? _labelFor(me) : 'you';
+    return 'Mini golf. Hole $hole of ${s.holeCount}, par ${course.par}. '
+        '${strokes(s.totalStrokes(me))} for $mine, '
+        '${strokes(s.totalStrokes(them))} for ${_labelFor(them)}.';
+  }
 
   /// Raises the centre notice. Assigns synchronously — callers own the
   /// surrounding setState; [GameNotice.autoDismiss] retracts it.
@@ -904,7 +926,7 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
       style.sounds.onWin?.call();
     }
     if (style.haptics) HapticFeedback.heavyImpact();
-    if (style.confetti && !outcome.isDraw) {
+    if (style.confetti && !_reduceMotion && !outcome.isDraw) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -1023,6 +1045,8 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     _scheme = scheme;
+    _reduceMotion = GameMotion.reduced(context);
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     final style = widget.style;
     final state = _state;
     if (state == null) {
@@ -1098,97 +1122,102 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
           ),
           const SizedBox(height: 10),
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: LayoutBuilder(
-                builder: (context, c) {
-                  _boardSize = Size(c.maxWidth, c.maxHeight);
-                  return Stack(
-                    children: [
-                      Positioned.fill(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onPanStart: _panStart,
-                          onPanUpdate: _panUpdate,
-                          onPanEnd: _panEnd,
-                          child: CustomPaint(
-                            painter: MiniGolfScenePainter(
-                              view: _buildView(state, scheme),
-                              style: style,
-                              scheme: scheme,
-                            ),
-                            size: Size.infinite,
-                          ),
-                        ),
-                      ),
-                      // Standing stroke label: which shot this player is
-                      // over, in their colour. A fact, so a pill — it does not
-                      // flash past and it is always there to check.
-                      if (_outcome == null && _handoffFor == null)
-                        Positioned(
-                          left: 10,
-                          top: 10,
-                          child: IgnorePointer(
-                            child: GamePill(
-                              text: _strokePill(state),
-                              accent: _accentFor(state.currentPlayerId),
-                              dot: true,
-                            ),
-                          ),
-                        ),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: Center(
-                            child: GameNotice(
-                              message: _notice,
-                              tone: _noticeTone,
-                              accent: _noticeAccent,
-                              strong: _noticeStrong,
-                              autoDismiss: const Duration(milliseconds: 1600),
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (_outcome != null)
+            child: Semantics(
+              container: true,
+              explicitChildNodes: true,
+              label: _semanticsLabel(state),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: LayoutBuilder(
+                  builder: (context, c) {
+                    _boardSize = Size(c.maxWidth, c.maxHeight);
+                    return Stack(
+                      children: [
                         Positioned.fill(
-                          child: _ResultsOverlay(
-                            state: state,
-                            outcome: _outcome!,
-                            style: style,
-                            scheme: scheme,
-                            labelFor: _labelFor,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: _panStart,
+                            onPanUpdate: _panUpdate,
+                            onPanEnd: _panEnd,
+                            child: CustomPaint(
+                              painter: MiniGolfScenePainter(
+                                view: _buildView(state, scheme),
+                                style: style,
+                                scheme: scheme,
+                              ),
+                              size: Size.infinite,
+                            ),
                           ),
                         ),
-                      if (style.confetti && _confetti.isNotEmpty)
+                        // Standing stroke label: which shot this player is
+                        // over, in their colour. A fact, so a pill — it does not
+                        // flash past and it is always there to check.
+                        if (_outcome == null && _handoffFor == null)
+                          Positioned(
+                            left: 10,
+                            top: 10,
+                            child: IgnorePointer(
+                              child: GamePill(
+                                text: _strokePill(state),
+                                accent: _accentFor(state.currentPlayerId),
+                                dot: true,
+                              ),
+                            ),
+                          ),
                         Positioned.fill(
                           child: IgnorePointer(
-                            child: AnimatedBuilder(
-                              animation: _confettiCtrl,
-                              builder: (context, _) => CustomPaint(
-                                painter: _ConfettiPainter(
-                                  confetti: _confetti,
-                                  t: _confettiCtrl.value,
-                                  boardSize: c.maxWidth,
-                                ),
+                            child: Center(
+                              child: GameNotice(
+                                message: _notice,
+                                tone: _noticeTone,
+                                accent: _noticeAccent,
+                                strong: _noticeStrong,
+                                autoDismiss: const Duration(milliseconds: 1600),
                               ),
                             ),
                           ),
                         ),
-                      if (_handoffFor != null)
-                        Positioned.fill(
-                          child: _HandoffCover(
-                            label: _labelFor(_handoffFor!),
-                            hole: hole + 1,
-                            par: course.par,
-                            accent: _handoffFor == p1
-                                ? style.resolvePlayer1(scheme)
-                                : style.resolvePlayer2(scheme),
-                            onContinue: _dismissHandoff,
+                        if (_outcome != null)
+                          Positioned.fill(
+                            child: _ResultsOverlay(
+                              state: state,
+                              outcome: _outcome!,
+                              style: style,
+                              scheme: scheme,
+                              labelFor: _labelFor,
+                            ),
                           ),
-                        ),
-                    ],
-                  );
-                },
+                        if (style.confetti && _confetti.isNotEmpty)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: AnimatedBuilder(
+                                animation: _confettiCtrl,
+                                builder: (context, _) => CustomPaint(
+                                  painter: _ConfettiPainter(
+                                    confetti: _confetti,
+                                    t: _confettiCtrl.value,
+                                    boardSize: c.maxWidth,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (_handoffFor != null)
+                          Positioned.fill(
+                            child: _HandoffCover(
+                              label: _labelFor(_handoffFor!),
+                              hole: hole + 1,
+                              par: course.par,
+                              accent: _handoffFor == p1
+                                  ? style.resolvePlayer1(scheme)
+                                  : style.resolvePlayer2(scheme),
+                              onContinue: _dismissHandoff,
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -1200,19 +1229,26 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
             outcome: _outcome,
           ),
           const SizedBox(height: 6),
-          Text(
-            _outcome != null
-                ? 'Tap New game to play again'
-                : (_handoffFor != null
-                    ? 'Pass the device'
-                    : (_rolling
-                        ? 'Rolling…'
-                        : 'Drag back from the ball to aim, release to putt')),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+          // Under a host that owns the result the end hint goes quiet (its own
+          // button says how to play again). The blank keeps the line's height
+          // so the course doesn't resize when the match ends; the blank is
+          // hidden from semantics so it is not an empty node.
+          ExcludeSemantics(
+            excluding: _outcome != null && hostOwnsStatus,
+            child: Text(
+              _outcome != null
+                  ? (hostOwnsStatus ? ' ' : 'Tap New game to play again')
+                  : (_handoffFor != null
+                      ? 'Pass the device'
+                      : (_rolling
+                          ? 'Rolling…'
+                          : 'Drag back from the ball to aim, release to putt')),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(height: 2),
@@ -1342,9 +1378,13 @@ class _ResultsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final banner = outcome.isDraw
-        ? 'DRAW'
-        : '${labelFor(outcome.winnerId!)} wins'.toUpperCase();
+    // The host shows the result; the trophy and the scorecard stay, the
+    // banner that restates who won goes.
+    final banner = GameHostChrome.hostOwnsStatusOf(context)
+        ? null
+        : (outcome.isDraw
+            ? 'DRAW'
+            : '${labelFor(outcome.winnerId!)} wins'.toUpperCase());
     return Container(
       color: Colors.black.withValues(alpha: 0.78),
       alignment: Alignment.center,
@@ -1354,15 +1394,16 @@ class _ResultsOverlay extends StatelessWidget {
         children: [
           const Icon(Icons.emoji_events, color: Color(0xFFF4B740), size: 40),
           const SizedBox(height: 8),
-          Text(
-            banner,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 22,
-              letterSpacing: 1.0,
+          if (banner != null)
+            Text(
+              banner,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 22,
+                letterSpacing: 1.0,
+              ),
             ),
-          ),
           const SizedBox(height: 14),
           _ScorecardStrip(
             state: state,

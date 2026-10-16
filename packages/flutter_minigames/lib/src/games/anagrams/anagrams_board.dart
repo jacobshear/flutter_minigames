@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'anagrams_game.dart';
 import 'anagrams_style.dart';
@@ -173,6 +174,7 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
     final scheme = Theme.of(context).colorScheme;
     final style = widget.style;
     final table = style.resolveTable(scheme);
+    final reduced = GameMotion.reduced(context);
 
     return AnimatedBuilder(
       animation: Listenable.merge([_entrance, _timer, _valid, _shake]),
@@ -203,28 +205,45 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
           child: Opacity(
             opacity: enter.clamp(0.0, 1.0),
             child: Transform.scale(
-              scale: 0.96 + 0.04 * enter,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _header(),
-                  const SizedBox(height: 10),
-                  _timerBar(),
-                  const SizedBox(height: 12),
-                  _foundStrip(),
-                  const SizedBox(height: 14),
-                  _stagingRow(),
-                  const SizedBox(height: 16),
-                  _rack(),
-                  const SizedBox(height: 16),
-                  _actions(),
-                ],
+              // Reduce Motion keeps the fade and drops the settle-in scale.
+              scale: reduced ? 1 : 0.96 + 0.04 * enter,
+              child: Semantics(
+                container: true,
+                explicitChildNodes: true,
+                label: _semanticsLabel(),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _header(),
+                    const SizedBox(height: 10),
+                    _timerBar(),
+                    const SizedBox(height: 12),
+                    _foundStrip(),
+                    const SizedBox(height: 14),
+                    _stagingRow(),
+                    const SizedBox(height: 16),
+                    _rack(),
+                    const SizedBox(height: 16),
+                    _actions(),
+                  ],
+                ),
               ),
             ),
           ),
         );
       },
     );
+  }
+
+  /// What a sighted player reads off the board: the word being built and how
+  /// many words are in. The score and the clock are left out — the header's own
+  /// nodes already say them.
+  String _semanticsLabel() {
+    final staged = _stagedWord;
+    final n = _found.length;
+    return 'Anagrams. '
+        '${staged.isEmpty ? '' : 'Your word: ${staged.toUpperCase()}. '}'
+        '$n ${n == 1 ? 'word' : 'words'} found.';
   }
 
   Widget _header() {
@@ -298,66 +317,73 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
 
   Widget _foundStrip() {
     final style = widget.style;
-    return SizedBox(
-      height: 30,
-      child: _found.isEmpty
-          ? Center(
-              child: Text(
-                'Words you find appear here',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.45),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: _found.isEmpty
+          ? 'No words found yet'
+          : 'Words found: ${_found.map((w) => w.toUpperCase()).join(', ')}',
+      child: SizedBox(
+        height: 30,
+        child: _found.isEmpty
+            ? Center(
+                child: Text(
+                  'Words you find appear here',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
+              )
+            : ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _found.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (context, i) {
+                  final w = _found[i];
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      borderRadius: BorderRadius.circular(999),
+                      border: i == 0 && _valid.isAnimating
+                          ? Border.all(
+                              color: style.validColor.withValues(
+                                alpha: 1 - _valid.value,
+                              ),
+                              width: 1.5,
+                            )
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          w.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${AnagramsGame.scoreForWord(w)}',
+                          style: TextStyle(
+                            color: style.validColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
-            )
-          : ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _found.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
-              itemBuilder: (context, i) {
-                final w = _found[i];
-                return Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.28),
-                    borderRadius: BorderRadius.circular(999),
-                    border: i == 0 && _valid.isAnimating
-                        ? Border.all(
-                            color: style.validColor.withValues(
-                              alpha: 1 - _valid.value,
-                            ),
-                            width: 1.5,
-                          )
-                        : null,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        w.toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        '${AnagramsGame.scoreForWord(w)}',
-                        style: TextStyle(
-                          color: style.validColor,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+      ),
     );
   }
 
@@ -365,9 +391,11 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
     final style = widget.style;
     final scheme = Theme.of(context).colorScheme;
 
-    // Shake offset: damped sine while _shake runs.
+    // Shake offset: damped sine while _shake runs. Reduce Motion keeps the red
+    // flash and drops the shake.
+    final reduced = GameMotion.reduced(context);
     final shakeT = _shake.value;
-    final dx = _shake.isAnimating
+    final dx = _shake.isAnimating && !reduced
         ? math.sin(shakeT * math.pi * 6) * 9 * (1 - shakeT)
         : 0.0;
 
@@ -432,7 +460,10 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
               // Rising score popup on valid submit.
               if (_valid.isAnimating && _lastPoints > 0)
                 Positioned(
-                  top: -6 - 26 * Curves.easeOutCubic.transform(_valid.value),
+                  // Reduce Motion fades the popup in place, not floating it.
+                  top: reduced
+                      ? -20
+                      : -6 - 26 * Curves.easeOutCubic.transform(_valid.value),
                   child: Opacity(
                     opacity: (1 - _valid.value).clamp(0.0, 1.0),
                     child: Text(
@@ -495,56 +526,74 @@ class _AnagramsRoundBoardState extends State<AnagramsRoundBoard>
       children: [
         _RoundIconButton(
           icon: Icons.shuffle_rounded,
+          label: 'Shuffle letters',
           onTap: _shuffle,
         ),
         const SizedBox(width: 8),
         _RoundIconButton(
           icon: Icons.backspace_outlined,
+          label: 'Delete last letter',
           onTap: _backspace,
           enabled: hasStage,
         ),
         const Spacer(),
         // End round early (hot-seat convenience; GP just lets the clock run).
-        GestureDetector(
+        Semantics(
+          button: true,
+          label: 'Done',
+          hint: 'Ends your round',
           onTap: () => _finishRound(timedOut: false),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Text(
-              'Done',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.55),
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
+          excludeSemantics: true,
+          child: GestureDetector(
+            onTap: () => _finishRound(timedOut: false),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Text(
+                'Done',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.55),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
               ),
             ),
           ),
         ),
         const SizedBox(width: 8),
         // Submit.
-        GestureDetector(
+        Semantics(
+          button: true,
+          enabled: hasStage,
+          label: 'Enter',
+          hint: 'Submits your word',
           onTap: _submit,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 150),
-            opacity: hasStage ? 1 : 0.45,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 11),
-              decoration: BoxDecoration(
-                color: style.validColor,
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.22),
-                    offset: const Offset(0, 3),
-                    blurRadius: 8,
+          excludeSemantics: true,
+          child: GestureDetector(
+            onTap: _submit,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 150),
+              opacity: hasStage ? 1 : 0.45,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 26, vertical: 11),
+                decoration: BoxDecoration(
+                  color: style.validColor,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.22),
+                      offset: const Offset(0, 3),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: const Text(
+                  'Enter',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
                   ),
-                ],
-              ),
-              child: const Text(
-                'Enter',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
                 ),
               ),
             ),
@@ -587,58 +636,70 @@ class _LetterTile extends StatelessWidget {
     final top = style.resolveTileTop(scheme);
     final bottom = style.resolveTileBottom(scheme);
     final glyph = style.resolveGlyph(scheme);
-    return GestureDetector(
+    return Semantics(
+      button: true,
+      label: letter.toUpperCase(),
+      hint: raised
+          ? 'Tap to remove from your word'
+          : 'Tap to add to your word',
       onTap: onTap,
-      child: TweenAnimationBuilder<double>(
-        key: ValueKey('tile-$identity-$raised'),
-        tween: Tween(begin: 0.7, end: 1),
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutBack,
-        builder: (context, pop, child) =>
-            Transform.scale(scale: pop, child: child),
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(size * 0.22),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [top, bottom],
-            ),
-            border: Border.all(
-              color: glyph.withValues(alpha: 0.35),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: raised ? 0.32 : 0.24),
-                offset: Offset(0, raised ? 4 : 2.5),
-                blurRadius: raised ? 8 : 5,
-              ),
-              // Inner-ish top highlight.
-              BoxShadow(
-                color: Colors.white.withValues(alpha: 0.5),
-                offset: const Offset(0, 1),
-                blurRadius: 0,
-                spreadRadius: -1,
-              ),
-            ],
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        child: TweenAnimationBuilder<double>(
+          key: ValueKey('tile-$identity-$raised'),
+          tween: Tween(
+            begin: GameMotion.reduced(context) ? 1 : 0.7,
+            end: 1,
           ),
-          foregroundDecoration: tint == null
-              ? null
-              : BoxDecoration(
-                  borderRadius: BorderRadius.circular(size * 0.22),
-                  color: tint,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutBack,
+          builder: (context, pop, child) =>
+              Transform.scale(scale: pop, child: child),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(size * 0.22),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [top, bottom],
+              ),
+              border: Border.all(
+                color: glyph.withValues(alpha: 0.35),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: raised ? 0.32 : 0.24),
+                  offset: Offset(0, raised ? 4 : 2.5),
+                  blurRadius: raised ? 8 : 5,
                 ),
-          alignment: Alignment.center,
-          child: Text(
-            letter.toUpperCase(),
-            style: TextStyle(
-              color: glyph,
-              fontSize: size * 0.52,
-              fontWeight: FontWeight.w900,
-              height: 1,
+                // Inner-ish top highlight.
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  offset: const Offset(0, 1),
+                  blurRadius: 0,
+                  spreadRadius: -1,
+                ),
+              ],
+            ),
+            foregroundDecoration: tint == null
+                ? null
+                : BoxDecoration(
+                    borderRadius: BorderRadius.circular(size * 0.22),
+                    color: tint,
+                  ),
+            alignment: Alignment.center,
+            child: Text(
+              letter.toUpperCase(),
+              style: TextStyle(
+                color: glyph,
+                fontSize: size * 0.52,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
             ),
           ),
         ),
@@ -672,30 +733,41 @@ class _EmptySocket extends StatelessWidget {
 
 class _RoundIconButton extends StatelessWidget {
   final IconData icon;
+
+  /// What a screen reader calls the button — the icon says nothing to it.
+  final String label;
   final VoidCallback onTap;
   final bool enabled;
 
   const _RoundIconButton({
     required this.icon,
+    required this.label,
     required this.onTap,
     this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
       onTap: enabled ? onTap : null,
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: enabled ? 0.28 : 0.16),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          color: Colors.white.withValues(alpha: enabled ? 0.9 : 0.4),
-          size: 20,
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: enabled ? 0.28 : 0.16),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: Colors.white.withValues(alpha: enabled ? 0.9 : 0.4),
+            size: 20,
+          ),
         ),
       ),
     );

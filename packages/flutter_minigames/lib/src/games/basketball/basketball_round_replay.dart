@@ -534,6 +534,15 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
     );
   }
 
+  /// What a sighted player reads off the court: the round being replayed and
+  /// the running score (the replayed shooter first).
+  String _semanticsLabel(int opponentScore) {
+    final round = _legacy
+        ? ''
+        : 'Round ${_currentRound + 1} of ${BasketballGame.roundCount}, ';
+    return 'Basketball replay. ${round}score $_liveScore to $opponentScore.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -579,60 +588,65 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: CustomPaint(
-                          painter: _ReplayCourtPainter(
-                            view: _buildView(),
-                            style: style,
-                            scheme: scheme,
-                          ),
-                        ),
-                      ),
-                      if (_fadeOpacity > 0)
+                child: Semantics(
+                  container: true,
+                  explicitChildNodes: true,
+                  label: _semanticsLabel(widget.state.scoreOf(otherId)),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Stack(
+                      children: [
                         Positioned.fill(
-                          child: IgnorePointer(
-                            child: ColoredBox(
-                              color:
-                                  Colors.black.withValues(alpha: _fadeOpacity),
+                          child: CustomPaint(
+                            painter: _ReplayCourtPainter(
+                              view: _buildView(),
+                              style: style,
+                              scheme: scheme,
                             ),
                           ),
                         ),
-                      if (!_legacy)
-                        Positioned(
-                          top: 10,
-                          left: 0,
-                          right: 0,
+                        if (_fadeOpacity > 0)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: ColoredBox(
+                                color:
+                                    Colors.black.withValues(alpha: _fadeOpacity),
+                              ),
+                            ),
+                          ),
+                        if (!_legacy)
+                          Positioned(
+                            top: 10,
+                            left: 0,
+                            right: 0,
+                            child: IgnorePointer(
+                              child: Center(
+                                child: GamePill(
+                                  text: 'Replay · Round ${_currentRound + 1}/'
+                                      '${BasketballGame.roundCount}',
+                                  accent: accent,
+                                  dot: true,
+                                ),
+                              ),
+                            ),
+                          ),
+                        Positioned.fill(
                           child: IgnorePointer(
                             child: Center(
-                              child: GamePill(
-                                text: 'Replay · Round ${_currentRound + 1}/'
-                                    '${BasketballGame.roundCount}',
-                                accent: accent,
-                                dot: true,
+                              child: GameNotice(
+                                message: _notice,
+                                tone: _noticeTone,
+                                strong: _noticeStrong,
+                                accent: _noticeTone == GameNoticeTone.score
+                                    ? null
+                                    : accent,
+                                token: _noticeSeq,
                               ),
                             ),
                           ),
                         ),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: Center(
-                            child: GameNotice(
-                              message: _notice,
-                              tone: _noticeTone,
-                              strong: _noticeStrong,
-                              accent: _noticeTone == GameNoticeTone.score
-                                  ? null
-                                  : accent,
-                              token: _noticeSeq,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
