@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'game_motion.dart';
+
 /// What a notice is telling you. Tone drives the tint, the accent hairline and
 /// the entrance — a score lands with a bounce, a rejection shakes.
 enum GameNoticeTone {
@@ -33,9 +35,23 @@ enum GameNoticeTone {
 /// Pass `message: null` to hide. Set [autoDismiss] to have the notice retract
 /// on its own after it has been read — the caller keeps passing the same
 /// message and does not have to run a timer.
+///
+/// Accessibility: the notice is a live region, so a screen reader speaks "HIT"
+/// or "Illegal move" as it appears without the player having to find it —
+/// iOS and Android announce a live region on their own, so nothing else
+/// announces it (a second announcement made VoiceOver say every notice
+/// twice). Pass [semanticsMessage] when [message] is shorthand that reads
+/// badly aloud. While assistive navigation is on, [autoDismiss] dwells longer
+/// (3× the given time, at least 6 s) rather than retracting at reading speed.
+/// Under Reduce Motion the entrance is a plain fade: no overshoot, no scale,
+/// no shake.
 class GameNotice extends StatefulWidget {
   /// Text to show, or null for nothing.
   final String? message;
+
+  /// What a screen reader says for [message], when the text on screen is
+  /// shorthand ("You had 2 As" → "You had 2 aces"). Defaults to [message].
+  final String? semanticsMessage;
 
   final GameNoticeTone tone;
 
@@ -62,6 +78,7 @@ class GameNotice extends StatefulWidget {
   const GameNotice({
     super.key,
     required this.message,
+    this.semanticsMessage,
     this.tone = GameNoticeTone.info,
     this.accent,
     this.autoDismiss,
@@ -91,6 +108,10 @@ class _GameNoticeState extends State<GameNotice>
   /// A message waiting for the current one to finish retracting.
   String? _pending;
 
+  /// Assistive navigation (VoiceOver, Switch Control) is on, so [autoDismiss]
+  /// dwells longer before retracting — see [_dwell].
+  bool _holdForAssistive = false;
+
   /// A message [autoDismiss] has already retracted. Callers hold the same
   /// message up indefinitely — without this, the next rebuild would see a live
   /// `widget.message` against a cleared `_shown` and present it again, blinking
@@ -114,6 +135,18 @@ class _GameNoticeState extends State<GameNotice>
       _ctrl!.forward();
       _armDismiss();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final held = MediaQuery.maybeAccessibleNavigationOf(context) ?? false;
+    if (held == _holdForAssistive) return;
+    _holdForAssistive = held;
+    // The dwell just changed length: re-time any pending retract, from now.
+    // Includes the first notice, whose timer initState armed before the flag
+    // could be read (this runs right after it).
+    if (_shown != null && _dismiss != null) _armDismiss();
   }
 
   @override
@@ -182,6 +215,17 @@ class _GameNoticeState extends State<GameNotice>
     _armDismiss();
   }
 
+  /// How long a notice stays up. Someone listening to VoiceOver needs longer
+  /// than reading speed, but a notice must still leave on its own: several
+  /// boards rely on it retracting (mancala's "AGAIN!" sits over the pits the
+  /// bonus pick needs).
+  Duration _dwell(Duration after) {
+    if (!_holdForAssistive) return after;
+    final longer = after * 3;
+    const floor = Duration(seconds: 6);
+    return longer > floor ? longer : floor;
+  }
+
   void _retract() {
     _dismiss?.cancel();
     _dismiss = null;
@@ -193,7 +237,7 @@ class _GameNoticeState extends State<GameNotice>
     _dismiss = null;
     final after = widget.autoDismiss;
     if (after == null) return;
-    _dismiss = Timer(after, () {
+    _dismiss = Timer(_dwell(after), () {
       if (!mounted) return;
       _dismissed = _shown;
       _retract();
@@ -214,37 +258,56 @@ class _GameNoticeState extends State<GameNotice>
 
     final palette = _NoticePalette.of(_shownTone, _shownAccent);
     final strong = widget.strong || _shownTone == GameNoticeTone.win;
+    final reduced = GameMotion.reduced(context);
 
-    return AnimatedBuilder(
-      animation: _ctrl!,
-      builder: (context, child) {
-        final v = _ctrl!.value;
-        // Overshoot on the way in, straight fade on the way out — a notice
-        // should arrive with weight and leave without asking for attention.
-        final grow = _ctrl!.status == AnimationStatus.reverse
-            ? Curves.easeIn.transform(v)
-            : Curves.easeOutBack.transform(v);
-        // A refusal shakes: two decaying swings, damped to nothing by the time
-        // the entrance settles.
-        final shake = _shownTone == GameNoticeTone.warn &&
-                _ctrl!.status != AnimationStatus.reverse
-            ? math.sin(v * math.pi * 4) * 9 * (1 - v)
-            : 0.0;
-        return Opacity(
-          opacity: Curves.easeOut.transform(v.clamp(0.0, 1.0)),
-          child: Transform.translate(
-            offset: Offset(shake, (1 - grow) * 14),
-            child: Transform.scale(
-              scale: 0.88 + 0.12 * grow,
-              child: child,
-            ),
+    // The spoken form belongs to the message it was passed with; while an old
+    // message is still retracting, it reads as itself.
+    final spoken = widget.message == message
+        ? (widget.semanticsMessage ?? message)
+        : message;
+
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: spoken,
+      // The label above is the whole of what the capsule says; its Text would
+      // read the same sentence a second time.
+      child: ExcludeSemantics(
+        child: AnimatedBuilder(
+          animation: _ctrl!,
+          builder: (context, child) {
+            final v = _ctrl!.value;
+            final opacity = Curves.easeOut.transform(v.clamp(0.0, 1.0));
+            // Reduce Motion: a plain fade in and out.
+            if (reduced) return Opacity(opacity: opacity, child: child);
+            // Overshoot on the way in, straight fade on the way out — a notice
+            // should arrive with weight and leave without asking for attention.
+            final grow = _ctrl!.status == AnimationStatus.reverse
+                ? Curves.easeIn.transform(v)
+                : Curves.easeOutBack.transform(v);
+            // A refusal shakes: two decaying swings, damped to nothing by the
+            // time the entrance settles.
+            final shake = _shownTone == GameNoticeTone.warn &&
+                    _ctrl!.status != AnimationStatus.reverse
+                ? math.sin(v * math.pi * 4) * 9 * (1 - v)
+                : 0.0;
+            return Opacity(
+              opacity: opacity,
+              child: Transform.translate(
+                offset: Offset(shake, (1 - grow) * 14),
+                child: Transform.scale(
+                  scale: 0.88 + 0.12 * grow,
+                  child: child,
+                ),
+              ),
+            );
+          },
+          child: _NoticeBody(
+            message: message,
+            palette: palette,
+            strong: strong,
           ),
-        );
-      },
-      child: _NoticeBody(
-        message: message,
-        palette: palette,
-        strong: strong,
+        ),
       ),
     );
   }
@@ -316,11 +379,6 @@ class _NoticeBody extends StatelessWidget {
                 color: Colors.black.withValues(alpha: 0.34),
                 blurRadius: 16,
                 offset: const Offset(0, 6),
-              ),
-              BoxShadow(
-                color: palette.accent.withValues(alpha: 0.20),
-                blurRadius: 20,
-                spreadRadius: -4,
               ),
             ],
           ),

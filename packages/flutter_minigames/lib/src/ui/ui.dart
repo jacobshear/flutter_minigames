@@ -5,6 +5,8 @@
 /// This package owns that surface once.
 library;
 
+export 'game_host_chrome.dart';
+export 'game_motion.dart';
 export 'game_notice.dart';
 export 'game_pill.dart';
 export 'classic_game_tile_art.dart';

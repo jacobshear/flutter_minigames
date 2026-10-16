@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- **Host chrome.** `GameHostChrome(hostOwnsStatus: true)` tells every board the
+  embedding app shows turn and result itself; boards drop their own turn
+  pills, result banners, "Waiting for…" lines and "Tap New game" hints. No
+  ancestor, no change.
+- **Accessibility.** Every board exposes its cells, cards, pits and controls to
+  screen readers as buttons wired to the same move as a tap, plus a board-level
+  description on the physics and word games. `GameNotice` is a live region,
+  takes an optional `semanticsMessage` for shorthand, and dwells longer (not
+  forever) while assistive navigation is on. Hot-seat covers and pickers block
+  the semantics under them.
+- **Reduce Motion.** `GameMotion.reduced(context)` gates confetti, notice
+  overshoot/shake and idle pulses; state-carrying motion keeps playing.
+- **Input.** Gomoku, chess, sea battle and mancala commit on tap-up over the
+  same cell (a brush no longer plays a move). `GomokuStyle.confirmPlacement`
+  adds a ghost-then-confirm step; `ConnectFourStyle.distinctMarks` rings the
+  second seat's discs so seats differ without colour.
+- **Fit.** Sea battle and go fish size to the height they are given instead of
+  overflowing short tables. Basketball's End round is a 44pt target.
+- **Shuffleboard.** Full power is a pull of 32% of the lane's on-screen height
+  (96–150pt) instead of a fixed 200pt, so overshooting the far end is reachable
+  on every phone.
+- `GameNotice` no longer draws an accent-coloured glow.
+
 ## 0.1.0
 
 First release.

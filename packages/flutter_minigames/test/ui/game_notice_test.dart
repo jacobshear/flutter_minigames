@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_minigames/src/ui/ui.dart';
 
@@ -334,6 +335,188 @@ void main() {
         expect(find.byType(GameNotice), findsOneWidget);
       }
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('accessibility', () {
+    /// A host with the MediaQuery flags a test wants to flip.
+    Widget host(
+      String? message, {
+      bool reduceMotion = false,
+      bool assistive = false,
+      GameNoticeTone tone = GameNoticeTone.info,
+      Duration? autoDismiss,
+    }) =>
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              disableAnimations: reduceMotion,
+              accessibleNavigation: assistive,
+            ),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Center(
+              child: GameNotice(
+                message: message,
+                tone: tone,
+                autoDismiss: autoDismiss,
+              ),
+            ),
+          ),
+        );
+
+    Finder inNotice(Finder matching) =>
+        find.descendant(of: find.byType(GameNotice), matching: matching);
+
+    testWidgets('is a live region carrying the message', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(host('Illegal move', tone: GameNoticeTone.warn));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Illegal move')),
+        containsSemantics(label: 'Illegal move', isLiveRegion: true),
+      );
+      // The capsule's own Text is excluded, so the sentence is spoken once.
+      expect(find.bySemanticsLabel('Illegal move'), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('nothing announces separately — the live region carries it',
+        (tester) async {
+      // iOS and Android announce a live region on their own; a second,
+      // explicit announcement made VoiceOver say every notice twice.
+      final announced = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockDecodedMessageHandler<dynamic>(
+        SystemChannels.accessibility,
+        (message) async {
+          final map = message as Map<Object?, Object?>;
+          if (map['type'] == 'announce') {
+            announced.add((map['data']! as Map)['message']! as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<dynamic>(
+              SystemChannels.accessibility, null));
+
+      await tester.pumpWidget(host('HIT'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(host('SUNK'));
+      await tester.pumpAndSettle();
+      expect(announced, isEmpty);
+    });
+
+    testWidgets('speaks semanticsMessage in place of on-screen shorthand',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: GameNotice(
+              message: 'You had 2 As',
+              semanticsMessage: 'You had 2 aces',
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('You had 2 As'), findsOneWidget);
+      expect(find.bySemanticsLabel('You had 2 aces'), findsOneWidget);
+      expect(find.bySemanticsLabel('You had 2 As'), findsNothing);
+      handle.dispose();
+    });
+
+    testWidgets('dwells longer while assistive navigation is on, then leaves',
+        (tester) async {
+      await tester.pumpWidget(host(
+        'Your turn',
+        assistive: true,
+        autoDismiss: const Duration(milliseconds: 500),
+      ));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(find.text('Your turn'), findsOneWidget,
+          reason: 'left at reading speed, before a screen reader could read it');
+
+      // Bounded: boards rely on a notice retracting on its own (mancala's
+      // "AGAIN!" sits over the pits the bonus pick needs).
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+      expect(find.text('Your turn'), findsNothing);
+    });
+
+    testWidgets('the next message still replaces a dwelling one',
+        (tester) async {
+      await tester.pumpWidget(host(
+        'Your turn',
+        assistive: true,
+        autoDismiss: const Duration(milliseconds: 500),
+      ));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(host(
+        'Opponent drew',
+        assistive: true,
+        autoDismiss: const Duration(milliseconds: 500),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Your turn'), findsNothing);
+      expect(find.text('Opponent drew'), findsOneWidget);
+    });
+
+    testWidgets('retracts at reading speed once assistive navigation is off',
+        (tester) async {
+      await tester.pumpWidget(host(
+        'Your turn',
+        assistive: true,
+        autoDismiss: const Duration(milliseconds: 500),
+      ));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 2));
+
+      await tester.pumpWidget(host(
+        'Your turn',
+        autoDismiss: const Duration(milliseconds: 500),
+      ));
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
+      expect(find.text('Your turn'), findsNothing);
+    });
+
+    testWidgets('Reduce Motion fades only: no scale, no shake', (tester) async {
+      await tester.pumpWidget(host('NOPE', tone: GameNoticeTone.warn));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(inNotice(find.byType(Transform)), findsWidgets,
+          reason: 'sanity: the normal entrance transforms');
+
+      await tester.pumpWidget(
+          host('NOPE', reduceMotion: true, tone: GameNoticeTone.warn));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+          host('NEVER', reduceMotion: true, tone: GameNoticeTone.warn));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(inNotice(find.byType(Transform)), findsNothing);
+      expect(inNotice(find.byType(Opacity)), findsOneWidget);
+      expect(find.text('NEVER'), findsOneWidget);
+    });
+
+    testWidgets('has no accent glow, only the drop shadow', (tester) async {
+      await tester.pumpWidget(host('HIT', tone: GameNoticeTone.score));
+      await tester.pumpAndSettle();
+      final shadows = tester
+          .widgetList<DecoratedBox>(inNotice(find.byType(DecoratedBox)))
+          .map((b) => b.decoration)
+          .whereType<BoxDecoration>()
+          .expand((d) => d.boxShadow ?? const <BoxShadow>[])
+          .toList();
+      expect(shadows, hasLength(1));
+      expect(shadows.single.color.a, lessThan(0.5));
+      expect(shadows.single.color.computeLuminance(), 0,
+          reason: 'the one shadow is the black drop shadow');
     });
   });
 

@@ -22,6 +22,7 @@ library;
 export 'card_art.dart';
 export 'card_deck.dart';
 export 'card_glyphs.dart';
+export 'card_names.dart';
 export 'card_random.dart';
 export 'card_suits.dart';
 export 'card_view.dart';

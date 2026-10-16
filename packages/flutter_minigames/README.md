@@ -91,11 +91,40 @@ near/far rim split so a ball sorts *between* the halves of a hoop.
 | Entry point | What it gives you |
 |---|---|
 | `core.dart` | `TurnGame`, `GameTransport`, `MatchController`, `LocalTransport` |
-| `ui.dart` | `GameNotice`, `GamePill` — floating table chrome |
+| `ui.dart` | `GameNotice`, `GamePill` — floating table chrome; `GameHostChrome`, `GameMotion` |
 | `cards.dart` | Playing-card model, seeded shuffle, vector card faces |
 | `words.dart` | Dictionary and word scoring (bundles the ENABLE list) |
 | `flame.dart` | Forge2D table harness |
 | `engine3d.dart` | Perspective camera, projectile integrator, launch solver |
+
+## Embedding in an app
+
+**Host chrome.** An app that draws its own match chrome around a board —
+whose turn it is, the result, a rematch button — wraps the board in
+`GameHostChrome(hostOwnsStatus: true, child: board)`. Boards then leave out the
+status they would otherwise paint (turn pills, "{name} WINS" banners,
+"Waiting for…" lines, "Tap New game" hints) so the screen never says it twice.
+Events anchored to the board — HIT, CHECK, "Choose a suit", aiming hints,
+scores — stay. Without an ancestor every board renders as it always has.
+
+**Accessibility.** Boards expose their cells, cards and controls to screen
+readers as buttons that play the same move a tap does, and `GameNotice` is a
+live region. Decorative motion — confetti, notice overshoot and shake, idle
+pulses — is skipped when `GameMotion.reduced(context)` is true; motion that
+carries game state keeps playing. That reads `MediaQuery.disableAnimations`,
+which Flutter's iOS embedder does NOT set from the iOS Reduce Motion switch (it
+only fills `accessibilityFeatures.reduceMotion`). An iOS host bridges one into
+the other above the boards:
+
+```dart
+MediaQuery(
+  data: MediaQuery.of(context).copyWith(
+    disableAnimations: MediaQuery.of(context).disableAnimations ||
+        View.of(context).platformDispatcher.accessibilityFeatures.reduceMotion,
+  ),
+  child: child,
+)
+```
 
 ## Status
 
