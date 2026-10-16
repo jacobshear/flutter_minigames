@@ -5,6 +5,7 @@ import 'dart:ui' as ui show Picture, PictureRecorder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'reversi_game.dart';
 import 'reversi_style.dart';
@@ -21,7 +22,8 @@ class ReversiBoard extends StatefulWidget {
   /// Hosts that render turn ownership and the outcome in their own chrome
   /// pass false so the state isn't said twice. On this board the banner
   /// also carries the score chips and a gameplay toast; those stay either
-  /// way — only the turn / result text goes quiet.
+  /// way — only the turn / result text goes quiet. A [GameHostChrome]
+  /// ancestor with `hostOwnsStatus` quiets it the same way.
   final bool showStatusBanner;
 
   const ReversiBoard({
@@ -162,7 +164,7 @@ class _ReversiBoardState extends State<ReversiBoard>
       if (outcome.isWin) {
         style.sounds.onWin?.call();
         if (style.haptics) HapticFeedback.heavyImpact();
-        if (style.confetti) {
+        if (style.confetti && !GameMotion.reduced(context)) {
           _confetti = _spawnConfetti(state, outcome);
           _confettiCtrl.forward(from: 0);
         }
@@ -250,7 +252,8 @@ class _ReversiBoardState extends State<ReversiBoard>
       mainAxisSize: MainAxisSize.min,
       children: [
         _StatusBanner(
-          showTurnText: widget.showStatusBanner,
+          showTurnText: widget.showStatusBanner &&
+              !GameHostChrome.hostOwnsStatusOf(context),
           state: state,
           outcome: _outcome,
           dark: dark,
@@ -354,6 +357,9 @@ class _StatusBanner extends StatelessWidget {
     final sl = state.scoreFor(state.lightId);
 
     Widget center;
+    // The disc and "to play" are painted; say the whole sentence once. Null
+    // for the pass toast (its own text reads) and when the turn text is off.
+    String? spoken;
     if (outcome == null) {
       if (passToast > 0 && passToast < 1) {
         final fade = passToast < 0.2
@@ -368,6 +374,7 @@ class _StatusBanner extends StatelessWidget {
         center = const SizedBox.shrink(key: ValueKey('quiet'));
       } else {
         final isDark = state.currentPlayerId == state.darkId;
+        spoken = '${isDark ? 'Dark' : 'Light'} to play';
         center = Row(
           key: ValueKey('turn-${state.currentPlayerId}'),
           mainAxisSize: MainAxisSize.min,
@@ -381,10 +388,12 @@ class _StatusBanner extends StatelessWidget {
     } else if (!showTurnText) {
       center = const SizedBox.shrink(key: ValueKey('quiet'));
     } else if (outcome!.isDraw) {
+      spoken = 'Draw';
       center = Text('Dead heat', key: const ValueKey('draw'), style: textStyle);
     } else {
       final isDark = outcome!.winnerId == state.darkId;
       final color = isDark ? dark : light;
+      spoken = '${isDark ? 'Dark' : 'Light'} wins';
       center = Row(
         key: const ValueKey('win'),
         mainAxisSize: MainAxisSize.min,
@@ -414,9 +423,14 @@ class _StatusBanner extends StatelessWidget {
           child: SizedBox(
             height: 40,
             child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 280),
-                child: center,
+              child: Semantics(
+                liveRegion: true,
+                label: spoken,
+                excludeSemantics: spoken != null,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  child: center,
+                ),
               ),
             ),
           ),
@@ -613,41 +627,55 @@ class _BoardGrid extends StatelessWidget {
                           ? null
                           : (owner == state.darkId ? dark : light);
 
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: (!gameOver && (isLegal || owner == null))
-                            ? () {
-                                if (isLegal) onTap(i);
-                              }
-                            : null,
-                        child: owner != null
-                            ? CustomPaint(
-                                painter: _DiscPainter(
-                                  color: discColor!,
-                                  other: owner == state.darkId ? light : dark,
-                                  squash: squash.clamp(0.0, 1.0),
-                                ),
-                              )
-                            : (isLegal && !gameOver
-                                ? Center(
-                                    child: Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: hintColor,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black
-                                                .withValues(alpha: 0.30),
-                                            blurRadius: 2,
-                                            offset: const Offset(0.5, 1),
-                                          ),
-                                        ],
+                      final row = i ~/ ReversiState.size + 1;
+                      final col = i % ReversiState.size + 1;
+                      final what = owner == null
+                          ? 'empty'
+                          : (owner == state.darkId
+                              ? 'dark disc'
+                              : 'light disc');
+                      final playable = isLegal && !gameOver;
+                      return Semantics(
+                        button: playable,
+                        label: 'Row $row, column $col, $what'
+                            '${playable ? ', legal move' : ''}',
+                        onTap: playable ? () => onTap(i) : null,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: (!gameOver && (isLegal || owner == null))
+                              ? () {
+                                  if (isLegal) onTap(i);
+                                }
+                              : null,
+                          child: owner != null
+                              ? CustomPaint(
+                                  painter: _DiscPainter(
+                                    color: discColor!,
+                                    other: owner == state.darkId ? light : dark,
+                                    squash: squash.clamp(0.0, 1.0),
+                                  ),
+                                )
+                              : (isLegal && !gameOver
+                                  ? Center(
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: hintColor,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.30),
+                                              blurRadius: 2,
+                                              offset: const Offset(0.5, 1),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  )
-                                : null),
+                                    )
+                                  : null),
+                        ),
                       );
                     },
                   ),

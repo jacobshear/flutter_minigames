@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show listEquals, setEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
 import 'package:flutter_minigames/src/ui/ui.dart';
@@ -100,6 +101,9 @@ class _MancalaBoardState extends State<MancalaBoard>
 
   List<_Confetto> _confetti = const [];
   _BoardGeom? _geom;
+
+  /// Pit the current press started on (see [_onPressDown]).
+  int? _downPit;
 
   /// Vertical space the felt card's own [Padding] eats before the seat/board
   /// [Row] (`EdgeInsets.symmetric(vertical: 16)`, both edges) — subtracted
@@ -249,7 +253,7 @@ class _MancalaBoardState extends State<MancalaBoard>
     if (outcome.isWin) {
       style.sounds.onWin?.call();
       if (style.haptics) HapticFeedback.heavyImpact();
-      if (style.confetti) {
+      if (style.confetti && !GameMotion.reduced(context)) {
         _confetti = _spawnConfetti(state, outcome);
         _confettiCtrl.forward(from: 0);
       }
@@ -319,12 +323,23 @@ class _MancalaBoardState extends State<MancalaBoard>
     });
   }
 
-  void _onTapDown(Offset local) {
+  /// Remember the pit the press started on; the move is taken on lift-off,
+  /// and only if the finger is still over that pit.
+  void _onPressDown(Offset local) {
+    _downPit = _geom?.hitTest(local);
+  }
+
+  void _onPressUp(Offset local) {
+    final down = _downPit;
+    _downPit = null;
+    if (down == null || _geom?.hitTest(local) != down) return;
+    _onPitTap(down);
+  }
+
+  void _onPitTap(int pit) {
     final state = _state;
     final geom = _geom;
     if (state == null || _outcome != null || geom == null || _sowing) return;
-    final pit = geom.hitTest(local);
-    if (pit == null) return;
     if (!_logic.validateMove(
       state,
       MancalaMove(pit),
@@ -674,6 +689,51 @@ class _MancalaBoardState extends State<MancalaBoard>
     return 0.5 + 0.5 * Curves.easeInCubic.transform((x - 0.40) / 0.60);
   }
 
+  /// Spoken names for the 14 cups ("Your pit 3, 4 seeds"). Pits are numbered
+  /// in each player's own sowing order; stores are inert. Counts are the
+  /// settled ones, not the mid-sow display. [playable] is the pits the local
+  /// seat can sow now, not merely the side to move's legal ones.
+  List<String> _pitLabels(MancalaState state, Set<int> playable) {
+    final style = widget.style;
+    return [
+      for (var i = 0; i < state.pits.length; i++)
+        () {
+          final isStore =
+              i == MancalaState.southStore || i == MancalaState.northStore;
+          final south = i <= MancalaState.southStore;
+          final ownerId = south ? state.southId : state.northId;
+          final who = !widget.controller.hotSeat &&
+                  ownerId == widget.controller.localPlayerId
+              ? 'Your'
+              : "${south ? style.southLabel : style.northLabel}'s";
+          final what = isStore ? 'store' : 'pit ${south ? i + 1 : i - 6}';
+          final seeds = state.pits[i];
+          return '$who $what, $seeds ${seeds == 1 ? 'seed' : 'seeds'}'
+              '${playable.contains(i) ? ', playable' : ''}';
+        }(),
+    ];
+  }
+
+  /// "Player 1, 7 in store, to move" — the seat chip, spoken. The turn is left
+  /// out when the host announces it.
+  String _seatLabel(
+    MancalaState state,
+    bool hostOwnsStatus,
+    GameOutcome? shownOutcome,
+    String playerId,
+    String name,
+    int score,
+  ) {
+    final spoken = StringBuffer('$name, $score in store');
+    // The result is the pill's to say; the chip only ever adds the turn.
+    if (!hostOwnsStatus &&
+        shownOutcome == null &&
+        state.currentPlayerId == playerId) {
+      spoken.write(', to move');
+    }
+    return spoken.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -693,6 +753,12 @@ class _MancalaBoardState extends State<MancalaBoard>
         : <int>{};
 
     final table = style.resolveTable(scheme);
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
+    // [legal] lights the side to move's pits; only the seat that can act gets
+    // them as buttons (the opponent's pits are shown, never offered).
+    final playable =
+        widget.controller.canActLocally ? legal : const <int>{};
+    final pitLabels = _pitLabels(state, playable);
 
     // Captures the constraints the HOST hands MancalaBoard (e.g. the
     // centring band `GameMatchScaffold` computes from real screen space) —
@@ -711,14 +777,18 @@ class _MancalaBoardState extends State<MancalaBoard>
 
             // GP-style translucent pill floating over the board center for
             // transient events; turn state lives on the side players.
+            // The result is the host's to say when it owns the match chrome;
+            // "AGAIN!" is the board's own event and stays.
             String? pillMsg;
             if (showOutcome != null) {
-              pillMsg = showOutcome.isDraw
-                  ? 'DRAW'
-                  : (showOutcome.winnerId == state.southId
-                          ? '${style.southLabel} wins'
-                          : '${style.northLabel} wins')
-                      .toUpperCase();
+              pillMsg = hostOwnsStatus
+                  ? null
+                  : showOutcome.isDraw
+                      ? 'DRAW'
+                      : (showOutcome.winnerId == state.southId
+                              ? '${style.southLabel} wins'
+                              : '${style.northLabel} wins')
+                          .toUpperCase();
             } else if (frame.extraFlash || _showExtraPill) {
               pillMsg = 'AGAIN!';
             }
@@ -743,7 +813,9 @@ class _MancalaBoardState extends State<MancalaBoard>
                           _geom = geom;
                           return GestureDetector(
                             behavior: HitTestBehavior.opaque,
-                            onTapDown: (d) => _onTapDown(d.localPosition),
+                            onTapDown: (d) => _onPressDown(d.localPosition),
+                            onTapUp: (d) => _onPressUp(d.localPosition),
+                            onTapCancel: () => _downPit = null,
                             child: Stack(
                               children: [
                                 CustomPaint(
@@ -754,9 +826,12 @@ class _MancalaBoardState extends State<MancalaBoard>
                                     boardColor: boardColor,
                                     pitColor: pitColor,
                                     legal: legal,
+                                    playable: playable,
                                     highlight: frame.highlight,
                                     flyers: frame.flyers,
                                     dpr: MediaQuery.devicePixelRatioOf(context),
+                                    pitLabels: pitLabels,
+                                    onTapPit: _onPitTap,
                                   ),
                                 ),
                                 if (style.confetti && _confetti.isNotEmpty)
@@ -812,6 +887,13 @@ class _MancalaBoardState extends State<MancalaBoard>
                       children: [
                         _SidePlayer(
                           label: style.northLabel,
+                          semanticLabel: _seatLabel(
+                              state,
+                              hostOwnsStatus,
+                              showOutcome,
+                              state.northId,
+                              style.northLabel,
+                              frame.pits[MancalaState.northStore]),
                           score: frame.pits[MancalaState.northStore],
                           color: north,
                           avatar: style.northAvatar,
@@ -856,6 +938,13 @@ class _MancalaBoardState extends State<MancalaBoard>
                         const SizedBox(width: 8),
                         _SidePlayer(
                           label: style.southLabel,
+                          semanticLabel: _seatLabel(
+                              state,
+                              hostOwnsStatus,
+                              showOutcome,
+                              state.southId,
+                              style.southLabel,
+                              frame.pits[MancalaState.southStore]),
                           score: frame.pits[MancalaState.southStore],
                           color: south,
                           avatar: style.southAvatar,
@@ -1490,11 +1579,19 @@ class _MancalaPainter extends CustomPainter {
   final Color boardColor;
   final Color pitColor;
   final Set<int> legal;
+
+  /// The subset of [legal] the local seat can act on: what the semantics
+  /// offer as buttons.
+  final Set<int> playable;
   final int highlight;
   final List<_Flyer> flyers;
 
   /// Device pixel ratio the resting-board raster is baked at.
   final double dpr;
+
+  /// Spoken name per cup (14), and what activating a playable pit does.
+  final List<String> pitLabels;
+  final void Function(int pit)? onTapPit;
 
   _MancalaPainter({
     required this.pits,
@@ -1502,9 +1599,12 @@ class _MancalaPainter extends CustomPainter {
     required this.boardColor,
     required this.pitColor,
     required this.legal,
+    required this.playable,
     required this.highlight,
     required this.flyers,
     required this.dpr,
+    required this.pitLabels,
+    this.onTapPit,
   });
 
   double get _baseMarbleR => geom.pitD * 0.145;
@@ -1901,6 +2001,31 @@ class _MancalaPainter extends CustomPainter {
       old.dpr != dpr ||
       !listEquals(old.pits, pits) ||
       !setEquals(old.legal, legal);
+
+  /// One node per cup, so a screen reader can walk the pits and sow.
+  @override
+  SemanticsBuilderCallback? get semanticsBuilder => (Size size) => [
+        for (var i = 0; i < pitLabels.length; i++)
+          CustomPainterSemantics(
+            key: ValueKey(i),
+            rect: geom.cups[i],
+            properties: SemanticsProperties(
+              button: playable.contains(i) && onTapPit != null,
+              label: pitLabels[i],
+              textDirection: TextDirection.ltr,
+              onTap: playable.contains(i) && onTapPit != null
+                  ? () => onTapPit!(i)
+                  : null,
+            ),
+          ),
+      ];
+
+  // Not the mid-sow frames: the labels carry the settled counts.
+  @override
+  bool shouldRebuildSemantics(_MancalaPainter old) =>
+      !listEquals(old.pitLabels, pitLabels) ||
+      !setEquals(old.playable, playable) ||
+      old.geom.size != geom.size;
 }
 
 /// Rasterized resting board, keyed on state + palette + size + dpr.
@@ -1919,6 +2044,10 @@ final List<_RestingImage> _restingImages = [];
 
 class _SidePlayer extends StatelessWidget {
   final String label;
+
+  /// What a screen reader says for the seat (name, store and, when the board
+  /// owns the status, whose turn it is).
+  final String semanticLabel;
   final int score;
   final Color color;
   final bool active;
@@ -1931,6 +2060,7 @@ class _SidePlayer extends StatelessWidget {
 
   const _SidePlayer({
     required this.label,
+    required this.semanticLabel,
     required this.score,
     required this.color,
     required this.active,
@@ -1940,6 +2070,16 @@ class _SidePlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      liveRegion: active || winner,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: _seat(),
+    );
+  }
+
+  Widget _seat() {
     final lit = active || winner;
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 220),

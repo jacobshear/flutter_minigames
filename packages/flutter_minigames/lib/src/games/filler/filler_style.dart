@@ -12,10 +12,24 @@ const List<Color> kFillerCellColors = [
   Color(0xFF3B3B45), // charcoal
 ];
 
+/// What a screen reader calls each of [kFillerCellColors], in order.
+const List<String> kFillerColorNames = [
+  'red',
+  'orange',
+  'green',
+  'teal',
+  'purple',
+  'charcoal',
+];
+
 /// Visual + juice config for [FillerBoard].
 class FillerStyle {
   /// The 6 cell colors, indexed by the logic's color index.
   final List<Color> cellColors;
+
+  /// Spoken names for [cellColors], same order. Hosts that swap the palette
+  /// pass matching names, or the swatches are announced by number.
+  final List<String>? colorNames;
 
   /// Felt table the board sits on (fills the widget behind the slab).
   final Color? tableColor;
@@ -33,6 +47,7 @@ class FillerStyle {
 
   const FillerStyle({
     this.cellColors = kFillerCellColors,
+    this.colorNames,
     this.tableColor,
     this.slabColor,
     this.p1Label = 'Player 1',
@@ -41,6 +56,17 @@ class FillerStyle {
     this.confetti = true,
     this.sounds = FillerSounds.silent,
   });
+
+  /// Spoken name of colour [index]: the supplied name, the default name when
+  /// the palette is the default one, else its number.
+  String colorName(int index) {
+    final names = colorNames;
+    if (names != null && index < names.length) return names[index];
+    if (identical(cellColors, kFillerCellColors)) {
+      return kFillerColorNames[index];
+    }
+    return 'colour ${index + 1}';
+  }
 
   // Deep maroon felt (GP chat-table read).
   Color resolveTable(ColorScheme s) => tableColor ?? const Color(0xFF6E3B3B);

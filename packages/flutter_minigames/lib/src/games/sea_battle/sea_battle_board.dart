@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show listEquals, setEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'sea_battle_game.dart';
 import 'sea_battle_style.dart';
@@ -86,6 +89,10 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
   List<ShipPlacement>? _draft;
   int? _selectedShip;
   int _shuffles = 0;
+
+  /// Cell the current press started on; a tap is only taken if the finger
+  /// lifts over the same cell.
+  int? _downCell;
 
   bool get _hotSeat => widget.controller.hotSeat;
 
@@ -245,7 +252,7 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
     final style = widget.style;
     style.sounds.onWin?.call();
     if (style.haptics) HapticFeedback.heavyImpact();
-    if (style.confetti) {
+    if (style.confetti && !GameMotion.reduced(context)) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -393,6 +400,17 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
 
   @override
   Widget build(BuildContext context) {
+    // The felt has to know how tall the host's band is: the battle phase
+    // stacks two chips, a fleet row and two grids.
+    return LayoutBuilder(builder: _buildBoard);
+  }
+
+  /// The height [c] allows, or infinity when the host leaves it unbounded
+  /// (the grids then take their natural size).
+  static double _roomOf(BoxConstraints c) =>
+      c.hasBoundedHeight ? c.maxHeight : double.infinity;
+
+  Widget _buildBoard(BuildContext context, BoxConstraints box) {
     final scheme = Theme.of(context).colorScheme;
     final style = widget.style;
     final state = _state;
@@ -401,6 +419,7 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
     }
 
     final table = style.resolveTable(scheme);
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
 
     return AnimatedBuilder(
       animation: Listenable.merge([_entrance, _shotCtrl, _confettiCtrl]),
@@ -408,30 +427,113 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
         final enter = Curves.easeOutCubic.transform(_entrance.value);
         final enemy = state.opponentOf(_actingPlayer);
 
+        // HIT / MISS / SUNK are the board's own events and stay; the result is
+        // the host's to say when it owns the match chrome.
         String? pillMsg;
         if (_outcome != null && !_shotCtrl.isAnimating) {
-          pillMsg = _outcome!.isDraw
-              ? 'DRAW'
-              : '${_labelFor(_outcome!.winnerId!)} wins'.toUpperCase();
+          pillMsg = hostOwnsStatus
+              ? null
+              : _outcome!.isDraw
+                  ? 'DRAW'
+                  : '${_labelFor(_outcome!.winnerId!)} wins'.toUpperCase();
         } else if (_shotCtrl.isAnimating && _shotCtrl.value >= _impactT) {
           pillMsg = _shotSunk ? 'SUNK!' : (_shotHit ? 'HIT!' : 'MISS');
         }
 
-        final Widget content;
-        if (_coverVisible) {
-          content = _HandoffCover(
-            label: _labelFor(state.currentPlayerId),
-            onReady: _dismissCover,
-          );
-        } else if (state.phase == SeaBattlePhase.placement &&
-            state.fleets[_actingPlayer] == null) {
-          _draft ??= SeaBattleGame.randomFleet(_draftSeed());
-          content = _buildPlacement(scheme, state);
-        } else if (state.phase == SeaBattlePhase.placement) {
-          content = _buildWaiting(scheme, state);
-        } else {
-          content = _buildBattle(scheme, state, enemy);
+        // [c] is what the stage has once the chips are laid out; each phase
+        // lays out at its grid floors at the least ([_fitStage]).
+        Widget content(BoxConstraints c) {
+          final room = _roomOf(c);
+          if (_coverVisible) {
+            return _fitStage(
+              c,
+              room,
+              _coverMin,
+              (room) => _HandoffCover(
+                label: _labelFor(state.currentPlayerId),
+                maxSide: math.min(_gridMax, room),
+                onReady: _dismissCover,
+              ),
+            );
+          }
+          if (state.phase == SeaBattlePhase.placement &&
+              state.fleets[_actingPlayer] == null) {
+            _draft ??= SeaBattleGame.randomFleet(_draftSeed());
+            return _fitStage(c, room, _placementMin,
+                (room) => _buildPlacement(scheme, state, room));
+          }
+          if (state.phase == SeaBattlePhase.placement) {
+            return _fitStage(c, room, _waitingMin,
+                (room) => _buildWaiting(scheme, state, room, hostOwnsStatus));
+          }
+          return _fitStage(c, room, _battleMin,
+              (room) => _buildBattle(scheme, state, enemy, room));
         }
+
+        // The stage: the grids (or the cover) plus the transient pill.
+        final stage = Transform.scale(
+          scale: 0.94 + 0.06 * enter,
+          child: Opacity(
+            opacity: enter.clamp(0.0, 1.0),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                LayoutBuilder(builder: (context, c) => content(c)),
+                if (widget.style.confetti && _confetti.isNotEmpty)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: LayoutBuilder(
+                        builder: (context, c) => CustomPaint(
+                          painter: _ConfettiPainter(
+                            confetti: _confetti,
+                            t: _confettiCtrl.value,
+                            boardSize: c.maxWidth,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Center(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: pillMsg == null
+                            ? const SizedBox.shrink(
+                                key: ValueKey('pill-empty'))
+                            : Container(
+                                key: ValueKey(pillMsg),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 9,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black
+                                      .withValues(alpha: 0.58),
+                                  borderRadius:
+                                      BorderRadius.circular(10),
+                                ),
+                                child: Semantics(
+                                  liveRegion: true,
+                                  child: Text(
+                                    pillMsg,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      letterSpacing: 1.1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
 
         return DecoratedBox(
           decoration: BoxDecoration(
@@ -458,6 +560,8 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                       alignment: Alignment.centerLeft,
                       child: _PlayerChip(
                         label: _labelFor(enemy),
+                        semanticLabel: _chipLabel(
+                            state, hostOwnsStatus, enemy, 'opponent'),
                         accent: style.resolveHit(scheme),
                         active: _outcome == null &&
                             !_coverVisible &&
@@ -466,71 +570,14 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Transform.scale(
-                      scale: 0.94 + 0.06 * enter,
-                      child: Opacity(
-                        opacity: enter.clamp(0.0, 1.0),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            content,
-                            if (widget.style.confetti && _confetti.isNotEmpty)
-                              Positioned.fill(
-                                child: IgnorePointer(
-                                  child: LayoutBuilder(
-                                    builder: (context, c) => CustomPaint(
-                                      painter: _ConfettiPainter(
-                                        confetti: _confetti,
-                                        t: _confettiCtrl.value,
-                                        boardSize: c.maxWidth,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: Center(
-                                  child: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 200),
-                                    child: pillMsg == null
-                                        ? const SizedBox.shrink(
-                                            key: ValueKey('pill-empty'))
-                                        : Container(
-                                            key: ValueKey(pillMsg),
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 16,
-                                              vertical: 9,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.58),
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
-                                            ),
-                                            child: Text(
-                                              pillMsg,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 14,
-                                                letterSpacing: 1.1,
-                                              ),
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    box.hasBoundedHeight ? Flexible(child: stage) : stage,
                     const SizedBox(height: 10),
                     Align(
                       alignment: Alignment.centerRight,
                       child: _PlayerChip(
                         label: _labelFor(_actingPlayer),
+                        semanticLabel: _chipLabel(
+                            state, hostOwnsStatus, _actingPlayer, 'you'),
                         accent: style.resolveWater(scheme),
                         active: _outcome == null &&
                             !_coverVisible &&
@@ -548,21 +595,138 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
     );
   }
 
-  Widget _buildPlacement(ColorScheme scheme, SeaBattleState state) {
+  /// Natural side of the main grid; every phase caps at this.
+  static const double _gridMax = 340;
+
+  /// Compact fleet map: natural side, and the floor it shrinks to first.
+  static const double _ownGridMax = 150;
+  static const double _ownGridMin = 84;
+
+  /// Targeting grid floor, reached only once the fleet map is at its floor.
+  /// The placement and waiting grid floors here too.
+  static const double _enemyGridMin = 140;
+
+  /// Fixed height of the battle column outside the two grids: the 8pt fleet
+  /// row and the 8pt and 10pt gaps around the first grid.
+  static const double _battleChrome = 26;
+
+  /// The stage height each phase needs with its grids at their floors; the
+  /// extra over the grid is what sits around it (the placement hint is two
+  /// lines on a narrow phone, so its allowance is generous). A stage shorter
+  /// than this keeps the floor layout and scales down ([_fitStage]).
+  static const double _battleMin = _enemyGridMin + _ownGridMin + _battleChrome;
+  static const double _placementMin = _enemyGridMin + 90;
+  static const double _waitingMin = _enemyGridMin + 40;
+  static const double _coverMin = 120;
+
+  /// Lays a phase out at [min] when [room] is shorter, then scales that
+  /// layout into [room]: a band too short for the grid floors shrinks the
+  /// board rather than overflowing it (or, for the placement and waiting
+  /// grids, handing the painter a zero-size grid). A taller or unbounded stage
+  /// lays out as [build] is given it.
+  Widget _fitStage(
+    BoxConstraints c,
+    double room,
+    double min,
+    Widget Function(double room) build,
+  ) {
+    if (!room.isFinite || room >= min) return build(room);
+    return SizedBox(
+      height: math.max(0.0, room),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: SizedBox(
+          width: c.hasBoundedWidth ? c.maxWidth : null,
+          height: min,
+          child: build(min),
+        ),
+      ),
+    );
+  }
+
+  /// Split [room] (the stage height) between the targeting grid and the
+  /// fleet map. The fleet map gives way first, down to [_ownGridMin]; the
+  /// targeting grid takes the rest, down to [_enemyGridMin]. An unbounded
+  /// host gets the natural sizes.
+  ///
+  /// The battle phase's supported minimum host height is ~364pt: [_battleMin]
+  /// (both grids at their floors) plus the table's own chrome (two chips,
+  /// their gaps and padding, ~114pt). A shorter band scales the stage down
+  /// instead of overflowing.
+  ({double enemy, double own}) _battleSizes(double room) {
+    if (!room.isFinite) return (enemy: _gridMax, own: _ownGridMax);
+    final spare = room - _battleChrome;
+    final own = math.max(_ownGridMin, math.min(_ownGridMax, spare - _gridMax));
+    final enemy = math.max(_enemyGridMin, math.min(_gridMax, spare - own));
+    return (enemy: enemy, own: own);
+  }
+
+  /// A square slot for a grid in a column whose other children are fixed
+  /// height: when the host bounds the height the grid takes what is left after
+  /// them (never more than [maxSide]).
+  Widget _squareSlot({
+    required double room,
+    required double maxSide,
+    required Widget Function(double side) builder,
+  }) {
+    if (!room.isFinite) return builder(maxSide);
+    return Flexible(
+      child: LayoutBuilder(
+        builder: (context, c) => builder(math.min(maxSide, c.maxHeight)),
+      ),
+    );
+  }
+
+  String _cellName(int cell) =>
+      'Row ${cell ~/ _n + 1}, column ${cell % _n + 1}';
+
+  /// The seat chip, spoken. The turn is left out when the host announces it.
+  String _chipLabel(
+    SeaBattleState state,
+    bool hostOwnsStatus,
+    String playerId,
+    String role,
+  ) {
+    final spoken = StringBuffer('${_labelFor(playerId)}, $role');
+    // The result is the pill's to say; the chip only ever adds the turn.
+    if (!hostOwnsStatus &&
+        _outcome == null &&
+        !_coverVisible &&
+        state.currentPlayerId == playerId) {
+      spoken.write(', to move');
+    }
+    return spoken.toString();
+  }
+
+  Widget _buildPlacement(
+    ColorScheme scheme,
+    SeaBattleState state,
+    double room,
+  ) {
     final draft = _draft!;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _gridWidget(
-          maxWidth: 340,
-          spec: _GridSpec(
-            ships: draft,
-            shipCells: {for (final s in draft) ...s.cells},
-            resolved: const {},
-            sunkCells: const {},
-            selected: _selectedShip == null ? null : draft[_selectedShip!],
+        _squareSlot(
+          room: room,
+          maxSide: _gridMax,
+          builder: (side) => _gridWidget(
+            maxWidth: side,
+            spec: _GridSpec(
+              ships: draft,
+              shipCells: {for (final s in draft) ...s.cells},
+              resolved: const {},
+              sunkCells: const {},
+              selected: _selectedShip == null ? null : draft[_selectedShip!],
+            ),
+            onTap: _onPlacementTap,
+            cellLabel: (cell) {
+              final idx = draft.indexWhere((s) => s.cells.contains(cell));
+              if (idx < 0) return '${_cellName(cell)}, water';
+              return '${_cellName(cell)}, ship'
+                  '${idx == _selectedShip ? ', selected' : ''}';
+            },
           ),
-          onTap: _onPlacementTap,
         ),
         const SizedBox(height: 6),
         const Text(
@@ -591,29 +755,41 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
     );
   }
 
-  Widget _buildWaiting(ColorScheme scheme, SeaBattleState state) {
+  Widget _buildWaiting(
+    ColorScheme scheme,
+    SeaBattleState state,
+    double room,
+    bool hostOwnsStatus,
+  ) {
     final fleet = state.fleets[_actingPlayer] ?? const <ShipPlacement>[];
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _gridWidget(
-          maxWidth: 340,
-          spec: _GridSpec(
-            ships: fleet,
-            shipCells: state.shipCellsOf(_actingPlayer),
-            resolved: const {},
-            sunkCells: const {},
+        _squareSlot(
+          room: room,
+          maxSide: _gridMax,
+          builder: (side) => _gridWidget(
+            maxWidth: side,
+            spec: _GridSpec(
+              ships: fleet,
+              shipCells: state.shipCellsOf(_actingPlayer),
+              resolved: const {},
+              sunkCells: const {},
+            ),
+            summary: 'Your fleet, placed',
           ),
         ),
-        const SizedBox(height: 10),
-        const Text(
-          'Waiting for the enemy fleet…',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
+        if (!hostOwnsStatus) ...[
+          const SizedBox(height: 10),
+          const Text(
+            'Waiting for the enemy fleet…',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -622,34 +798,44 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
     ColorScheme scheme,
     SeaBattleState state,
     String enemy,
+    double room,
   ) {
     final gameOver = _outcome != null;
     final enemyShots = state.shots[enemy] ?? const <int>{};
     final enemySunk = state.sunkShipsOf(enemy);
+    final enemyShipCells = state.shipCellsOf(enemy);
+    final enemySunkCells = {for (final s in enemySunk) ...s.cells};
     // Hidden until sunk; full reveal when the game ends.
     final enemyVisibleShips =
         gameOver ? (state.fleets[enemy] ?? const <ShipPlacement>[]) : enemySunk;
     final ownShots = state.shots[_actingPlayer] ?? const <int>{};
     final ownFleet = state.fleets[_actingPlayer] ?? const <ShipPlacement>[];
+    final ownSunk = state.sunkShipsOf(_actingPlayer);
 
     final animatingOnEnemy = _shotCell != null && _shotTarget == enemy;
     final animatingOnOwn = _shotCell != null && _shotTarget == _actingPlayer;
+    final sizes = _battleSizes(room);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _FleetStatusRow(
-          sunkLengths: enemySunk.map((s) => s.length).toList(),
-          color: widget.style.resolveMiss(scheme),
+        Semantics(
+          label: 'Enemy ships sunk, ${enemySunk.length} of '
+              '${SeaBattleGame.shipLengths.length}',
+          excludeSemantics: true,
+          child: _FleetStatusRow(
+            sunkLengths: enemySunk.map((s) => s.length).toList(),
+            color: widget.style.resolveMiss(scheme),
+          ),
         ),
         const SizedBox(height: 8),
         _gridWidget(
-          maxWidth: 340,
+          maxWidth: sizes.enemy,
           spec: _GridSpec(
             ships: enemyVisibleShips,
-            shipCells: state.shipCellsOf(enemy),
+            shipCells: enemyShipCells,
             resolved: enemyShots,
-            sunkCells: {for (final s in enemySunk) ...s.cells},
+            sunkCells: enemySunkCells,
             shot: animatingOnEnemy
                 ? _ShotAnim(
                     cell: _shotCell!,
@@ -661,17 +847,25 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                 : null,
           ),
           onTap: _onTargetTap,
+          cellLabel: (cell) {
+            if (!enemyShots.contains(cell)) {
+              return '${_cellName(cell)}, unknown';
+            }
+            if (!enemyShipCells.contains(cell)) {
+              return '${_cellName(cell)}, miss';
+            }
+            return '${_cellName(cell)}, hit'
+                '${enemySunkCells.contains(cell) ? ', sunk' : ''}';
+          },
         ),
         const SizedBox(height: 10),
         _gridWidget(
-          maxWidth: 150,
+          maxWidth: sizes.own,
           spec: _GridSpec(
             ships: ownFleet,
             shipCells: state.shipCellsOf(_actingPlayer),
             resolved: ownShots,
-            sunkCells: {
-              for (final s in state.sunkShipsOf(_actingPlayer)) ...s.cells,
-            },
+            sunkCells: {for (final s in ownSunk) ...s.cells},
             compact: true,
             shot: animatingOnOwn
                 ? _ShotAnim(
@@ -683,15 +877,37 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                   )
                 : null,
           ),
+          summary: 'Your fleet, ${ownFleet.length - ownSunk.length} of '
+              '${ownFleet.length} ships afloat',
         ),
       ],
     );
   }
 
+  /// One grid. [onTap] + [cellLabel] make every cell reachable by a screen
+  /// reader; a grid with neither takes a single [summary] node instead.
   Widget _gridWidget({
     required double maxWidth,
     required _GridSpec spec,
     void Function(int cell)? onTap,
+    String Function(int cell)? cellLabel,
+    String? summary,
+  }) {
+    final grid = _rawGrid(
+      maxWidth: maxWidth,
+      spec: spec,
+      onTap: onTap,
+      cellLabel: cellLabel,
+    );
+    if (summary == null) return grid;
+    return Semantics(container: true, label: summary, child: grid);
+  }
+
+  Widget _rawGrid({
+    required double maxWidth,
+    required _GridSpec spec,
+    void Function(int cell)? onTap,
+    String Function(int cell)? cellLabel,
   }) {
     final scheme = Theme.of(context).colorScheme;
     final style = widget.style;
@@ -704,12 +920,22 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
             final geom = _SeaGeom(c.maxWidth);
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
+              // A shot or a ship move is taken on lift-off over the cell the
+              // press started on, never on touch-down.
               onTapDown: onTap == null
                   ? null
+                  : (d) => _downCell = geom.hitTest(d.localPosition),
+              onTapUp: onTap == null
+                  ? null
                   : (d) {
-                      final cell = geom.hitTest(d.localPosition);
-                      if (cell != null) onTap(cell);
+                      final down = _downCell;
+                      _downCell = null;
+                      if (down != null &&
+                          geom.hitTest(d.localPosition) == down) {
+                        onTap(down);
+                      }
                     },
+              onTapCancel: onTap == null ? null : () => _downCell = null,
               child: CustomPaint(
                 size: Size.square(c.maxWidth),
                 painter: _SeaGridPainter(
@@ -720,6 +946,8 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                   shipColor: style.resolveShip(scheme),
                   hitColor: style.resolveHit(scheme),
                   missColor: style.resolveMiss(scheme),
+                  cellLabel: cellLabel,
+                  onTapCell: onTap,
                 ),
               ),
             );
@@ -1209,6 +1437,11 @@ class _SeaGridPainter extends CustomPainter {
   final Color hitColor;
   final Color missColor;
 
+  /// What a screen reader says for a cell, and what activating it does. Both
+  /// null for a grid that is only looked at.
+  final String Function(int cell)? cellLabel;
+  final void Function(int cell)? onTapCell;
+
   _SeaGridPainter({
     required this.geom,
     required this.spec,
@@ -1217,10 +1450,16 @@ class _SeaGridPainter extends CustomPainter {
     required this.shipColor,
     required this.hitColor,
     required this.missColor,
+    this.cellLabel,
+    this.onTapCell,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
+    // A band with no room hands the grid no size at all; every measure below
+    // divides by the cell.
+    if (size.isEmpty || geom.cell <= 0) return;
+
     // Frame, sea texture, grid and coordinate ruler never move: one cached
     // picture, so only the fleet and the pegs cost anything per frame.
     canvas.drawPicture(_chartFor(size, geom, water, gridLine, spec.compact));
@@ -1546,6 +1785,43 @@ class _SeaGridPainter extends CustomPainter {
       old.spec.shot?.t != spec.shot?.t ||
       old.spec.shot?.cell != spec.shot?.cell ||
       old.water != water;
+
+  /// One node per cell on a grid that can be played.
+  @override
+  SemanticsBuilderCallback? get semanticsBuilder {
+    final label = cellLabel;
+    if (label == null) return null;
+    return (Size size) => [
+          for (var i = 0; i < seaBattleBoardSize * seaBattleBoardSize; i++)
+            () {
+              // A cell already shot has nothing left to activate: it is a
+              // label only, not a button.
+              final playable = onTapCell != null && !spec.resolved.contains(i);
+              return CustomPainterSemantics(
+                key: ValueKey(i),
+                rect: geom.cellRect(
+                  i ~/ seaBattleBoardSize,
+                  i % seaBattleBoardSize,
+                ),
+                properties: SemanticsProperties(
+                  button: playable,
+                  label: label(i),
+                  textDirection: TextDirection.ltr,
+                  onTap: playable ? () => onTapCell!(i) : null,
+                ),
+              );
+            }(),
+        ];
+  }
+
+  // Not the shot animation: that repaints every frame and says nothing new.
+  @override
+  bool shouldRebuildSemantics(_SeaGridPainter old) =>
+      !listEquals(old.spec.ships, spec.ships) ||
+      !setEquals(old.spec.resolved, spec.resolved) ||
+      !setEquals(old.spec.sunkCells, spec.sunkCells) ||
+      old.spec.selected != spec.selected ||
+      old.geom.side != geom.side;
 }
 
 // ---------------------------------------------------------------------------
@@ -1554,12 +1830,17 @@ class _SeaGridPainter extends CustomPainter {
 
 class _PlayerChip extends StatelessWidget {
   final String label;
+
+  /// What a screen reader says for the chip (the name, the role and, when
+  /// the board owns the status, whose turn it is).
+  final String semanticLabel;
   final Color accent;
   final bool active;
   final bool winner;
 
   const _PlayerChip({
     required this.label,
+    required this.semanticLabel,
     required this.accent,
     required this.active,
     required this.winner,
@@ -1567,6 +1848,16 @@ class _PlayerChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      liveRegion: active || winner,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: _chip(),
+    );
+  }
+
+  Widget _chip() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -1682,9 +1973,16 @@ class _FeltButton extends StatelessWidget {
 /// Pass-and-play privacy cover shown between turns.
 class _HandoffCover extends StatelessWidget {
   final String label;
+
+  /// Longest side the cover may take (it shrinks with a short host band).
+  final double maxSide;
   final VoidCallback onReady;
 
-  const _HandoffCover({required this.label, required this.onReady});
+  const _HandoffCover({
+    required this.label,
+    required this.maxSide,
+    required this.onReady,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1692,7 +1990,7 @@ class _HandoffCover extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onReady,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 340),
+        constraints: BoxConstraints(maxWidth: maxSide),
         child: AspectRatio(
           aspectRatio: 1,
           child: Container(

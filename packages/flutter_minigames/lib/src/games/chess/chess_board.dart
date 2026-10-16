@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'chess_game.dart';
 import 'chess_pieces.dart';
@@ -79,6 +81,10 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
   int? _selected;
   List<ChessMove> _targets = const [];
   List<ChessMove> _promoChoices = const [];
+
+  /// Square the current press started on; the tap is only taken if the
+  /// finger lifts over the same square.
+  int? _downCell;
 
   List<_PieceSlide> _slides = const [];
   List<_PieceFade> _fades = const [];
@@ -200,7 +206,7 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
         _mateTimer = Timer(const Duration(milliseconds: 1400), () {
           if (mounted) setState(() => _showMatePill = false);
         });
-        if (style.confetti) {
+        if (style.confetti && !GameMotion.reduced(context)) {
           _confetti = _spawnConfetti(state);
           _confettiCtrl.forward(from: 0);
         }
@@ -297,6 +303,42 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
     }
   }
 
+  /// The square under [local], clamped to the field so the notation rails
+  /// count as the edge squares.
+  int _cellAt(Offset local, Rect field, double cellSize) {
+    final col = ((local.dx - field.left) / cellSize).floor().clamp(0, 7);
+    final row = ((local.dy - field.top) / cellSize).floor().clamp(0, 7);
+    return row * 8 + col;
+  }
+
+  /// Taking a move on lift-off, not touch-down: a brush or the start of a
+  /// scroll must not select a piece or play a move.
+  void _onPressUp(Offset local, Rect field, double cellSize) {
+    final down = _downCell;
+    _downCell = null;
+    if (down == null || _cellAt(local, field, cellSize) != down) return;
+    _onTapCell(down);
+  }
+
+  /// "Player 1, white, to move" — the seat chip, spoken. The turn is left out
+  /// when the host announces it.
+  String _chipLabel(
+    ChessState state,
+    bool hostOwnsStatus,
+    String name,
+    String colour,
+    String playerId,
+  ) {
+    final spoken = StringBuffer('$name, $colour');
+    // The result is the pill's to say; the chip only ever adds the turn.
+    if (!hostOwnsStatus &&
+        _outcome == null &&
+        state.currentPlayerId == playerId) {
+      spoken.write(', to move');
+    }
+    return spoken.toString();
+  }
+
   void _pickPromotion(ChessMove move) {
     setState(() => _promoChoices = const []);
     widget.controller.submitMove(move);
@@ -314,24 +356,32 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
     final table = style.resolveTable(scheme);
     final whitePiece = style.resolveWhitePiece(scheme);
     final blackPiece = style.resolveBlackPiece(scheme);
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
 
     return AnimatedBuilder(
       animation: Listenable.merge([_entrance, _slide, _confettiCtrl]),
       builder: (context, _) {
         final enter = Curves.easeOutCubic.transform(_entrance.value);
 
+        // CHECK, CHECKMATE and STALEMATE are the board's own events and stay;
+        // the winner name and DRAW are the result, which a host that owns
+        // the match chrome already says.
         String? pillMsg;
         if (_outcome != null) {
           if (_outcome!.isWin) {
             // CHECKMATE flashes first, then hands off to the winner name.
             pillMsg = _showMatePill
                 ? 'CHECKMATE'
-                : (_outcome!.winnerId == state.whiteId
-                        ? '${style.whiteLabel} wins'
-                        : '${style.blackLabel} wins')
-                    .toUpperCase();
+                : hostOwnsStatus
+                    ? null
+                    : (_outcome!.winnerId == state.whiteId
+                            ? '${style.whiteLabel} wins'
+                            : '${style.blackLabel} wins')
+                        .toUpperCase();
           } else {
-            pillMsg = _isStalemate ? 'STALEMATE' : 'DRAW';
+            pillMsg = _isStalemate
+                ? 'STALEMATE'
+                : (hostOwnsStatus ? null : 'DRAW');
           }
         } else if (_showCheckPill) {
           pillMsg = 'CHECK';
@@ -352,17 +402,11 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
                     final cellSize = field.width / 8;
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTapDown: (d) {
-                        final col =
-                            ((d.localPosition.dx - field.left) / cellSize)
-                                .floor()
-                                .clamp(0, 7);
-                        final row =
-                            ((d.localPosition.dy - field.top) / cellSize)
-                                .floor()
-                                .clamp(0, 7);
-                        _onTapCell(row * 8 + col);
-                      },
+                      onTapDown: (d) =>
+                          _downCell = _cellAt(d.localPosition, field, cellSize),
+                      onTapUp: (d) =>
+                          _onPressUp(d.localPosition, field, cellSize),
+                      onTapCancel: () => _downCell = null,
                       child: Stack(
                         children: [
                           CustomPaint(
@@ -385,18 +429,31 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
                               checkedKing: _inCheck
                                   ? _kingCell(state.whiteToMove)
                                   : null,
+                              onTapCell: _onTapCell,
                             ),
                           ),
                           if (_promoChoices.isNotEmpty)
+                            // Modal to a screen reader as it is to a finger:
+                            // the squares behind it drop out of the tree, and
+                            // the picker is announced as the thing to act on.
                             Positioned.fill(
-                              child: _PromotionPicker(
-                                choices: _promoChoices,
-                                isWhite: state.whiteToMove,
-                                whitePiece: whitePiece,
-                                blackPiece: blackPiece,
-                                onPick: _pickPromotion,
-                                onCancel: () =>
-                                    setState(() => _promoChoices = const []),
+                              child: BlockSemantics(
+                                child: Semantics(
+                                  liveRegion: true,
+                                  label: 'Choose a promotion piece',
+                                  scopesRoute: true,
+                                  namesRoute: true,
+                                  explicitChildNodes: true,
+                                  child: _PromotionPicker(
+                                    choices: _promoChoices,
+                                    isWhite: state.whiteToMove,
+                                    whitePiece: whitePiece,
+                                    blackPiece: blackPiece,
+                                    onPick: _pickPromotion,
+                                    onCancel: () => setState(
+                                        () => _promoChoices = const []),
+                                  ),
+                                ),
                               ),
                             ),
                           if (style.confetti && _confetti.isNotEmpty)
@@ -447,6 +504,8 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
                       alignment: Alignment.centerLeft,
                       child: _PlayerChip(
                         label: style.blackLabel,
+                        semanticLabel: _chipLabel(state, hostOwnsStatus,
+                            style.blackLabel, 'black', state.blackId),
                         piece: 'k',
                         pieceColor: blackPiece,
                         active: _outcome == null && !state.whiteToMove,
@@ -479,13 +538,16 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
                                           borderRadius:
                                               BorderRadius.circular(10),
                                         ),
-                                        child: Text(
-                                          pillMsg,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 14,
-                                            letterSpacing: 1.1,
+                                        child: Semantics(
+                                          liveRegion: true,
+                                          child: Text(
+                                            pillMsg,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 14,
+                                              letterSpacing: 1.1,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -500,6 +562,8 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
                       alignment: Alignment.centerRight,
                       child: _PlayerChip(
                         label: style.whiteLabel,
+                        semanticLabel: _chipLabel(state, hostOwnsStatus,
+                            style.whiteLabel, 'white', state.whiteId),
                         piece: 'K',
                         pieceColor: whitePiece,
                         active: _outcome == null && state.whiteToMove,
@@ -983,6 +1047,9 @@ class _ChessPainter extends CustomPainter {
   final double slideT;
   final int? checkedKing;
 
+  /// Called when a square is activated through accessibility.
+  final ValueChanged<int>? onTapCell;
+
   _ChessPainter({
     required this.cells,
     required this.light,
@@ -998,6 +1065,7 @@ class _ChessPainter extends CustomPainter {
     required this.fades,
     required this.slideT,
     required this.checkedKing,
+    this.onTapCell,
   });
 
   @override
@@ -1123,11 +1191,75 @@ class _ChessPainter extends CustomPainter {
       old.selected != selected ||
       old.targets != targets ||
       old.checkedKing != checkedKing;
+
+  /// One node per square, so a screen reader can walk the board and play.
+  @override
+  SemanticsBuilderCallback? get semanticsBuilder => (Size size) {
+        final field = _fieldRect(size.width);
+        final cell = field.width / 8;
+        return [
+          for (var i = 0; i < 64; i++)
+            CustomPainterSemantics(
+              key: ValueKey(i),
+              rect: Rect.fromLTWH(
+                field.left + (i % 8) * cell,
+                field.top + (i ~/ 8) * cell,
+                cell,
+                cell,
+              ),
+              properties: SemanticsProperties(
+                button: true,
+                label: _squareLabel(i),
+                textDirection: TextDirection.ltr,
+                onTap: onTapCell == null ? null : () => onTapCell!(i),
+              ),
+            ),
+        ];
+      };
+
+  @override
+  bool shouldRebuildSemantics(_ChessPainter old) =>
+      old.cells != cells ||
+      old.selected != selected ||
+      old.targets != targets ||
+      old.checkedKing != checkedKing;
+
+  static const _pieceNames = {
+    'p': 'pawn',
+    'n': 'knight',
+    'b': 'bishop',
+    'r': 'rook',
+    'q': 'queen',
+    'k': 'king',
+  };
+
+  /// "g1, white knight, selected" / "e4, empty, legal move".
+  String _squareLabel(int i) {
+    final piece = cells[i];
+    final what = piece == null
+        ? 'empty'
+        : '${piece == piece.toUpperCase() ? 'white' : 'black'} '
+            '${_pieceNames[piece.toLowerCase()]}';
+    final extra = [
+      if (i == selected) 'selected',
+      if (targets.any((m) => m.to == i)) 'legal move',
+      if (i == checkedKing) 'in check',
+    ];
+    return '${ChessState.algebraic(i)}, $what'
+        '${extra.isEmpty ? '' : ', ${extra.join(', ')}'}';
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Promotion picker
 // ---------------------------------------------------------------------------
+
+const _promotionNames = {
+  'q': 'queen',
+  'r': 'rook',
+  'n': 'knight',
+  'b': 'bishop',
+};
 
 class _PromotionPicker extends StatelessWidget {
   final List<ChessMove> choices;
@@ -1174,18 +1306,23 @@ class _PromotionPicker extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (final m in sorted)
-                  GestureDetector(
+                  Semantics(
+                    button: true,
+                    label: 'Promote to ${_promotionNames[m.promotion!]}',
                     onTap: () => onPick(m),
-                    child: SizedBox(
-                      width: 56,
-                      height: 56,
-                      child: CustomPaint(
-                        painter: _PromoPiecePainter(
-                          piece: isWhite
-                              ? m.promotion!.toUpperCase()
-                              : m.promotion!,
-                          whitePiece: whitePiece,
-                          blackPiece: blackPiece,
+                    child: GestureDetector(
+                      onTap: () => onPick(m),
+                      child: SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: CustomPaint(
+                          painter: _PromoPiecePainter(
+                            piece: isWhite
+                                ? m.promotion!.toUpperCase()
+                                : m.promotion!,
+                            whitePiece: whitePiece,
+                            blackPiece: blackPiece,
+                          ),
                         ),
                       ),
                     ),
@@ -1232,6 +1369,10 @@ class _PromoPiecePainter extends CustomPainter {
 
 class _PlayerChip extends StatelessWidget {
   final String label;
+
+  /// What a screen reader says for the chip (the name, the side and, when
+  /// the board owns the status, whose turn it is).
+  final String semanticLabel;
   final String piece;
   final Color pieceColor;
   final bool active;
@@ -1239,6 +1380,7 @@ class _PlayerChip extends StatelessWidget {
 
   const _PlayerChip({
     required this.label,
+    required this.semanticLabel,
     required this.piece,
     required this.pieceColor,
     required this.active,
@@ -1247,6 +1389,16 @@ class _PlayerChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      liveRegion: active || winner,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: _chip(),
+    );
+  }
+
+  Widget _chip() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),

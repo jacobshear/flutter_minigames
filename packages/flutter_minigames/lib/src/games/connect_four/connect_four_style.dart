@@ -23,6 +23,12 @@ class ConnectFourStyle {
   final bool confetti;
   final ConnectFourSounds sounds;
 
+  /// Give the second seat's discs a visible inner ring, so the two seats
+  /// differ by shape as well as colour. Off by default; hosts whose seat
+  /// colours can land close together (or who serve colour-blind players)
+  /// turn it on.
+  final bool distinctMarks;
+
   const ConnectFourStyle({
     this.player0Color,
     this.player1Color,
@@ -31,6 +37,7 @@ class ConnectFourStyle {
     this.haptics = true,
     this.confetti = true,
     this.sounds = ConnectFourSounds.silent,
+    this.distinctMarks = false,
   });
 
   Color resolveP0(ColorScheme scheme) => player0Color ?? scheme.primary;

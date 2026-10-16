@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'gomoku_game.dart';
 import 'gomoku_style.dart';
@@ -58,6 +60,13 @@ class _GomokuBoardState extends State<GomokuBoard>
   int _lastCount = 0;
   List<_Confetto> _confetti = const [];
 
+  /// Intersection the current press started on; a move is only taken if the
+  /// finger lifts over the same one.
+  int? _downCell;
+
+  /// Pending stone under [GomokuStyle.confirmPlacement].
+  int? _ghost;
+
   @override
   void initState() {
     super.initState();
@@ -109,6 +118,8 @@ class _GomokuBoardState extends State<GomokuBoard>
     final style = widget.style;
     final count = state.stoneCount;
     final outcome = _game.outcome(state);
+    // Any state change (a move landed, a new game) settles a pending ghost.
+    _ghost = null;
 
     if (count < _lastCount) {
       // New game.
@@ -133,7 +144,7 @@ class _GomokuBoardState extends State<GomokuBoard>
         style.sounds.onWin?.call();
         if (style.haptics) HapticFeedback.heavyImpact();
         _winCtrl.forward(from: 0);
-        if (style.confetti) {
+        if (style.confetti && !GameMotion.reduced(context)) {
           _confetti = _spawnConfetti(state, outcome);
           _confettiCtrl.forward(from: 0);
         }
@@ -176,16 +187,57 @@ class _GomokuBoardState extends State<GomokuBoard>
     });
   }
 
-  void _onTapAt(Offset local, _BoardGeom geom, GomokuState state) {
-    if (_outcome != null) return;
-    final cell = geom.hitTest(local, state.size);
-    if (cell == null) return;
+  /// Remember where the press started. Nothing is taken until the finger
+  /// lifts: a brush or the start of a scroll must not send a move.
+  void _onPressDown(Offset local, _BoardGeom geom, int size) {
+    _downCell = geom.hitTest(local, size);
+  }
+
+  void _onPressUp(Offset local, _BoardGeom geom, int size) {
+    final down = _downCell;
+    _downCell = null;
+    if (down == null || geom.hitTest(local, size) != down) return;
+    _onCellTap(down);
+  }
+
+  void _onCellTap(int cell) {
+    final state = _state;
+    if (state == null || _outcome != null) return;
     if (state.cells[cell] != null) {
       widget.style.sounds.onInvalid?.call();
       if (widget.style.haptics) HapticFeedback.selectionClick();
       return;
     }
+    if (widget.style.confirmPlacement) {
+      if (_ghost == cell) {
+        setState(() => _ghost = null);
+        widget.controller.submitMove(GomokuMove(cell));
+      } else if (widget.controller.canActLocally) {
+        setState(() => _ghost = cell);
+        if (widget.style.haptics) HapticFeedback.selectionClick();
+      }
+      return;
+    }
     widget.controller.submitMove(GomokuMove(cell));
+  }
+
+  /// "Player 1, black, to move" — the seat chip, spoken. The turn is left out
+  /// when the host announces it.
+  String _chipLabel(
+    GomokuState state,
+    bool hostOwnsStatus,
+    String name,
+    String colour,
+    String playerId,
+  ) {
+    final spoken = StringBuffer('$name, $colour');
+    // The result is the pill's to say; the chip only ever adds the turn.
+    if (!hostOwnsStatus &&
+        _outcome == null &&
+        state.currentPlayerId == playerId) {
+      spoken.write(', to move');
+    }
+    return spoken.toString();
   }
 
   @override
@@ -200,6 +252,7 @@ class _GomokuBoardState extends State<GomokuBoard>
     final black = style.resolveBlack(scheme);
     final white = style.resolveWhite(scheme);
     final table = style.resolveTable(scheme);
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
 
     return AnimatedBuilder(
       animation: Listenable.merge([
@@ -212,7 +265,7 @@ class _GomokuBoardState extends State<GomokuBoard>
         final enter = Curves.easeOutCubic.transform(_entrance.value);
 
         String? pillMsg;
-        if (_outcome != null) {
+        if (_outcome != null && !hostOwnsStatus) {
           pillMsg = _outcome!.isDraw
               ? 'DRAW'
               : (_outcome!.winnerId == state.blackId
@@ -234,7 +287,11 @@ class _GomokuBoardState extends State<GomokuBoard>
                     final geom = _BoardGeom(c.maxWidth, state.size);
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTapDown: (d) => _onTapAt(d.localPosition, geom, state),
+                      onTapDown: (d) =>
+                          _onPressDown(d.localPosition, geom, state.size),
+                      onTapUp: (d) =>
+                          _onPressUp(d.localPosition, geom, state.size),
+                      onTapCancel: () => _downCell = null,
                       child: Stack(
                         children: [
                           CustomPaint(
@@ -254,6 +311,8 @@ class _GomokuBoardState extends State<GomokuBoard>
                               winT:
                                   Curves.easeOutBack.transform(_winCtrl.value),
                               gameOver: _outcome != null,
+                              ghost: _ghost,
+                              onTapCell: _onCellTap,
                             ),
                           ),
                           if (style.confetti && _confetti.isNotEmpty)
@@ -304,6 +363,8 @@ class _GomokuBoardState extends State<GomokuBoard>
                       alignment: Alignment.centerLeft,
                       child: _PlayerChip(
                         label: style.whiteLabel,
+                        semanticLabel: _chipLabel(state, hostOwnsStatus,
+                            style.whiteLabel, 'white', state.whiteId),
                         stone: white,
                         stoneEdge: Colors.black26,
                         active: _outcome == null &&
@@ -337,13 +398,16 @@ class _GomokuBoardState extends State<GomokuBoard>
                                           borderRadius:
                                               BorderRadius.circular(10),
                                         ),
-                                        child: Text(
-                                          pillMsg,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 14,
-                                            letterSpacing: 1.1,
+                                        child: Semantics(
+                                          liveRegion: true,
+                                          child: Text(
+                                            pillMsg,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 14,
+                                              letterSpacing: 1.1,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -358,6 +422,8 @@ class _GomokuBoardState extends State<GomokuBoard>
                       alignment: Alignment.centerRight,
                       child: _PlayerChip(
                         label: style.blackLabel,
+                        semanticLabel: _chipLabel(state, hostOwnsStatus,
+                            style.blackLabel, 'black', state.blackId),
                         stone: black,
                         stoneEdge: Colors.white24,
                         active: _outcome == null &&
@@ -421,6 +487,12 @@ class _GomokuPainter extends CustomPainter {
   final double winT;
   final bool gameOver;
 
+  /// Pending stone under [GomokuStyle.confirmPlacement].
+  final int? ghost;
+
+  /// Called when an intersection is activated through accessibility.
+  final ValueChanged<int>? onTapCell;
+
   _GomokuPainter({
     required this.state,
     required this.geom,
@@ -432,6 +504,8 @@ class _GomokuPainter extends CustomPainter {
     required this.winLine,
     required this.winT,
     required this.gameOver,
+    this.ghost,
+    this.onTapCell,
   });
 
   @override
@@ -479,6 +553,27 @@ class _GomokuPainter extends CustomPainter {
       }
     }
 
+    // Pending stone: a translucent copy of the stone that would be placed.
+    final pending = ghost;
+    if (pending != null && !gameOver && state.cells[pending] == null) {
+      final c = geom.center(pending ~/ n, pending % n);
+      final isBlack = state.currentPlayerId == state.blackId;
+      canvas.saveLayer(
+        Rect.fromCircle(center: c, radius: radius * 1.8),
+        Paint()..color = Colors.white.withValues(alpha: 0.6),
+      );
+      _paintStone(canvas, c, c, radius, isBlack ? black : white, isBlack, 1.0);
+      canvas.restore();
+      canvas.drawCircle(
+        c,
+        radius * 1.2,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1.5, radius * 0.12)
+          ..color = const Color(0xFFF4B740).withValues(alpha: 0.85),
+      );
+    }
+
     // Win-line rings pop in over the five stones.
     if (winLine.isNotEmpty && winT > 0.01) {
       final ring = Paint()
@@ -498,7 +593,60 @@ class _GomokuPainter extends CustomPainter {
       old.state != state ||
       old.winT != winT ||
       old.gameOver != gameOver ||
+      old.ghost != ghost ||
       !_mapEquals(old.pops, pops);
+
+  /// One node per intersection, so a screen reader can walk the board and
+  /// activate a point.
+  @override
+  SemanticsBuilderCallback? get semanticsBuilder => (Size size) {
+        final n = state.size;
+        return [
+          for (var i = 0; i < state.cells.length; i++)
+            () {
+              // A stone, or a finished game, leaves nothing to activate: such a
+              // point is a label only, not a button.
+              final playable =
+                  state.cells[i] == null && !gameOver && onTapCell != null;
+              return CustomPainterSemantics(
+                key: ValueKey(i),
+                rect: Rect.fromCenter(
+                  center: geom.center(i ~/ n, i % n),
+                  width: geom.spacing,
+                  height: geom.spacing,
+                ),
+                properties: SemanticsProperties(
+                  button: playable,
+                  label: _cellLabel(i),
+                  textDirection: TextDirection.ltr,
+                  onTap: playable ? () => onTapCell!(i) : null,
+                ),
+              );
+            }(),
+        ];
+      };
+
+  @override
+  bool shouldRebuildSemantics(_GomokuPainter old) =>
+      old.state != state ||
+      old.ghost != ghost ||
+      old.gameOver != gameOver ||
+      old.geom.side != geom.side;
+
+  /// "Row 3, column 5, empty" / "…, black stone, last move".
+  String _cellLabel(int i) {
+    final n = state.size;
+    final owner = state.cells[i];
+    final what = owner == null
+        ? 'empty'
+        : (owner == state.blackId ? 'black stone' : 'white stone');
+    final extra = [
+      if (owner != null && i == state.lastCell && !gameOver) 'last move',
+      if (i == ghost && owner == null) 'selected, tap again to place',
+    ];
+    return 'Row ${i ~/ n + 1}, column ${i % n + 1}, $what'
+        '${extra.isEmpty ? '' : ', ${extra.join(', ')}'}';
+  }
 
   static bool _mapEquals(Map<int, double> a, Map<int, double> b) {
     if (a.length != b.length) return false;
@@ -1035,6 +1183,10 @@ class _FeltPainter extends CustomPainter {
 
 class _PlayerChip extends StatelessWidget {
   final String label;
+
+  /// What a screen reader says for the chip (the name, the stone colour and,
+  /// when the board owns the status, whose turn it is).
+  final String semanticLabel;
   final Color stone;
   final Color stoneEdge;
   final bool active;
@@ -1042,6 +1194,7 @@ class _PlayerChip extends StatelessWidget {
 
   const _PlayerChip({
     required this.label,
+    required this.semanticLabel,
     required this.stone,
     required this.stoneEdge,
     required this.active,
@@ -1050,6 +1203,16 @@ class _PlayerChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      liveRegion: active || winner,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: _chip(),
+    );
+  }
+
+  Widget _chip() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),

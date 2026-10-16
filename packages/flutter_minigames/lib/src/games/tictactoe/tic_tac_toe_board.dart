@@ -5,6 +5,7 @@ import 'dart:ui' as ui show Picture, PictureRecorder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'tic_tac_toe_game.dart';
 import 'tic_tac_toe_marks.dart';
@@ -24,7 +25,8 @@ class TicTacToeBoard extends StatefulWidget {
 
   /// Whether the board draws its own turn / result banner above the grid.
   /// Hosts that render turn ownership and the outcome in their own chrome
-  /// pass false so the state isn't said twice.
+  /// pass false so the state isn't said twice. A [GameHostChrome] ancestor
+  /// with `hostOwnsStatus` turns the banner off the same way.
   final bool showStatusBanner;
 
   const TicTacToeBoard({
@@ -150,7 +152,7 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
     Future.delayed(const Duration(milliseconds: 160), () {
       if (mounted) _winLineCtrl.forward(from: 0);
     });
-    if (widget.style.confetti) {
+    if (widget.style.confetti && !GameMotion.reduced(context)) {
       _confetti = _spawnConfetti();
       _confettiCtrl.forward(from: 0);
     }
@@ -184,6 +186,16 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
     return state.playerIds.indexOf(id) == 0;
   }
 
+  /// "Row 2, column 3, X" — what a screen reader says for cell [i].
+  String _cellLabel(TicTacToeState state, int i) {
+    final mark = switch (_markIsX(state, i)) {
+      null => 'empty',
+      true => 'X',
+      false => 'O',
+    };
+    return 'Row ${i ~/ 3 + 1}, column ${i % 3 + 1}, $mark';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -203,11 +215,13 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
         : state.playerIds.indexOf(state.cells[_winLine!.first]!) == 0;
     final winColor =
         style.winLineColor ?? (winnerIsX == true ? xColor : oColor);
+    final showBanner =
+        widget.showStatusBanner && !GameHostChrome.hostOwnsStatusOf(context);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (widget.showStatusBanner) ...[
+        if (showBanner) ...[
           _StatusBanner(
             state: state,
             outcome: _outcome,
@@ -245,6 +259,7 @@ class _TicTacToeBoardState extends State<TicTacToeBoard>
                         children: [
                           for (var i = 0; i < 9; i++)
                             _Cell(
+                              label: _cellLabel(state, i),
                               markIsX: _markIsX(state, i),
                               currentIsX: currentIsX,
                               xColor: xColor,
@@ -378,22 +393,35 @@ class _StatusBanner extends StatelessWidget {
     }
 
     final isResult = outcome != null;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 280),
-      height: isResult ? 56 : 40,
-      alignment: Alignment.center,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 360),
-        switchInCurve: Curves.easeOutBack,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
-            child: child,
+    // The glyph and "to move" are painted; say the whole sentence once.
+    final spoken = outcome == null
+        ? '${state.playerIds.indexOf(state.currentPlayerId) == 0 ? 'X' : 'O'}'
+            ' to move'
+        : outcome!.isDraw
+            ? 'Draw'
+            : '${winnerIsX == true ? 'X' : 'O'} wins';
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: spoken,
+      excludeSemantics: true,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 280),
+        height: isResult ? 56 : 40,
+        alignment: Alignment.center,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 360),
+          switchInCurve: Curves.easeOutBack,
+          switchOutCurve: Curves.easeIn,
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
+              child: child,
+            ),
           ),
+          child: content,
         ),
-        child: content,
       ),
     );
   }
@@ -479,6 +507,8 @@ class _BreathingDotState extends State<_BreathingDot>
 // ---------------------------------------------------------------------------
 
 class _Cell extends StatefulWidget {
+  /// What a screen reader says for this cell ("Row 1, column 2, X").
+  final String label;
   final bool? markIsX;
   final bool currentIsX;
   final Color xColor;
@@ -489,6 +519,7 @@ class _Cell extends StatefulWidget {
   final VoidCallback onTap;
 
   const _Cell({
+    required this.label,
     required this.markIsX,
     required this.currentIsX,
     required this.xColor,
@@ -548,6 +579,18 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // The gesture already maps to onTap; the label and the explicit action
+    // are what let VoiceOver name the cell and activate it.
+    return Semantics(
+      button: true,
+      enabled: widget.enabled,
+      label: widget.label,
+      onTap: widget.enabled ? widget.onTap : null,
+      child: _tapTarget(),
+    );
+  }
+
+  Widget _tapTarget() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: widget.enabled ? (_) => setState(() => _pressed = true) : null,

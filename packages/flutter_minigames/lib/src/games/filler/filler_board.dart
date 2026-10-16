@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'filler_game.dart';
 import 'filler_style.dart';
@@ -205,7 +206,7 @@ class _FillerBoardState extends State<FillerBoard>
     if (outcome.isWin) {
       style.sounds.onWin?.call();
       if (style.haptics) HapticFeedback.heavyImpact();
-      if (style.confetti) {
+      if (style.confetti && !GameMotion.reduced(context)) {
         _confetti = _spawnConfetti(state, outcome);
         _confettiCtrl.forward(from: 0);
       }
@@ -295,6 +296,26 @@ class _FillerBoardState extends State<FillerBoard>
     return _GridFrame(colors: display, popScale: popScale, flash: flash);
   }
 
+  /// "Player 1, 12 cells, to move" — the score chip, spoken. The turn is left
+  /// out when the host announces it.
+  String _chipLabel(
+    FillerState state,
+    bool hostOwnsStatus,
+    GameOutcome? shownOutcome,
+    int index,
+  ) {
+    final name = index == 0 ? widget.style.p1Label : widget.style.p2Label;
+    final score = state.scoreOfIndex(index);
+    final spoken = StringBuffer(
+      '$name, $score ${score == 1 ? 'cell' : 'cells'}',
+    );
+    // The result is the pill's to say; the chip only ever adds the turn.
+    if (!hostOwnsStatus && shownOutcome == null && state.turnIndex == index) {
+      spoken.write(', to move');
+    }
+    return spoken.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -306,6 +327,7 @@ class _FillerBoardState extends State<FillerBoard>
 
     final table = style.resolveTable(scheme);
     final slab = style.resolveSlab(scheme);
+    final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
 
     return AnimatedBuilder(
       animation: Listenable.merge([_entrance, _captureCtrl, _confettiCtrl]),
@@ -314,8 +336,9 @@ class _FillerBoardState extends State<FillerBoard>
         final frame = _frame(_captureCtrl.value);
         final showOutcome = !_animating ? _outcome : null;
 
+        // The result is the host's to say when it owns the match chrome.
         String? pillMsg;
-        if (showOutcome != null) {
+        if (showOutcome != null && !hostOwnsStatus) {
           pillMsg = showOutcome.isDraw
               ? 'DRAW'
               : (showOutcome.winnerId == state.playerIds[0]
@@ -381,13 +404,16 @@ class _FillerBoardState extends State<FillerBoard>
                                     color: Colors.black.withValues(alpha: 0.58),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: Text(
-                                    pillMsg,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                      letterSpacing: 1.1,
+                                  child: Semantics(
+                                    liveRegion: true,
+                                    child: Text(
+                                      pillMsg,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                        letterSpacing: 1.1,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -432,6 +458,8 @@ class _FillerBoardState extends State<FillerBoard>
                           alignment: Alignment.centerRight,
                           child: _PlayerChip(
                             label: style.p2Label,
+                            semanticLabel: _chipLabel(
+                                state, hostOwnsStatus, showOutcome, 1),
                             score: state.scoreOfIndex(1),
                             color: style.cellColors[state.colorOfIndex(1)],
                             active: showOutcome == null && state.turnIndex == 1,
@@ -446,6 +474,8 @@ class _FillerBoardState extends State<FillerBoard>
                           alignment: Alignment.centerLeft,
                           child: _PlayerChip(
                             label: style.p1Label,
+                            semanticLabel: _chipLabel(
+                                state, hostOwnsStatus, showOutcome, 0),
                             score: state.scoreOfIndex(0),
                             color: style.cellColors[state.colorOfIndex(0)],
                             active: showOutcome == null && state.turnIndex == 0,
@@ -464,6 +494,9 @@ class _FillerBoardState extends State<FillerBoard>
                                 child: _Swatch(
                                   key: ValueKey('filler_swatch_$c'),
                                   color: style.cellColors[c],
+                                  label: c == ownColor || c == oppColor
+                                      ? '${style.colorName(c)}, already in play'
+                                      : 'Pick ${style.colorName(c)}',
                                   enabled: _outcome == null &&
                                       c != ownColor &&
                                       c != oppColor,
@@ -783,6 +816,10 @@ class _FeltPainter extends CustomPainter {
 /// GP-style score chip: territory-color dot, name, big count.
 class _PlayerChip extends StatelessWidget {
   final String label;
+
+  /// What a screen reader says for the chip (name, cells and, when the board
+  /// owns the status, whose turn it is).
+  final String semanticLabel;
   final int score;
   final Color color;
   final bool active;
@@ -790,6 +827,7 @@ class _PlayerChip extends StatelessWidget {
 
   const _PlayerChip({
     required this.label,
+    required this.semanticLabel,
     required this.score,
     required this.color,
     required this.active,
@@ -798,6 +836,16 @@ class _PlayerChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      liveRegion: active || winner,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: _chip(),
+    );
+  }
+
+  Widget _chip() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -852,12 +900,16 @@ class _PlayerChip extends StatelessWidget {
 
 class _Swatch extends StatefulWidget {
   final Color color;
+
+  /// What a screen reader says ("Pick teal", "red, already in play").
+  final String label;
   final bool enabled;
   final VoidCallback onTap;
 
   const _Swatch({
     super.key,
     required this.color,
+    required this.label,
     required this.enabled,
     required this.onTap,
   });
@@ -871,6 +923,16 @@ class _SwatchState extends State<_Swatch> {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      enabled: widget.enabled,
+      label: widget.label,
+      onTap: widget.onTap,
+      child: _tapTarget(),
+    );
+  }
+
+  Widget _tapTarget() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) => setState(() => _pressed = true),

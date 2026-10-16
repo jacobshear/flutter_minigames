@@ -5,6 +5,7 @@ import 'dart:ui' as ui show Picture, PictureRecorder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'checkers_game.dart';
 import 'checkers_style.dart';
@@ -19,7 +20,8 @@ class CheckersBoard extends StatefulWidget {
 
   /// Whether the board draws its own turn / result banner above the grid.
   /// Hosts that render turn ownership and the outcome in their own chrome
-  /// pass false so the state isn't said twice.
+  /// pass false so the state isn't said twice. A [GameHostChrome] ancestor
+  /// with `hostOwnsStatus` turns the banner off the same way.
   final bool showStatusBanner;
 
   const CheckersBoard({
@@ -112,7 +114,7 @@ class _CheckersBoardState extends State<CheckersBoard>
       if (outcome.isWin) {
         style.sounds.onWin?.call();
         if (style.haptics) HapticFeedback.heavyImpact();
-        if (style.confetti) {
+        if (style.confetti && !GameMotion.reduced(context)) {
           _confetti = _spawnConfetti(state, outcome);
           _confettiCtrl.forward(from: 0);
         }
@@ -233,11 +235,13 @@ class _CheckersBoardState extends State<CheckersBoard>
         ? <int>{}
         : legal.where((m) => m.from == _selected).map((m) => m.to).toSet();
     final selectable = legal.map((m) => m.from).toSet();
+    final showBanner =
+        widget.showStatusBanner && !GameHostChrome.hostOwnsStatusOf(context);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (widget.showStatusBanner) ...[
+        if (showBanner) ...[
           _StatusBanner(
             state: state,
             outcome: _outcome,
@@ -341,9 +345,12 @@ class _StatusBanner extends StatelessWidget {
     final sl = state.pieceCount(state.lightId);
 
     Widget center;
+    // The piece and "to play" are painted; say the whole sentence once.
+    final String spoken;
     if (outcome == null) {
       final isDark = state.currentPlayerId == state.darkId;
       final label = state.mustContinueFrom != null ? 'jump again' : 'to play';
+      spoken = '${isDark ? 'Dark' : 'Red'} $label';
       center = Row(
         key: ValueKey('turn-${state.currentPlayerId}-$label'),
         mainAxisSize: MainAxisSize.min,
@@ -354,9 +361,11 @@ class _StatusBanner extends StatelessWidget {
         ],
       );
     } else if (outcome!.isDraw) {
+      spoken = 'Draw';
       center = Text('Draw', key: const ValueKey('draw'), style: textStyle);
     } else {
       final isDark = outcome!.winnerId == state.darkId;
+      spoken = '${isDark ? 'Dark' : 'Red'} wins';
       center = Row(
         key: const ValueKey('win'),
         mainAxisSize: MainAxisSize.min,
@@ -384,9 +393,14 @@ class _StatusBanner extends StatelessWidget {
           child: SizedBox(
             height: 40,
             child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 240),
-                child: center,
+              child: Semantics(
+                liveRegion: true,
+                label: spoken,
+                excludeSemantics: true,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  child: center,
+                ),
               ),
             ),
           ),
@@ -616,16 +630,43 @@ class _BoardGrid extends StatelessWidget {
                   top: frame + (i ~/ CheckersState.size) * cell,
                   width: cell,
                   height: cell,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: gameOver ? null : () => onTap(i),
-                    child: const SizedBox.expand(),
+                  child: _squareSemantics(
+                    i,
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: gameOver ? null : () => onTap(i),
+                      child: const SizedBox.expand(),
+                    ),
                   ),
                 ),
             ],
           ),
         );
       },
+    );
+  }
+
+  /// Names the playable (dark) squares for a screen reader: the piece, the
+  /// side, and whether it is selected or a legal move. The light squares
+  /// never hold a piece or take a move, so they stay out of the reading order.
+  Widget _squareSemantics(int i, Widget hitTarget) {
+    final (r, c) = CheckersState.rc(i);
+    if (!CheckersState.isDarkSquare(r, c)) return hitTarget;
+    final owner = state.cells[i];
+    final what = owner == null
+        ? 'empty'
+        : '${owner == state.darkId ? 'dark' : 'red'} '
+            '${state.isKing[i] ? 'king' : 'man'}';
+    final extra = [
+      if (selected == i) 'selected',
+      if (targets.contains(i)) 'legal move',
+    ];
+    return Semantics(
+      button: !gameOver,
+      label: 'Row ${r + 1}, column ${c + 1}, $what'
+          '${extra.isEmpty ? '' : ', ${extra.join(', ')}'}',
+      onTap: gameOver ? null : () => onTap(i),
+      child: hitTarget,
     );
   }
 

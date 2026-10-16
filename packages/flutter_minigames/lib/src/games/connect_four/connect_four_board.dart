@@ -5,6 +5,7 @@ import 'dart:ui' as ui show Picture, PictureRecorder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'connect_four_game.dart';
 import 'connect_four_style.dart';
@@ -24,7 +25,8 @@ class ConnectFourBoard extends StatefulWidget {
 
   /// Whether the board draws its own turn / result banner above the grid.
   /// Hosts that render turn ownership and the outcome in their own chrome
-  /// pass false so the state isn't said twice.
+  /// pass false so the state isn't said twice. A [GameHostChrome] ancestor
+  /// with `hostOwnsStatus` turns the banner off the same way.
   final bool showStatusBanner;
 
   const ConnectFourBoard({
@@ -46,10 +48,14 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
     vsync: this,
     duration: const Duration(milliseconds: 780),
   );
+
+  /// Glow pulse on the winning four. Idle until a game is won (a controller
+  /// that loops from the field initialiser repaints the whole board every
+  /// frame for the life of the match).
   late final AnimationController _winPulse = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
-  )..repeat(reverse: true);
+  );
   late final AnimationController _confettiCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1650),
@@ -172,6 +178,9 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
       _dropCtrls.clear();
       _dropAnims.clear();
       _confettiCtrl.value = 0;
+      _winPulse
+        ..stop()
+        ..value = 0;
       _winLine = null;
       _confetti = const [];
       _hoverCol = null;
@@ -196,6 +205,12 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
   }
 
   void _startWinEffects(ConnectFourState state) {
+    if (GameMotion.reduced(context)) {
+      // Hold the highlighted state instead of looping the glow.
+      _winPulse.value = 1;
+    } else {
+      _winPulse.repeat(reverse: true);
+    }
     // Let the landing disc settle before the celebration.
     Future.delayed(const Duration(milliseconds: 120), () {
       if (!mounted) return;
@@ -218,7 +233,7 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
           1.0 - (sumR / line.length),
         );
       }
-      if (widget.style.confetti) {
+      if (widget.style.confetti && !GameMotion.reduced(context)) {
         setState(() {
           _confetti = _spawnConfetti();
         });
@@ -279,17 +294,20 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
     final winnerIsP0 = _outcome?.isWin == true
         ? state.playerIds.indexOf(_outcome!.winnerId!) == 0
         : null;
+    final showBanner =
+        widget.showStatusBanner && !GameHostChrome.hostOwnsStatusOf(context);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (widget.showStatusBanner) ...[
+        if (showBanner) ...[
           _StatusBanner(
             state: state,
             outcome: _outcome,
             winnerIsP0: winnerIsP0,
             p0: p0,
             p1: p1,
+            distinctMarks: style.distinctMarks,
           ),
           const SizedBox(height: 16),
         ],
@@ -332,6 +350,8 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
                                 child: _Disc(
                                   color: state.isPlayer0Turn ? p0 : p1,
                                   progress: 1,
+                                  marked: style.distinctMarks &&
+                                      !state.isPlayer0Turn,
                                 ),
                               ),
                             ),
@@ -352,6 +372,7 @@ class _ConnectFourBoardState extends State<ConnectFourBoard>
                                 state: state,
                                 p0: p0,
                                 p1: p1,
+                                distinctMarks: style.distinctMarks,
                                 boardColor: boardColor,
                                 holeColor: holeColor,
                                 winSet: winSet,
@@ -423,6 +444,7 @@ class _ToyBoard extends StatelessWidget {
   final ConnectFourState state;
   final Color p0;
   final Color p1;
+  final bool distinctMarks;
   final Color boardColor;
   final Color holeColor;
   final Set<int> winSet;
@@ -439,6 +461,7 @@ class _ToyBoard extends StatelessWidget {
     required this.state,
     required this.p0,
     required this.p1,
+    required this.distinctMarks,
     required this.boardColor,
     required this.holeColor,
     required this.winSet,
@@ -449,6 +472,17 @@ class _ToyBoard extends StatelessWidget {
     required this.onHover,
     required this.onTap,
   });
+
+  /// "Column 3, 2 discs, drop" — a column is one tap target; tapping drops.
+  String _columnLabel(int col) {
+    var discs = 0;
+    for (var row = 0; row < ConnectFourState.rows; row++) {
+      if (state.cells[row * ConnectFourState.cols + col] != null) discs++;
+    }
+    final count = '$discs ${discs == 1 ? 'disc' : 'discs'}';
+    final open = !gameOver && state.dropRow(col) != null;
+    return 'Column ${col + 1}, $count${open ? ', drop' : ''}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -495,6 +529,7 @@ class _ToyBoard extends StatelessWidget {
                   state: state,
                   p0: p0,
                   p1: p1,
+                  distinctMarks: distinctMarks,
                   winSet: winSet,
                   gameOver: gameOver,
                   winPulse: winPulse,
@@ -523,6 +558,7 @@ class _ToyBoard extends StatelessWidget {
                     Expanded(
                       child: _ColumnSensor(
                         col: col,
+                        label: _columnLabel(col),
                         open: state.dropRow(col) != null && !gameOver,
                         hovered: hoverCol == col,
                         onHoverEnter: () => onHover(col),
@@ -547,6 +583,7 @@ class _DiscsPainter extends CustomPainter {
   final ConnectFourState state;
   final Color p0;
   final Color p1;
+  final bool distinctMarks;
   final Set<int> winSet;
   final bool gameOver;
   final double winPulse;
@@ -556,6 +593,7 @@ class _DiscsPainter extends CustomPainter {
     required this.state,
     required this.p0,
     required this.p1,
+    required this.distinctMarks,
     required this.winSet,
     required this.gameOver,
     required this.winPulse,
@@ -605,6 +643,7 @@ class _DiscsPainter extends CustomPainter {
           discR,
           discColor,
           winGlow: isWin ? 0.28 + 0.4 * winPulse : 0,
+          marked: distinctMarks && !isP0,
         );
         canvas.restore();
       }
@@ -612,12 +651,19 @@ class _DiscsPainter extends CustomPainter {
   }
 
   void _paintDisc(Canvas canvas, double r, Color color,
-          {required double winGlow}) =>
-      paintCheckerDisc(canvas, Offset.zero, r, color, winGlow: winGlow);
+          {required double winGlow, required bool marked}) =>
+      paintCheckerDisc(canvas, Offset.zero, r, color,
+          winGlow: winGlow, marked: marked);
 
   @override
   bool shouldRepaint(_DiscsPainter old) => true; // driven by drop anims
 }
+
+/// Ink for the second-seat ring: dark on a light disc, light on a dark one,
+/// so the ring reads whatever the seat colour is.
+Color _markInk(Color disc) => disc.computeLuminance() > 0.45
+    ? Colors.black.withValues(alpha: 0.62)
+    : Colors.white.withValues(alpha: 0.90);
 
 /// One translucent-plastic checker, lit from the upper left.
 ///
@@ -626,12 +672,16 @@ class _DiscsPainter extends CustomPainter {
 /// passes through the thick edge, the moulded concentric ring real counters
 /// have, and a single specular highlight up-left. Every offset here points
 /// down-right for shadow / up-left for light — the board and faceplate agree.
+///
+/// [marked] adds a bold inner ring (the second seat's mark under
+/// [ConnectFourStyle.distinctMarks]), so the seats differ without colour.
 void paintCheckerDisc(
   Canvas canvas,
   Offset c,
   double r,
   Color color, {
   double winGlow = 0,
+  bool marked = false,
 }) {
   if (winGlow > 0) {
     canvas.drawCircle(
@@ -729,6 +779,18 @@ void paintCheckerDisc(
       ..strokeWidth = r * 0.045
       ..color = Colors.white.withValues(alpha: 0.26),
   );
+
+  // Seat mark: a bold ring well inside the moulded one.
+  if (marked) {
+    canvas.drawCircle(
+      c,
+      r * 0.40,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.17
+        ..color = _markInk(color),
+    );
+  }
 
   // Specular.
   canvas.save();
@@ -1117,6 +1179,9 @@ ui.Picture _wellFor(Size size, Color c, double pad, double radius) =>
 
 class _ColumnSensor extends StatefulWidget {
   final int col;
+
+  /// What a screen reader says for this column ("Column 3, 2 discs, drop").
+  final String label;
   final bool open;
   final bool hovered;
   final VoidCallback onHoverEnter;
@@ -1125,6 +1190,7 @@ class _ColumnSensor extends StatefulWidget {
 
   const _ColumnSensor({
     required this.col,
+    required this.label,
     required this.open,
     required this.hovered,
     required this.onHoverEnter,
@@ -1141,6 +1207,17 @@ class _ColumnSensorState extends State<_ColumnSensor> {
 
   @override
   Widget build(BuildContext context) {
+    // Tapping a column drops a disc; VoiceOver activation takes the same path.
+    return Semantics(
+      button: true,
+      enabled: widget.open,
+      label: widget.label,
+      onTap: widget.open ? widget.onTap : null,
+      child: _hitTarget(),
+    );
+  }
+
+  Widget _hitTarget() {
     final open = widget.open;
     return MouseRegion(
       onEnter: open ? (_) => widget.onHoverEnter() : null,
@@ -1188,16 +1265,22 @@ class _ColumnSensorState extends State<_ColumnSensor> {
 class _Disc extends StatelessWidget {
   final Color color;
   final double progress;
+  final bool marked;
 
   const _Disc({
     required this.color,
     required this.progress,
+    this.marked = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _SingleDiscPainter(color: color, progress: progress),
+      painter: _SingleDiscPainter(
+        color: color,
+        progress: progress,
+        marked: marked,
+      ),
     );
   }
 }
@@ -1205,20 +1288,25 @@ class _Disc extends StatelessWidget {
 class _SingleDiscPainter extends CustomPainter {
   final Color color;
   final double progress;
+  final bool marked;
 
-  _SingleDiscPainter({required this.color, required this.progress});
+  _SingleDiscPainter({
+    required this.color,
+    required this.progress,
+    required this.marked,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (progress <= 0) return;
     final c = Offset(size.width / 2, size.height / 2);
     final r = size.shortestSide * 0.46 * progress.clamp(0.15, 1.0);
-    paintCheckerDisc(canvas, c, r, color);
+    paintCheckerDisc(canvas, c, r, color, marked: marked);
   }
 
   @override
   bool shouldRepaint(_SingleDiscPainter old) =>
-      old.color != color || old.progress != progress;
+      old.color != color || old.progress != progress || old.marked != marked;
 }
 
 // ---------------------------------------------------------------------------
@@ -1231,6 +1319,7 @@ class _StatusBanner extends StatelessWidget {
   final bool? winnerIsP0;
   final Color p0;
   final Color p1;
+  final bool distinctMarks;
 
   const _StatusBanner({
     required this.state,
@@ -1238,6 +1327,7 @@ class _StatusBanner extends StatelessWidget {
     required this.winnerIsP0,
     required this.p0,
     required this.p1,
+    required this.distinctMarks,
   });
 
   @override
@@ -1255,7 +1345,7 @@ class _StatusBanner extends StatelessWidget {
         key: ValueKey('turn-${state.currentPlayerId}'),
         mainAxisSize: MainAxisSize.min,
         children: [
-          _BreathingDisc(color: color),
+          _BreathingDisc(color: color, marked: distinctMarks && !isP0),
           const SizedBox(width: 12),
           Text('to drop', style: textStyle),
         ],
@@ -1279,7 +1369,12 @@ class _StatusBanner extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _MiniDisc(color: color, size: 28, glow: 0.35),
+            _MiniDisc(
+              color: color,
+              size: 28,
+              glow: 0.35,
+              marked: distinctMarks && !isP0,
+            ),
             const SizedBox(width: 12),
             Text(
               isP0 ? 'P1 wins' : 'P2 wins',
@@ -1295,22 +1390,34 @@ class _StatusBanner extends StatelessWidget {
     }
 
     final isResult = outcome != null;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 280),
-      height: isResult ? 56 : 40,
-      alignment: Alignment.center,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 360),
-        switchInCurve: Curves.easeOutBack,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
-            child: child,
+    // The disc and "to drop" are painted; say the whole sentence once.
+    final spoken = outcome == null
+        ? 'Player ${state.isPlayer0Turn ? 1 : 2} to drop'
+        : outcome!.isDraw
+            ? 'Draw'
+            : 'Player ${winnerIsP0 == true ? 1 : 2} wins';
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: spoken,
+      excludeSemantics: true,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 280),
+        height: isResult ? 56 : 40,
+        alignment: Alignment.center,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 360),
+          switchInCurve: Curves.easeOutBack,
+          switchOutCurve: Curves.easeIn,
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
+              child: child,
+            ),
           ),
+          child: content,
         ),
-        child: content,
       ),
     );
   }
@@ -1345,7 +1452,8 @@ class _ResultPill extends StatelessWidget {
 
 class _BreathingDisc extends StatefulWidget {
   final Color color;
-  const _BreathingDisc({required this.color});
+  final bool marked;
+  const _BreathingDisc({required this.color, this.marked = false});
 
   @override
   State<_BreathingDisc> createState() => _BreathingDiscState();
@@ -1372,7 +1480,12 @@ class _BreathingDiscState extends State<_BreathingDisc>
         final t = Curves.easeInOut.transform(_c.value);
         return Transform.scale(
           scale: 0.92 + 0.1 * t,
-          child: _MiniDisc(color: widget.color, size: 22, glow: 0.35 * t),
+          child: _MiniDisc(
+            color: widget.color,
+            size: 22,
+            glow: 0.35 * t,
+            marked: widget.marked,
+          ),
         );
       },
     );
@@ -1383,11 +1496,13 @@ class _MiniDisc extends StatelessWidget {
   final Color color;
   final double size;
   final double glow;
+  final bool marked;
 
   const _MiniDisc({
     required this.color,
     required this.size,
     this.glow = 0,
+    this.marked = false,
   });
 
   @override
@@ -1421,6 +1536,23 @@ class _MiniDisc extends StatelessWidget {
           ),
         ],
       ),
+      child: marked
+          ? Center(
+              child: FractionallySizedBox(
+                widthFactor: 0.52,
+                heightFactor: 0.52,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _markInk(color),
+                      width: size * 0.08,
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

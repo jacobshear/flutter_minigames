@@ -20,6 +20,13 @@ class GomokuStyle {
   final bool confetti;
   final GomokuSounds sounds;
 
+  /// Two-step placement. The first tap on an empty intersection shows a ghost
+  /// stone; tapping the same intersection again commits it, tapping another
+  /// one moves the ghost. Off by default (a tap places at once). On a 15x15
+  /// board the intersections are about 21pt apart, so hosts that don't want a
+  /// slightly-off finger to send a move turn this on.
+  final bool confirmPlacement;
+
   const GomokuStyle({
     this.boardColor,
     this.lineColor,
@@ -31,6 +38,7 @@ class GomokuStyle {
     this.haptics = true,
     this.confetti = true,
     this.sounds = GomokuSounds.silent,
+    this.confirmPlacement = false,
   });
 
   // Warm kaya slab with scored ink lines (GP read, goban material).

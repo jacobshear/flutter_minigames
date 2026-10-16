@@ -5,6 +5,7 @@ import 'dart:ui' as ui show Picture, PictureRecorder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_minigames/src/core/core.dart';
+import 'package:flutter_minigames/src/ui/ui.dart';
 
 import 'dots_and_boxes_game.dart';
 import 'dots_and_boxes_style.dart';
@@ -22,7 +23,8 @@ class DotsAndBoxesBoard extends StatefulWidget {
   /// Hosts that render turn ownership and the outcome in their own chrome
   /// pass false so the state isn't said twice. On this board the banner
   /// also carries the score chips and a gameplay toast; those stay either
-  /// way — only the turn / result text goes quiet.
+  /// way — only the turn / result text goes quiet. A [GameHostChrome]
+  /// ancestor with `hostOwnsStatus` quiets it the same way.
   final bool showStatusBanner;
 
   const DotsAndBoxesBoard({
@@ -207,7 +209,7 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
             if (mounted) HapticFeedback.mediumImpact();
           });
         }
-        if (style.confetti) {
+        if (style.confetti && !GameMotion.reduced(context)) {
           _confettiOrigin = const Offset(0.5, 0.45);
           _confetti = _spawnConfetti(state, outcome);
           _confettiCtrl.forward(from: 0);
@@ -280,7 +282,8 @@ class _DotsAndBoxesBoardState extends State<DotsAndBoxesBoard>
       mainAxisSize: MainAxisSize.min,
       children: [
         _StatusBanner(
-          showTurnText: widget.showStatusBanner,
+          showTurnText: widget.showStatusBanner &&
+              !GameHostChrome.hostOwnsStatusOf(context),
           state: state,
           outcome: _outcome,
           p0: p0,
@@ -438,6 +441,10 @@ class _StatusBanner extends StatelessWidget {
     final sb = state.scoreFor(b);
 
     Widget center;
+    // The dot and "to claim" are painted; say the whole sentence once. Null
+    // for the "Again!" toast (its own text reads) and when the turn text is
+    // off.
+    String? spoken;
     if (outcome == null) {
       if (showAgain) {
         final t = Curves.easeOutBack.transform(againT.clamp(0.0, 1.0));
@@ -459,6 +466,7 @@ class _StatusBanner extends StatelessWidget {
       } else {
         final isP0 = state.playerIds.indexOf(state.currentPlayerId) == 0;
         final color = isP0 ? p0 : p1;
+        spoken = 'Player ${isP0 ? 1 : 2} to claim';
         center = Row(
           key: ValueKey('turn-${state.currentPlayerId}'),
           mainAxisSize: MainAxisSize.min,
@@ -473,6 +481,7 @@ class _StatusBanner extends StatelessWidget {
       center = const SizedBox.shrink(key: ValueKey('quiet'));
     } else if (outcome!.isDraw) {
       final ink = Theme.of(context).colorScheme.onSurface;
+      spoken = 'Draw';
       center = _ResultPill(
         key: const ValueKey('draw'),
         color: ink,
@@ -484,6 +493,7 @@ class _StatusBanner extends StatelessWidget {
     } else {
       final isP0 = state.playerIds.indexOf(outcome!.winnerId!) == 0;
       final color = isP0 ? p0 : p1;
+      spoken = 'Player ${isP0 ? 1 : 2} wins';
       center = _ResultPill(
         key: const ValueKey('win'),
         color: color,
@@ -524,17 +534,23 @@ class _StatusBanner extends StatelessWidget {
             duration: const Duration(milliseconds: 280),
             height: outcome != null ? 52 : 40,
             alignment: Alignment.center,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
-              switchInCurve: Curves.easeOutBack,
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
-                  child: child,
+            child: Semantics(
+              liveRegion: true,
+              label: spoken,
+              excludeSemantics: spoken != null,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                switchInCurve: Curves.easeOutBack,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale:
+                        Tween<double>(begin: 0.86, end: 1).animate(animation),
+                    child: child,
+                  ),
                 ),
+                child: center,
               ),
-              child: center,
             ),
           ),
         ),
@@ -746,6 +762,8 @@ class _EdgeHitLayer extends StatelessWidget {
                     height: hitThick,
                     child: _EdgeSensor(
                       edgeKey: 'h:${r * n + c}',
+                      label: 'Line between dots at row ${r + 1}, '
+                          'column ${c + 1} and row ${r + 1}, column ${c + 2}',
                       onHover: onHover,
                       onTap: () => onClaim(true, r * n + c),
                     ),
@@ -761,6 +779,8 @@ class _EdgeHitLayer extends StatelessWidget {
                     height: step,
                     child: _EdgeSensor(
                       edgeKey: 'v:${r * (n + 1) + c}',
+                      label: 'Line between dots at row ${r + 1}, '
+                          'column ${c + 1} and row ${r + 2}, column ${c + 1}',
                       onHover: onHover,
                       onTap: () => onClaim(false, r * (n + 1) + c),
                     ),
@@ -774,17 +794,30 @@ class _EdgeHitLayer extends StatelessWidget {
 
 class _EdgeSensor extends StatelessWidget {
   final String edgeKey;
+
+  /// What a screen reader says for this line ("Line between dots at …").
+  final String label;
   final ValueChanged<String?> onHover;
   final VoidCallback onTap;
 
   const _EdgeSensor({
     required this.edgeKey,
+    required this.label,
     required this.onHover,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      onTap: onTap,
+      child: _hitTarget(),
+    );
+  }
+
+  Widget _hitTarget() {
     return MouseRegion(
       onEnter: (_) => onHover(edgeKey),
       onExit: (_) => onHover(null),
