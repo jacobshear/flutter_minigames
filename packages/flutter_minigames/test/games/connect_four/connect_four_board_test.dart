@@ -100,7 +100,8 @@ void main() {
     await tester.runAsync(controller.dispose);
   });
 
-  testWidgets('under Reduce Motion a win settles: no looping pulse, no confetti',
+  testWidgets(
+      'under Reduce Motion a win settles: no looping pulse, no confetti',
       (tester) async {
     final controller = await makeController(tester);
     await pumpBoard(tester, controller, reduceMotion: true);

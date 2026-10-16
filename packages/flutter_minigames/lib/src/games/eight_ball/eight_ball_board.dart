@@ -529,9 +529,8 @@ class _EightBallBoardState extends State<EightBallBoard>
   /// hot-seat match).
   String _semanticsLabel(EightBallState s) {
     final local = widget.controller.localPlayerId;
-    final me = !_hotSeat && s.playerIds.contains(local)
-        ? local
-        : s.playerIds.first;
+    final me =
+        !_hotSeat && s.playerIds.contains(local) ? local : s.playerIds.first;
     final them = s.playerIds.firstWhere((id) => id != me);
     String side(String id, String owner) {
       final g = s.groups[id];
@@ -676,8 +675,10 @@ class _EightBallBoardState extends State<EightBallBoard>
                                       child: IgnorePointer(
                                         child: AnimatedBuilder(
                                           animation: _confettiCtrl,
-                                          builder: (context, _) => LayoutBuilder(
-                                            builder: (context, c) => CustomPaint(
+                                          builder: (context, _) =>
+                                              LayoutBuilder(
+                                            builder: (context, c) =>
+                                                CustomPaint(
                                               painter: _ConfettiPainter(
                                                 confetti: _confetti,
                                                 t: _confettiCtrl.value,
@@ -695,7 +696,8 @@ class _EightBallBoardState extends State<EightBallBoard>
                                           message: _notice,
                                           tone: _noticeTone,
                                           accent: _noticeAccent,
-                                          strong: _noticeStrong || _noticeSticky,
+                                          strong:
+                                              _noticeStrong || _noticeSticky,
                                           autoDismiss: _noticeSticky
                                               ? null
                                               : const Duration(

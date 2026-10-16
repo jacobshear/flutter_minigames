@@ -93,7 +93,8 @@ void main() {
     await pumpBoard(tester, MancalaBoard(controller: controller));
 
     final pits = controller.state!.pits;
-    String seeds(int pit) => '${pits[pit]} ${pits[pit] == 1 ? 'seed' : 'seeds'}';
+    String seeds(int pit) =>
+        '${pits[pit]} ${pits[pit] == 1 ? 'seed' : 'seeds'}';
 
     final labels = semanticLabels(tester);
     expect(labels, contains('Your pit 1, ${seeds(0)}, playable'));
@@ -132,7 +133,8 @@ void main() {
     }
 
     // Your turn: your pits are buttons you can activate.
-    final mine = nodeLabelled(tester, pit(0, playable: true)).getSemanticsData();
+    final mine =
+        nodeLabelled(tester, pit(0, playable: true)).getSemanticsData();
     expect(mine.flagsCollection.isButton, isTrue);
     expect(mine.hasAction(SemanticsAction.tap), isTrue);
 

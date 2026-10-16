@@ -158,7 +158,9 @@ void main() {
     await land(tester);
     expect(controller.state!.stoneCount, 1);
     expect(controller.state!.cells[2 * 15 + 2], 'p1');
-    expect(semanticLabels(tester).where((l) => l.contains('tap again to place')), isEmpty);
+    expect(
+        semanticLabels(tester).where((l) => l.contains('tap again to place')),
+        isEmpty);
 
     handle.dispose();
     await tester.runAsync(controller.dispose);
@@ -229,7 +231,8 @@ void main() {
 
     await tester.runAsync(() => controller.submitMove(const GomokuMove(0)));
     await land(tester);
-    expect(semanticLabels(tester), contains('Row 1, column 1, black stone, last move'));
+    expect(semanticLabels(tester),
+        contains('Row 1, column 1, black stone, last move'));
 
     handle.dispose();
     await tester.runAsync(controller.dispose);
@@ -240,10 +243,8 @@ void main() {
     final controller = await makeController(tester);
     await pumpBoard(tester, controller);
 
-    bool isButton(String label) => nodeLabelled(tester, label)
-        .getSemanticsData()
-        .flagsCollection
-        .isButton;
+    bool isButton(String label) =>
+        nodeLabelled(tester, label).getSemanticsData().flagsCollection.isButton;
     bool canTap(String label) => nodeLabelled(tester, label)
         .getSemanticsData()
         .hasAction(SemanticsAction.tap);

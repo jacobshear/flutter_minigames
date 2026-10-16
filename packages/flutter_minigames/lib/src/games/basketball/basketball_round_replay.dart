@@ -609,8 +609,8 @@ class _BasketballRoundReplayState extends State<BasketballRoundReplay>
                           Positioned.fill(
                             child: IgnorePointer(
                               child: ColoredBox(
-                                color:
-                                    Colors.black.withValues(alpha: _fadeOpacity),
+                                color: Colors.black
+                                    .withValues(alpha: _fadeOpacity),
                               ),
                             ),
                           ),

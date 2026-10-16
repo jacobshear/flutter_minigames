@@ -949,8 +949,7 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
           child: GestureDetector(
             onTap: _tapPass,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.58),
                 borderRadius: BorderRadius.circular(12),

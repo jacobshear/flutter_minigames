@@ -468,9 +468,8 @@ class _ShuffleboardBoardState extends State<ShuffleboardBoard>
   /// from the local seat's side (seat one in a hot-seat match).
   String _semanticsLabel(ShuffleboardState s) {
     final local = widget.controller.localPlayerId;
-    final me = !_hotSeat && s.playerIds.contains(local)
-        ? local
-        : s.playerIds.first;
+    final me =
+        !_hotSeat && s.playerIds.contains(local) ? local : s.playerIds.first;
     final them = s.playerIds.firstWhere((id) => id != me);
     final left = s.remainingOf(me);
     final theirLeft = s.remainingOf(them);

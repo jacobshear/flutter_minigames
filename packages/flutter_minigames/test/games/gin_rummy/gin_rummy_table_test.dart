@@ -451,8 +451,8 @@ void main() {
       await tester.pump();
       final after =
           tester.getSemantics(find.bySemanticsLabel('King of spades'));
-      expect(after.getSemanticsData().flagsCollection.isSelected,
-          Tristate.isTrue);
+      expect(
+          after.getSemanticsData().flagsCollection.isSelected, Tristate.isTrue);
       // The action bar now names the card — in words, not the pip glyph.
       expect(find.text('Discard K♠'), findsOneWidget);
       expect(find.bySemanticsLabel('Discard King of spades'), findsOneWidget);

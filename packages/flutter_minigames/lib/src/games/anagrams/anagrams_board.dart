@@ -639,9 +639,7 @@ class _LetterTile extends StatelessWidget {
     return Semantics(
       button: true,
       label: letter.toUpperCase(),
-      hint: raised
-          ? 'Tap to remove from your word'
-          : 'Tap to add to your word',
+      hint: raised ? 'Tap to remove from your word' : 'Tap to add to your word',
       onTap: onTap,
       excludeSemantics: true,
       child: GestureDetector(

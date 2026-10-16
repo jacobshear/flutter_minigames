@@ -229,9 +229,8 @@ class _MiniGolfBoardState extends State<MiniGolfBoard>
   /// hot-seat match).
   String _semanticsLabel(MiniGolfState s) {
     final local = widget.controller.localPlayerId;
-    final me = !_hotSeat && s.playerIds.contains(local)
-        ? local
-        : s.playerIds.first;
+    final me =
+        !_hotSeat && s.playerIds.contains(local) ? local : s.playerIds.first;
     final them = s.playerIds.firstWhere((id) => id != me);
     final hole = s.currentHole.clamp(0, s.holeCount - 1) + 1;
     final course = s.currentCourse;

@@ -180,7 +180,8 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 700));
     expect(tester.takeException(), isNull);
-    expect(tester.getSize(find.byType(SeaBattleBoard)).height, greaterThan(600));
+    expect(
+        tester.getSize(find.byType(SeaBattleBoard)).height, greaterThan(600));
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(controller.dispose);
   });
@@ -198,7 +199,8 @@ void main() {
     final pad = rect.width * 0.045;
     final cell = (rect.width - rect.width * 0.09) / 10;
     Offset at(int row, int col) =>
-        rect.topLeft + Offset(pad + (col + 0.5) * cell, pad + (row + 0.5) * cell);
+        rect.topLeft +
+        Offset(pad + (col + 0.5) * cell, pad + (row + 0.5) * cell);
 
     final gesture = await tester.startGesture(at(2, 2));
     await tester.pump(const Duration(milliseconds: 200));
@@ -213,8 +215,7 @@ void main() {
     await tester.runAsync(controller.dispose);
   });
 
-  testWidgets('target cells are labelled hit, miss or unknown',
-      (tester) async {
+  testWidgets('target cells are labelled hit, miss or unknown', (tester) async {
     final handle = tester.ensureSemantics();
     final controller = await battleController(tester);
     expect(semanticLabels(tester), contains('Row 1, column 1, unknown'));
@@ -231,7 +232,8 @@ void main() {
         .singleWhere((l) => l.startsWith('Row 1, column 1, '));
     final isShip = controller.state!.shipCellsOf('p2').contains(0);
     // A sunk ship says so ("hit, sunk"); open water is a plain miss.
-    expect(cellLabel, isShip ? startsWith('Row 1, column 1, hit') : endsWith('miss'));
+    expect(cellLabel,
+        isShip ? startsWith('Row 1, column 1, hit') : endsWith('miss'));
     expect(semanticLabels(tester), contains('Row 10, column 10, unknown'));
     // The own-fleet map is one summary node, not a hundred cells.
     expect(
@@ -385,7 +387,8 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
     final shot = cell(
-      semanticLabels(tester).singleWhere((l) => l.startsWith('Row 1, column 1, ')),
+      semanticLabels(tester)
+          .singleWhere((l) => l.startsWith('Row 1, column 1, ')),
     );
     expect(shot.flagsCollection.isButton, isFalse);
     expect(shot.hasAction(SemanticsAction.tap), isFalse);

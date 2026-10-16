@@ -72,8 +72,7 @@ void main() {
   testWidgets('every free line is a labelled button that claims the edge',
       (tester) async {
     final handle = tester.ensureSemantics();
-    final controller =
-        await makeController(tester, const DotsAndBoxesGame());
+    final controller = await makeController(tester, const DotsAndBoxesGame());
     await pumpBoard(tester, DotsAndBoxesBoard(controller: controller));
 
     const top = 'Line between dots at row 1, column 1 and row 1, column 2';
@@ -94,8 +93,7 @@ void main() {
 
   testWidgets('the turn text goes quiet under host-owned status; scores stay',
       (tester) async {
-    final controller =
-        await makeController(tester, const DotsAndBoxesGame());
+    final controller = await makeController(tester, const DotsAndBoxesGame());
     await pumpBoard(tester, DotsAndBoxesBoard(controller: controller));
     expect(find.text('to claim'), findsOneWidget);
 

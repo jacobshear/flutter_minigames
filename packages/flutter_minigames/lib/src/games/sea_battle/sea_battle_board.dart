@@ -499,8 +499,7 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 200),
                         child: pillMsg == null
-                            ? const SizedBox.shrink(
-                                key: ValueKey('pill-empty'))
+                            ? const SizedBox.shrink(key: ValueKey('pill-empty'))
                             : Container(
                                 key: ValueKey(pillMsg),
                                 padding: const EdgeInsets.symmetric(
@@ -508,10 +507,8 @@ class _SeaBattleBoardState extends State<SeaBattleBoard>
                                   vertical: 9,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.black
-                                      .withValues(alpha: 0.58),
-                                  borderRadius:
-                                      BorderRadius.circular(10),
+                                  color: Colors.black.withValues(alpha: 0.58),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Semantics(
                                   liveRegion: true,

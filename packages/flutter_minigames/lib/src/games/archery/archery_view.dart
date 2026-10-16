@@ -941,8 +941,7 @@ void _paintButt(
     // The whole butt rocks on its stand. Small — the readable part of the
     // impact is the compression at the hole, not the target jumping.
     final amp = wobble * wobble * 2.6;
-    canvas.translate(
-        math.sin(view.shakeTime * 34) * amp,
+    canvas.translate(math.sin(view.shakeTime * 34) * amp,
         math.sin(view.shakeTime * 41) * amp * 0.5);
   }
 

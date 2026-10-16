@@ -756,8 +756,7 @@ class _MancalaBoardState extends State<MancalaBoard>
     final hostOwnsStatus = GameHostChrome.hostOwnsStatusOf(context);
     // [legal] lights the side to move's pits; only the seat that can act gets
     // them as buttons (the opponent's pits are shown, never offered).
-    final playable =
-        widget.controller.canActLocally ? legal : const <int>{};
+    final playable = widget.controller.canActLocally ? legal : const <int>{};
     final pitLabels = _pitLabels(state, playable);
 
     // Captures the constraints the HOST hands MancalaBoard (e.g. the

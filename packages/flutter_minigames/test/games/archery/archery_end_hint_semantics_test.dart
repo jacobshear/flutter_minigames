@@ -107,7 +107,8 @@ void main() {
     await tester.pumpWidget(_host(c));
     await tester.pump(const Duration(seconds: 1));
 
-    expect(find.bySemanticsLabel('Tap New game to shoot again'), findsOneWidget);
+    expect(
+        find.bySemanticsLabel('Tap New game to shoot again'), findsOneWidget);
     expect(_blankLabels(tester), isEmpty);
     semantics.dispose();
   });

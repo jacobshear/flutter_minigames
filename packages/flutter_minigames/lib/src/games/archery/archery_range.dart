@@ -831,9 +831,8 @@ class _ArcheryRangeState extends State<ArcheryRange>
   /// running score from the local seat's side (seat one in a hot-seat match).
   String _semanticsLabel(ArcheryState s) {
     final local = widget.controller.localPlayerId;
-    final me = !_hotSeat && s.playerIds.contains(local)
-        ? local
-        : s.playerIds.first;
+    final me =
+        !_hotSeat && s.playerIds.contains(local) ? local : s.playerIds.first;
     final them = s.playerIds.firstWhere((id) => id != me);
     final c = s.conditions;
     final left = ArcheryGame.arrowsPerTarget -

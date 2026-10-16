@@ -101,7 +101,8 @@ void main() {
     await tester.runAsync(controller.dispose);
   });
 
-  testWidgets('a move is played on lift-off, and a slid-off press plays nothing',
+  testWidgets(
+      'a move is played on lift-off, and a slid-off press plays nothing',
       (tester) async {
     final controller = await makeController(tester);
     await pumpBoard(tester, controller);

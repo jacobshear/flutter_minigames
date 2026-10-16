@@ -524,9 +524,8 @@ class _KnockoutBoardState extends State<KnockoutBoard>
   /// and how many pucks still owe a wind-up this round.
   String _semanticsLabel(KnockoutState s, int windupsLeft) {
     final local = widget.controller.localPlayerId;
-    final me = !_hotSeat && s.playerIds.contains(local)
-        ? local
-        : s.playerIds.first;
+    final me =
+        !_hotSeat && s.playerIds.contains(local) ? local : s.playerIds.first;
     final them = s.playerIds.firstWhere((id) => id != me);
     String pucks(int n) => '$n ${n == 1 ? 'puck' : 'pucks'}';
     final buf = StringBuffer('Knockout. ')

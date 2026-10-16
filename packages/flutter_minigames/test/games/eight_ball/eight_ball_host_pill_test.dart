@@ -62,9 +62,8 @@ Widget _host(
 
 /// The standing row beside the hint, and the table above it.
 (Size row, Size table) _measure(WidgetTester tester) {
-  final row = find
-      .ancestor(of: find.text(_hint), matching: find.byType(Row))
-      .first;
+  final row =
+      find.ancestor(of: find.text(_hint), matching: find.byType(Row)).first;
   return (tester.getSize(row), tester.getSize(find.byType(AspectRatio).first));
 }
 

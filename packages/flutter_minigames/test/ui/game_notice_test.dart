@@ -374,10 +374,19 @@ void main() {
       await tester.pumpWidget(host('Illegal move', tone: GameNoticeTone.warn));
       await tester.pumpAndSettle();
 
-      expect(
-        tester.getSemantics(find.bySemanticsLabel('Illegal move')),
-        containsSemantics(label: 'Illegal move', isLiveRegion: true),
+      // Read off the notice's own Semantics widget rather than a semantics-tree
+      // matcher: `containsSemantics` is deprecated on newer stable Flutter
+      // (CI) and its replacement doesn't exist on older ones.
+      final semantics = tester.widget<Semantics>(
+        find
+            .descendant(
+              of: find.byType(GameNotice),
+              matching: find.byType(Semantics),
+            )
+            .first,
       );
+      expect(semantics.properties.liveRegion, isTrue);
+      expect(semantics.properties.label, 'Illegal move');
       // The capsule's own Text is excluded, so the sentence is spoken once.
       expect(find.bySemanticsLabel('Illegal move'), findsOneWidget);
       handle.dispose();
@@ -388,7 +397,8 @@ void main() {
       // iOS and Android announce a live region on their own; a second,
       // explicit announcement made VoiceOver say every notice twice.
       final announced = <String>[];
-      tester.binding.defaultBinaryMessenger.setMockDecodedMessageHandler<dynamic>(
+      tester.binding.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<dynamic>(
         SystemChannels.accessibility,
         (message) async {
           final map = message as Map<Object?, Object?>;
@@ -440,7 +450,8 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
       expect(find.text('Your turn'), findsOneWidget,
-          reason: 'left at reading speed, before a screen reader could read it');
+          reason:
+              'left at reading speed, before a screen reader could read it');
 
       // Bounded: boards rely on a notice retracting on its own (mancala's
       // "AGAIN!" sits over the pits the bonus pick needs).

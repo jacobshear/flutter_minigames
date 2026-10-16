@@ -495,8 +495,7 @@ class _GoFishTableState extends State<GoFishTable>
       // The hand is down to its floor and still does not fit: take the rest
       // from the pond, then the backs.
       var deficit = _handHeight(wanted.rows.length, goal) - handRoom();
-      final fromPond =
-          math.min(deficit / kCardAspectRatio, pondW - _kPondMinW);
+      final fromPond = math.min(deficit / kCardAspectRatio, pondW - _kPondMinW);
       pondW -= fromPond;
       deficit -= fromPond * kCardAspectRatio;
       if (deficit > 0) {
@@ -508,8 +507,7 @@ class _GoFishTableState extends State<GoFishTable>
       // pond first.
       var spare = handRoom() - _handHeight(hand.rows.length, hand.cardW);
       if (spare > 0) {
-        final toPond =
-            math.min(spare / kCardAspectRatio, pondNatural - pondW);
+        final toPond = math.min(spare / kCardAspectRatio, pondNatural - pondW);
         pondW += toPond;
         spare -= toPond * kCardAspectRatio;
         backW += math.min(spare / kCardAspectRatio, backNatural - backW);
@@ -520,9 +518,8 @@ class _GoFishTableState extends State<GoFishTable>
     // second row under the first with a strip of felt between them.
     final handRowH =
         hand.cardW * kCardAspectRatio + _kTrayPad * 2 + _kTrayLabelH;
-    final handH = hand.rows.isEmpty
-        ? 0.0
-        : _handHeight(hand.rows.length, hand.cardW);
+    final handH =
+        hand.rows.isEmpty ? 0.0 : _handHeight(hand.rows.length, hand.cardW);
 
     final heights = <double>[
       backW * kCardAspectRatio, // 0 opponent backs
@@ -845,9 +842,8 @@ class _GoFishTableState extends State<GoFishTable>
     final style = widget.style;
 
     String who(int seat) => seat == _bottomSeat ? 'You' : style.seatLabel(seat);
-    String plural(Rank r) => spoken
-        ? r.spokenPlural
-        : (r == Rank.six ? 'sixes' : '${r.label}s');
+    String plural(Rank r) =>
+        spoken ? r.spokenPlural : (r == Rank.six ? 'sixes' : '${r.label}s');
     String card(PlayingCard c) => spoken ? c.spokenName : c.label;
 
     final actor = e.actor;
@@ -915,12 +911,11 @@ class _GoFishTableState extends State<GoFishTable>
     final cap = size.height * 0.16;
 
     // The widest card [rows] stacked rows can have inside [maxHeight].
-    double heightCap(int rows) =>
-        (((maxHeight - _kRowGap * (rows - 1)) / rows -
-                    _kTrayPad * 2 -
-                    _kTrayLabelH) /
-                kCardAspectRatio)
-            .clamp(_kHandCardMin, double.infinity);
+    double heightCap(int rows) => (((maxHeight - _kRowGap * (rows - 1)) / rows -
+                _kTrayPad * 2 -
+                _kTrayLabelH) /
+            kCardAspectRatio)
+        .clamp(_kHandCardMin, double.infinity);
 
     final oneRow = math.min(
       math.min(_rowCardWidth(groups, available), cap),

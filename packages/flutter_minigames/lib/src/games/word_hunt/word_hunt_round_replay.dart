@@ -285,7 +285,8 @@ class _WordHuntRoundReplayState extends State<WordHuntRoundReplay>
                       Positioned.fill(
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(geom.side * 0.05),
+                            borderRadius:
+                                BorderRadius.circular(geom.side * 0.05),
                             color: style.resolveBoard(scheme),
                           ),
                         ),

@@ -379,9 +379,8 @@ class _ChessBoardState extends State<ChessBoard> with TickerProviderStateMixin {
                             : '${style.blackLabel} wins')
                         .toUpperCase();
           } else {
-            pillMsg = _isStalemate
-                ? 'STALEMATE'
-                : (hostOwnsStatus ? null : 'DRAW');
+            pillMsg =
+                _isStalemate ? 'STALEMATE' : (hostOwnsStatus ? null : 'DRAW');
           }
         } else if (_showCheckPill) {
           pillMsg = 'CHECK';

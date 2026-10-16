@@ -78,7 +78,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(disableAnimations: reduceMotion),
+          data:
+              MediaQuery.of(context).copyWith(disableAnimations: reduceMotion),
           child: child!,
         ),
         home: Material(
@@ -110,8 +111,8 @@ void main() {
       // Q♥ matches the 5♥ on suit; 7♣ matches nothing.
       await pump(tester, make(hand0: [card(he, 11), card(cl, 6)]));
 
-      expect(find.bySemanticsLabel('Queen of hearts, playable'),
-          findsOneWidget);
+      expect(
+          find.bySemanticsLabel('Queen of hearts, playable'), findsOneWidget);
       expect(find.bySemanticsLabel('7 of clubs'), findsOneWidget);
       expect(find.bySemanticsLabel('Draw pile, 6 cards'), findsOneWidget);
       expect(find.bySemanticsLabel('Discard pile, 5 of hearts on top'),
@@ -120,14 +121,13 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('a card is a button whose activation plays it',
-        (tester) async {
+    testWidgets('a card is a button whose activation plays it', (tester) async {
       final handle = tester.ensureSemantics();
       final controller =
           await pump(tester, make(hand0: [card(he, 11), card(cl, 6)]));
 
-      final node = tester.getSemantics(
-          find.bySemanticsLabel('Queen of hearts, playable'));
+      final node = tester
+          .getSemantics(find.bySemanticsLabel('Queen of hearts, playable'));
       final data = node.getSemanticsData();
       expect(data.flagsCollection.isButton, isTrue);
       expect(data.hasAction(SemanticsAction.tap), isTrue);
@@ -185,7 +185,9 @@ void main() {
           declaredSuit: CrazyEightsCards.clubs,
         ),
       );
-      expect(find.bySemanticsLabel('Discard pile, 8 of spades on top, clubs called'),
+      expect(
+          find.bySemanticsLabel(
+              'Discard pile, 8 of spades on top, clubs called'),
           findsOneWidget);
       handle.dispose();
     });
@@ -231,7 +233,8 @@ void main() {
       }
 
       visit(owner.rootSemanticsNode!);
-      expect(scrim, isNotNull, reason: 'nothing on the picker can be dismissed');
+      expect(scrim, isNotNull,
+          reason: 'nothing on the picker can be dismissed');
       owner.performAction(scrim!.id, SemanticsAction.dismiss);
       await tester.pump();
       expect(find.text('Choose a suit'), findsNothing);
@@ -262,7 +265,8 @@ void main() {
         });
       }
 
-      walk(tester.binding.renderViews.first.owner!.semanticsOwner!.rootSemanticsNode!);
+      walk(tester
+          .binding.renderViews.first.owner!.semanticsOwner!.rootSemanticsNode!);
       expect(order, [
         for (final c in hand) CrazyEightsCards.spokenName(c),
       ]);

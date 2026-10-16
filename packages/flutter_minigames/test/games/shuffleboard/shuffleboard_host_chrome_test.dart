@@ -7,17 +7,16 @@ import 'package:flutter_test/flutter_test.dart';
 // The controller is never disposed, only the widget is unmounted — see
 // test/games/cup_pong/cup_pong_board_test.dart for why.
 
-Future<MatchController<ShuffleboardState, ShuffleboardMove>>
-    _controller() =>
-        MatchController.create<ShuffleboardState, ShuffleboardMove>(
-          game: const ShuffleboardGame(),
-          transport: LocalTransport(),
-          matchId: 'chrome',
-          playerIds: const ['p1', 'p2'],
-          localPlayerId: 'p1',
-          hotSeat: false,
-          seed: 0,
-        );
+Future<MatchController<ShuffleboardState, ShuffleboardMove>> _controller() =>
+    MatchController.create<ShuffleboardState, ShuffleboardMove>(
+      game: const ShuffleboardGame(),
+      transport: LocalTransport(),
+      matchId: 'chrome',
+      playerIds: const ['p1', 'p2'],
+      localPlayerId: 'p1',
+      hotSeat: false,
+      seed: 0,
+    );
 
 Widget _host(
   MatchController<ShuffleboardState, ShuffleboardMove> c, {

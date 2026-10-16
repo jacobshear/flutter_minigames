@@ -91,8 +91,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(disableAnimations: reduceMotion),
+          data:
+              MediaQuery.of(context).copyWith(disableAnimations: reduceMotion),
           child: child!,
         ),
         home: Material(
@@ -158,7 +158,8 @@ void main() {
       // The action button now names the rank, aloud as well as on screen.
       final ask = find.bySemanticsLabel('Ask for sevens');
       expect(ask, findsOneWidget);
-      expect(tester.getSemantics(ask).getSemanticsData().flagsCollection.isButton,
+      expect(
+          tester.getSemantics(ask).getSemanticsData().flagsCollection.isButton,
           isTrue);
       tester.semantics.tap(find.semantics.byLabel('Ask for sevens'));
       await tester.pump(const Duration(milliseconds: 100));
@@ -205,8 +206,9 @@ void main() {
           .map((w) => w.painter)
           .where((p) => p.runtimeType.toString() == '_BooksPainter');
       expect(painters, isNotEmpty);
-      return painters.map((p) => (p as dynamic).pulse as double).reduce(
-          (a, b) => a > b ? a : b);
+      return painters
+          .map((p) => (p as dynamic).pulse as double)
+          .reduce((a, b) => a > b ? a : b);
     }
 
     /// P1 holds three sevens and asks for the fourth, which closes a book.
