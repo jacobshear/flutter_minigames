@@ -73,6 +73,36 @@ abstract final class CrazyEightsCards {
   ];
   static const List<String> suitLabels = ['♠', '♥', '♦', '♣'];
 
+  /// How [rankOf] is said aloud: "Ace", "7", "Queen".
+  static const List<String> rankSpoken = [
+    'Ace',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+    '10',
+    'Jack',
+    'Queen',
+    'King',
+  ];
+
+  /// How [suitOf] is said aloud, lower case: "spades", "hearts".
+  static const List<String> suitSpoken = [
+    'spades',
+    'hearts',
+    'diamonds',
+    'clubs',
+  ];
+
+  /// Screen-reader name for [card]: "Queen of hearts". The faces are painted
+  /// vectors with no text, so a table has to say which card it is holding.
+  static String spokenName(int card) =>
+      '${rankSpoken[rankOf(card)]} of ${suitSpoken[suitOf(card)]}';
+
   /// Debug label like `8♥`.
   static String label(int card) =>
       '${rankLabels[rankOf(card)]}${suitLabels[suitOf(card)]}';

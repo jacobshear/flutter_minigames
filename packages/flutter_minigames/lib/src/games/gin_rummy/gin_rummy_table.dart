@@ -476,6 +476,7 @@ class _GinRummyTableState extends State<GinRummyTable>
     final step = count <= 1
         ? 0.0
         : math.min(backW * 0.58, (maxSpan - backW) / (count - 1));
+    final span = backW + step * math.max(0, count - 1);
     final enter = Curves.easeOutCubic.transform(
       (_entrance!.value / 0.6).clamp(0.0, 1.0),
     );
@@ -501,11 +502,32 @@ class _GinRummyTableState extends State<GinRummyTable>
                   ),
                 ),
               ),
+            // The backs are decoration; the hand is one fact. One label over
+            // the row rather than a node per face-down card.
+            Positioned(
+              left: g.size.width / 2 - span / 2,
+              top: g.opponentTop,
+              width: span,
+              height: backW * kCardAspectRatio,
+              child: Semantics(
+                container: true,
+                label: '${widget.style.seatLabel(topSeat)} has '
+                    '${_cards(s.hands[topSeat].length)}',
+                child: const SizedBox.expand(),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+
+  /// "no cards", "1 card", "7 cards" — for the labels that count a hand.
+  static String _cards(int n) => switch (n) {
+        0 => 'no cards',
+        1 => '1 card',
+        _ => '$n cards',
+      };
 
   Widget _buildSeatChips(_Geom g, GinRummyState s) {
     final topSeat = 1 - _bottomSeat;
@@ -545,6 +567,27 @@ class _GinRummyTableState extends State<GinRummyTable>
 
   // -- centre piles ----------------------------------------------------------
 
+  /// One pile as a screen reader sees it: a button that does what a tap on it
+  /// does. The stock is drawn as a few offset backs; only the top one speaks
+  /// ([speaks]), so the pile is not read once per layer.
+  Widget _pile({
+    required bool speaks,
+    required String label,
+    required bool enabled,
+    required VoidCallback onTap,
+    required Widget child,
+  }) {
+    if (!speaks) return child;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: child,
+    );
+  }
+
   Widget _buildCenter(_Geom g, GinRummyState s) {
     final cardW = g.pileW;
     final cardH = g.pileH;
@@ -554,7 +597,9 @@ class _GinRummyTableState extends State<GinRummyTable>
       ((_entrance!.value - 0.35) / 0.65).clamp(0.0, 1.0),
     );
     // The pile takes the impact: a quick squash that settles, not a bounce.
-    final hit = _pulse?.value ?? 0;
+    // Pure decoration — the card landing already says it — so Reduce Motion
+    // drops it.
+    final hit = GameMotion.reduced(context) ? 0.0 : (_pulse?.value ?? 0);
     final squashX = 1 + 0.13 * math.sin(hit * math.pi) * (1 - hit);
     final squashY = 1 - 0.09 * math.sin(hit * math.pi) * (1 - hit);
 
@@ -569,7 +614,11 @@ class _GinRummyTableState extends State<GinRummyTable>
       Positioned(
         left: stockC.dx - cardW / 2,
         top: stockC.dy - cardH / 2,
-        child: _PileWell(width: cardW, height: cardH),
+        child: Semantics(
+          container: s.stock.isEmpty,
+          label: s.stock.isEmpty ? 'Draw pile, empty' : null,
+          child: _PileWell(width: cardW, height: cardH),
+        ),
       ),
       Positioned(
         left: discardC.dx - cardW / 2,
@@ -588,18 +637,25 @@ class _GinRummyTableState extends State<GinRummyTable>
           top: stockC.dy - cardH / 2 - off,
           child: Opacity(
             opacity: enter,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: i == layers - 1 ? _tapStock : null,
-              child: CardView(
-                card: null,
-                faceUp: false,
-                width: cardW,
-                style: widget.style.cards,
-                shadow: i == 0,
-                highlight: i == layers - 1 && canTakeStock
-                    ? widget.style.selection
-                    : null,
+            child: _pile(
+              speaks: i == layers - 1,
+              label: 'Draw pile, ${s.stock.length} '
+                  '${s.stock.length == 1 ? 'card' : 'cards'}',
+              enabled: canTakeStock,
+              onTap: _tapStock,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: i == layers - 1 ? _tapStock : null,
+                child: CardView(
+                  card: null,
+                  faceUp: false,
+                  width: cardW,
+                  style: widget.style.cards,
+                  shadow: i == 0,
+                  highlight: i == layers - 1 && canTakeStock
+                      ? widget.style.selection
+                      : null,
+                ),
               ),
             ),
           ),
@@ -642,17 +698,23 @@ class _GinRummyTableState extends State<GinRummyTable>
           child: Transform(
             alignment: Alignment.center,
             transform: Matrix4.diagonal3Values(squashX, squashY, 1),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: _pile(
+              speaks: true,
+              label: 'Discard pile, ${top.spokenName} on top',
+              enabled: canTakeDiscard,
               onTap: _tapDiscardPile,
-              child: CardView(
-                card: top,
-                width: cardW,
-                style: widget.style.cards,
-                dim: s.phase == GinRummyPhase.draw && s.mustDrawFromStock
-                    ? 0.45
-                    : 0,
-                highlight: canTakeDiscard ? widget.style.selection : null,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _tapDiscardPile,
+                child: CardView(
+                  card: top,
+                  width: cardW,
+                  style: widget.style.cards,
+                  dim: s.phase == GinRummyPhase.draw && s.mustDrawFromStock
+                      ? 0.45
+                      : 0,
+                  highlight: canTakeDiscard ? widget.style.selection : null,
+                ),
               ),
             ),
           ),
@@ -750,6 +812,11 @@ class _GinRummyTableState extends State<GinRummyTable>
         message = '';
     }
     if (message.isEmpty) return const SizedBox.shrink();
+    // The host already says whose turn it is. What stays is the instruction,
+    // and only for the player it is addressed to.
+    if (!acting && GameHostChrome.hostOwnsStatusOf(context)) {
+      return const SizedBox.shrink();
+    }
 
     return Positioned(
       left: 8,
@@ -899,18 +966,31 @@ class _GinRummyTableState extends State<GinRummyTable>
           top: top - lift + (1 - stagger) * g.size.height * 0.16,
           child: Opacity(
             opacity: stagger,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: Semantics(
+              button: true,
+              selected: selected,
+              label: [
+                card.spokenName,
+                if (kind != null)
+                  kind == MeldKind.run ? 'in a run' : 'in a set',
+                if (blocked) 'just taken, cannot be discarded',
+                if (canLayOff) 'can be laid off',
+              ].join(', '),
               onTap: () => _tapHandCard(card),
-              child: CardView(
-                card: card,
-                width: cardW,
-                style: widget.style.cards,
-                dim: blocked ? 0.4 : 0,
-                shadow: selected || i == group.length - 1,
-                highlight: selected
-                    ? widget.style.selection
-                    : (canLayOff ? widget.style.runTint : null),
+              excludeSemantics: true,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _tapHandCard(card),
+                child: CardView(
+                  card: card,
+                  width: cardW,
+                  style: widget.style.cards,
+                  dim: blocked ? 0.4 : 0,
+                  shadow: selected || i == group.length - 1,
+                  highlight: selected
+                      ? widget.style.selection
+                      : (canLayOff ? widget.style.runTint : null),
+                ),
               ),
             ),
           ),
@@ -1015,6 +1095,7 @@ class _GinRummyTableState extends State<GinRummyTable>
         children: [
           _TableButton(
             label: card == null ? 'Pick a card' : 'Discard ${card.label}',
+            spoken: card == null ? null : 'Discard ${card.spokenName}',
             tone: card == null ? _ButtonTone.disabled : _ButtonTone.primary,
             onTap: card == null ? null : () => _confirmDiscard(knock: false),
           ),
@@ -1154,16 +1235,19 @@ class _GinRummyTableState extends State<GinRummyTable>
                           onTap: () => _submit(const GinRummyMove.nextHand()),
                         ),
                       )
-                    : Center(
-                        child: GamePill(
-                          text: match.winnerIndex == null
-                              ? 'Match drawn'
-                              : '${style.seatLabel(match.winnerIndex!)} wins '
-                                  'the match',
-                          strong: true,
-                          accent: style.selection,
-                        ),
-                      ),
+                    // Under host chrome the host says who won the match.
+                    : GameHostChrome.hostOwnsStatusOf(context)
+                        ? const SizedBox.shrink()
+                        : Center(
+                            child: GamePill(
+                              text: match.winnerIndex == null
+                                  ? 'Match drawn'
+                                  : '${style.seatLabel(match.winnerIndex!)} '
+                                      'wins the match',
+                              strong: true,
+                              accent: style.selection,
+                            ),
+                          ),
               ),
             ],
           ),
@@ -1331,48 +1415,51 @@ class _GinRummyTableState extends State<GinRummyTable>
     final table = widget.style.resolveTable(scheme);
     final label = widget.style.seatLabel(s.currentIndex);
     return Positioned.fill(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _dismissCover,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.3),
-              radius: 1.4,
-              colors: [
-                Color.lerp(table, Colors.black, 0.25)!,
-                Color.lerp(table, Colors.black, 0.58)!,
-              ],
+      child: BlockSemantics(
+        // Modal: VoiceOver must not read or play the hand under it.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _dismissCover,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.3),
+                radius: 1.4,
+                colors: [
+                  Color.lerp(table, Colors.black, 0.25)!,
+                  Color.lerp(table, Colors.black, 0.58)!,
+                ],
+              ),
             ),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.swap_vert_rounded,
-                  color: Colors.white70,
-                  size: 42,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Pass to $label',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.swap_vert_rounded,
+                    color: Colors.white70,
+                    size: 42,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Tap to continue',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.7),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                  const SizedBox(height: 12),
+                  Text(
+                    'Pass to $label',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 22,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    'Tap to continue',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1929,40 +2016,50 @@ class _MiniRow extends StatelessWidget {
     final step = width * 0.68;
     final tint =
         kind == null ? null : (kind == MeldKind.run ? runTint : setTint);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(4, 10, 4, 4),
-      decoration: BoxDecoration(
-        color: (tint ?? Colors.white)
-            .withValues(alpha: tint == null ? 0.07 : 0.20),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
+    final name = switch (kind) {
+      MeldKind.run => 'Run',
+      MeldKind.set => 'Set',
+      null => 'Deadwood',
+    };
+    return Semantics(
+      container: true,
+      label: '$name: ${cards.map((c) => c.spokenName).join(', ')}',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(4, 10, 4, 4),
+        decoration: BoxDecoration(
           color: (tint ?? Colors.white)
-              .withValues(alpha: tint == null ? 0.16 : 0.55),
+              .withValues(alpha: tint == null ? 0.07 : 0.20),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: (tint ?? Colors.white)
+                .withValues(alpha: tint == null ? 0.16 : 0.55),
+          ),
         ),
-      ),
-      child: SizedBox(
-        width: width + step * (cards.length - 1),
-        height: width * kCardAspectRatio,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Positioned(
-              left: 0,
-              right: 0,
-              top: -9,
-              child: _MeldMark(kind: kind, tint: tint, scale: 0.85),
-            ),
-            for (var i = 0; i < cards.length; i++)
+        child: SizedBox(
+          width: width + step * (cards.length - 1),
+          height: width * kCardAspectRatio,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
               Positioned(
-                left: i * step,
-                child: CardView(
-                  card: cards[i],
-                  width: width,
-                  style: style,
-                  shadow: false,
-                ),
+                left: 0,
+                right: 0,
+                top: -9,
+                child: _MeldMark(kind: kind, tint: tint, scale: 0.85),
               ),
-          ],
+              for (var i = 0; i < cards.length; i++)
+                Positioned(
+                  left: i * step,
+                  child: CardView(
+                    card: cards[i],
+                    width: width,
+                    style: style,
+                    shadow: false,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -2230,10 +2327,15 @@ class _TableButton extends StatelessWidget {
   final VoidCallback? onTap;
   final _ButtonTone tone;
 
+  /// What a screen reader says when the painted [label] holds a pip glyph or
+  /// shorthand that doesn't read well aloud.
+  final String? spoken;
+
   const _TableButton({
     required this.label,
     required this.onTap,
     this.tone = _ButtonTone.primary,
+    this.spoken,
   });
 
   @override
@@ -2253,29 +2355,36 @@ class _TableButton extends StatelessWidget {
           Colors.white.withValues(alpha: 0.40),
         ),
     };
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: tone == _ButtonTone.gold
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    offset: const Offset(0, 2),
-                    blurRadius: 6,
-                  ),
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: fg,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: spoken,
+      onTap: spoken == null ? null : onTap,
+      excludeSemantics: spoken != null,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: tone == _ButtonTone.gold
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      offset: const Offset(0, 2),
+                      blurRadius: 6,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
       ),

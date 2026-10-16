@@ -126,6 +126,28 @@ const double _kHandCardFloor = 52.0;
 /// Felt between the two hand rows when the hand has wrapped.
 const double _kRowGap = 6.0;
 
+/// The least felt left between two stacked bands. Spare height is shared out
+/// above this; running out of it is what [_GoFishTableState._layout] has to
+/// prevent by shrinking things, not by letting the bands touch.
+const double _kMinBandGap = 6.0;
+
+/// How small the pond and the opponent's backs may shrink to make room for a
+/// tall hand — the lower ends of the clamps they are normally sized within.
+const double _kPondMinW = 46.0;
+const double _kBacksMinW = 24.0;
+
+/// The narrowest a hand card is ever drawn. Below the readable floor it is
+/// already a last resort; this just stops a pathological height from asking
+/// for a negative width.
+const double _kHandCardMin = 20.0;
+
+/// "no cards", "1 card", "7 cards" — for the labels that count a hand.
+String _cardsLabel(int n) => switch (n) {
+      0 => 'no cards',
+      1 => '1 card',
+      _ => '$n cards',
+    };
+
 class _GoFishTableState extends State<GoFishTable>
     with TickerProviderStateMixin {
   late final GoFishGame _game = _resolveGame();
@@ -155,6 +177,9 @@ class _GoFishTableState extends State<GoFishTable>
   /// dismissed line down until the caller changes it, so nothing here runs a
   /// timer.
   String? _noticeShown;
+
+  /// [_noticeShown] as a screen reader says it — see [_noticeFor].
+  String? _noticeSpoken;
 
   static const Duration _kNoticeLife = Duration(milliseconds: 3200);
 
@@ -258,6 +283,7 @@ class _GoFishTableState extends State<GoFishTable>
       // The commentary is raised here, not in build: a new event is exactly a
       // new state arriving, and build must stay free of side effects.
       _noticeShown = _noticeFor(next).text;
+      _noticeSpoken = _noticeFor(next, spoken: true).text;
     });
   }
 
@@ -408,26 +434,95 @@ class _GoFishTableState extends State<GoFishTable>
   }
 
   /// Measure the bands, then share the leftover height out between them.
+  ///
+  /// The hand is the only band whose height depends on the table: it is as
+  /// tall as its cards are wide, and on a short phone two rows of full-size
+  /// cards plus everything above them add up to more than the table has. So
+  /// the bands are not simply summed — the hand is sized against the room the
+  /// others leave it, in this order:
+  ///
+  /// 1. The hand takes its natural card width (bounded by the table width).
+  /// 2. If that does not fit, the hand card shrinks, but only down to
+  ///    [_kHandCardFloor] (or its natural width, if that is already smaller).
+  /// 3. If it still does not fit, the pond shrinks toward [_kPondMinW], then
+  ///    the opponent's backs toward [_kBacksMinW].
+  /// 4. Only when both are at their minimum does the hand shrink below the
+  ///    floor, to whatever width makes everything fit.
   _Bands _layout(Size size, GoFishState s) {
-    final backW = (size.width * 0.115).clamp(24.0, 44.0);
+    var backW = (size.width * 0.115).clamp(_kBacksMinW, 44.0);
     // The pond is the table's centrepiece and was drawn far too small for a
     // phone — it now takes the room the dead band used to.
-    final pondW = (size.height * 0.125).clamp(46.0, 92.0);
+    var pondW = (size.height * 0.125).clamp(_kPondMinW, 92.0);
     final chipH = (size.height * 0.052).clamp(22.0, 34.0);
 
-    final hand = _handLayout(size, s);
+    // An empty books row contributes nothing, so no game opens with two
+    // reserved strips of nothing above and below the pond.
+    final topBooks = s.books[1 - _bottomSeat].isEmpty ? 0.0 : chipH;
+    final bottomBooks = s.books[_bottomSeat].isEmpty ? 0.0 : chipH;
+
+    const top = 46.0; // under the seat chips
+    final bottom = size.height - 16;
+
+    // Backs, their count, pond, pond count, commentary and action bar are
+    // always there; the two books rows and the hand only when they have
+    // something in them.
+    final hasHand = s.hands[_bottomSeat].isNotEmpty;
+    final bandCount = 6 +
+        (topBooks > 0 ? 1 : 0) +
+        (bottomBooks > 0 ? 1 : 0) +
+        (hasHand ? 1 : 0);
+    final gaps = (bandCount - 1) * _kMinBandGap;
+
+    // What the hand may be tall, given the size of the bands above it.
+    double handRoom() =>
+        bottom -
+        top -
+        gaps -
+        (backW * kCardAspectRatio +
+            pondW * kCardAspectRatio +
+            _kCountH * 2 +
+            _kNoticeH +
+            _kActionH +
+            topBooks +
+            bottomBooks);
+
+    final pondNatural = pondW;
+    final backNatural = backW;
+    var hand = _handLayout(size, s, maxHeight: handRoom());
+    final wanted = _handLayout(size, s);
+    final goal = math.min(wanted.cardW, _kHandCardFloor);
+    if (hand.cardW < goal - 0.01) {
+      // The hand is down to its floor and still does not fit: take the rest
+      // from the pond, then the backs.
+      var deficit = _handHeight(wanted.rows.length, goal) - handRoom();
+      final fromPond =
+          math.min(deficit / kCardAspectRatio, pondW - _kPondMinW);
+      pondW -= fromPond;
+      deficit -= fromPond * kCardAspectRatio;
+      if (deficit > 0) {
+        backW -= math.min(deficit / kCardAspectRatio, backW - _kBacksMinW);
+      }
+      hand = _handLayout(size, s, maxHeight: handRoom());
+      // The hand may not need everything that was freed (a narrow-but-short
+      // one-row hand beats two rows of slivers): hand back whatever it leaves,
+      // pond first.
+      var spare = handRoom() - _handHeight(hand.rows.length, hand.cardW);
+      if (spare > 0) {
+        final toPond =
+            math.min(spare / kCardAspectRatio, pondNatural - pondW);
+        pondW += toPond;
+        spare -= toPond * kCardAspectRatio;
+        backW += math.min(spare / kCardAspectRatio, backNatural - backW);
+      }
+    }
+
     // Tray = label strip + padding + the card itself; wrapped hands stack a
     // second row under the first with a strip of felt between them.
     final handRowH =
         hand.cardW * kCardAspectRatio + _kTrayPad * 2 + _kTrayLabelH;
     final handH = hand.rows.isEmpty
         ? 0.0
-        : handRowH * hand.rows.length + _kRowGap * (hand.rows.length - 1);
-
-    // An empty books row contributes nothing, so no game opens with two
-    // reserved strips of nothing above and below the pond.
-    final topBooks = s.books[1 - _bottomSeat].isEmpty ? 0.0 : chipH;
-    final bottomBooks = s.books[_bottomSeat].isEmpty ? 0.0 : chipH;
+        : _handHeight(hand.rows.length, hand.cardW);
 
     final heights = <double>[
       backW * kCardAspectRatio, // 0 opponent backs
@@ -441,8 +536,6 @@ class _GoFishTableState extends State<GoFishTable>
       handH, // 8 your hand
     ];
 
-    const top = 46.0; // under the seat chips
-    final bottom = size.height - 16;
     final live = [
       for (var i = 0; i < heights.length; i++)
         if (heights[i] > 0) i,
@@ -450,7 +543,10 @@ class _GoFishTableState extends State<GoFishTable>
     final used = heights.fold<double>(0, (a, b) => a + b);
     final gap = live.length < 2
         ? 0.0
-        : math.max(6.0, (bottom - top - used) / (live.length - 1));
+        : math.max(
+            _kMinBandGap,
+            (bottom - top - used) / (live.length - 1),
+          );
 
     final tops = List<double>.filled(heights.length, top);
     var y = top;
@@ -516,6 +612,7 @@ class _GoFishTableState extends State<GoFishTable>
       (_entrance!.value / 0.6).clamp(0.0, 1.0),
     );
     final y = b.backsTop;
+    final span = backW + step * math.max(0, count - 1);
 
     return Positioned.fill(
       child: IgnorePointer(
@@ -547,6 +644,20 @@ class _GoFishTableState extends State<GoFishTable>
                   count: count,
                   color: Colors.white.withValues(alpha: 0.86),
                 ),
+              ),
+            ),
+            // The backs are decoration; the hand is one fact. One label over
+            // the row rather than a node per face-down card.
+            Positioned(
+              left: size.width / 2 - span / 2,
+              top: y,
+              width: span,
+              height: backW * kCardAspectRatio,
+              child: Semantics(
+                container: true,
+                label: '${widget.style.seatLabel(topSeat)} has '
+                    '${_cardsLabel(s.hands[topSeat].length)}',
+                child: const SizedBox.expand(),
               ),
             ),
           ],
@@ -613,7 +724,9 @@ class _GoFishTableState extends State<GoFishTable>
             height: chipH,
             tint: widget.style.bookTint,
             fresh: fresh,
-            pulse: _bookPulse!.value,
+            // The fresh book is already marked; the pulse around it is only
+            // decoration.
+            pulse: GameMotion.reduced(context) ? 0 : _bookPulse!.value,
           ),
         ),
       ),
@@ -657,6 +770,21 @@ class _GoFishTableState extends State<GoFishTable>
                   child: _EmptyPond(width: cardW),
                 ),
               Positioned(
+                left: cx - cardW / 2,
+                top: cy - cardH / 2,
+                width: cardW,
+                height: cardH,
+                child: Semantics(
+                  container: true,
+                  label: switch (s.pond.length) {
+                    0 => 'Pond, empty',
+                    1 => 'Pond, 1 card',
+                    final n => 'Pond, $n cards',
+                  },
+                  child: const SizedBox.expand(),
+                ),
+              ),
+              Positioned(
                 left: 0,
                 right: 0,
                 top: b.pondCountTop,
@@ -694,6 +822,7 @@ class _GoFishTableState extends State<GoFishTable>
         child: Center(
           child: GameNotice(
             message: _noticeShown,
+            semanticsMessage: _noticeSpoken,
             tone: event.tone,
             accent: event.accent,
             autoDismiss: _kNoticeLife,
@@ -705,14 +834,21 @@ class _GoFishTableState extends State<GoFishTable>
 
   /// The commentary, written from the point of view of whoever is holding the
   /// phone. A fished card is private, so it is only named for its own owner.
+  ///
+  /// [spoken] writes the same line for a screen reader: "2 aces", "the Queen
+  /// of hearts", where the screen shows "2 As", "the Q♥".
   ({String? text, GameNoticeTone tone, Color? accent}) _noticeFor(
-    GoFishState s,
-  ) {
+    GoFishState s, {
+    bool spoken = false,
+  }) {
     final e = s.lastEvent;
     final style = widget.style;
 
     String who(int seat) => seat == _bottomSeat ? 'You' : style.seatLabel(seat);
-    String plural(Rank r) => r == Rank.six ? 'sixes' : '${r.label}s';
+    String plural(Rank r) => spoken
+        ? r.spokenPlural
+        : (r == Rank.six ? 'sixes' : '${r.label}s');
+    String card(PlayingCard c) => spoken ? c.spokenName : c.label;
 
     final actor = e.actor;
     String? text;
@@ -733,10 +869,10 @@ class _GoFishTableState extends State<GoFishTable>
       case GoFishAction.fished:
         final mine = actor == _bottomSeat;
         text = mine && e.drawn != null
-            ? 'Go fish — you drew the ${e.drawn!.label}'
+            ? 'Go fish — you drew the ${card(e.drawn!)}'
             : 'Go fish — ${who(actor!)} drew from the pond';
       case GoFishAction.fishedHit:
-        text = '${who(actor!)} fished up the ${e.drawn!.label} — go again';
+        text = '${who(actor!)} fished up the ${card(e.drawn!)} — go again';
         tone = GameNoticeTone.score;
         accent = style.selection;
       case GoFishAction.fishedDry:
@@ -767,23 +903,53 @@ class _GoFishTableState extends State<GoFishTable>
   /// row pushes the card below [_kHandCardFloor] and faces stop being
   /// readable. Past that point the fix is to wrap onto a second row, not to
   /// keep shrinking — a tray is never split across the two.
-  _HandLayout _handLayout(Size size, GoFishState s) {
+  _HandLayout _handLayout(
+    Size size,
+    GoFishState s, {
+    double maxHeight = double.infinity,
+  }) {
     final groups = s.groupedHand(_bottomSeat);
     if (groups.isEmpty) return const _HandLayout([], 0);
 
     final available = size.width - 12;
-    final oneRowWidth = _rowCardWidth(groups, available);
-    if (groups.length <= 1 || oneRowWidth >= _kHandCardFloor) {
-      return _HandLayout([groups], math.min(oneRowWidth, size.height * 0.16));
+    final cap = size.height * 0.16;
+
+    // The widest card [rows] stacked rows can have inside [maxHeight].
+    double heightCap(int rows) =>
+        (((maxHeight - _kRowGap * (rows - 1)) / rows -
+                    _kTrayPad * 2 -
+                    _kTrayLabelH) /
+                kCardAspectRatio)
+            .clamp(_kHandCardMin, double.infinity);
+
+    final oneRow = math.min(
+      math.min(_rowCardWidth(groups, available), cap),
+      heightCap(1),
+    );
+    if (groups.length <= 1 || oneRow >= _kHandCardFloor) {
+      return _HandLayout([groups], oneRow);
     }
 
     final rows = _splitHandRows(groups);
-    final cardW = math.min(
-      _rowCardWidth(rows[0], available),
-      _rowCardWidth(rows[1], available),
+    final twoRow = math.min(
+      math.min(
+        _rowCardWidth(rows[0], available),
+        _rowCardWidth(rows[1], available),
+      ),
+      math.min(cap, heightCap(2)),
     );
-    return _HandLayout(rows, math.min(cardW, size.height * 0.16));
+    // A short table can make two rows of cards smaller than the one row they
+    // were wrapped to avoid; never trade a bigger card for a taller hand.
+    return twoRow > oneRow
+        ? _HandLayout(rows, twoRow)
+        : _HandLayout([groups], oneRow);
   }
+
+  /// Height of [rows] hand rows of cards [cardW] wide: each is a tray (label
+  /// strip + padding + card), with [_kRowGap] of felt between them.
+  double _handHeight(int rows, double cardW) =>
+      rows * (cardW * kCardAspectRatio + _kTrayPad * 2 + _kTrayLabelH) +
+      _kRowGap * (rows - 1);
 
   /// The card width one row of [groups] gets, solved from that row alone —
   /// used both to judge whether a single row still fits and, once wrapped, to
@@ -883,22 +1049,35 @@ class _GoFishTableState extends State<GoFishTable>
         final groupW = cardW + step * (group.cards.length - 1);
         final lift = selected ? 12.0 : 0.0;
 
+        final plural = group.rank.spokenPlural;
+        final n = group.cards.length;
         trays.add(Positioned(
           left: x - trayPad,
           top: top - trayPad - labelH - lift,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
+          child: Semantics(
+            button: true,
+            selected: selected,
+            // The tray is the rank picker, so this is what it says and does.
+            // "Ask for" is only offered when the seat can actually ask.
+            label: '${plural[0].toUpperCase()}${plural.substring(1)}, '
+                '$n ${n == 1 ? 'card' : 'cards'}.'
+                '${_bottomActs ? ' Ask for $plural.' : ''}',
             onTap: () => _tapGroup(group.rank),
-            child: _RankTray(
-              width: groupW + trayPad * 2,
-              height: cardH + trayPad * 2 + labelH,
-              labelHeight: labelH,
-              rank: group.rank,
-              count: group.cards.length,
-              color: selected
-                  ? widget.style.selection
-                  : Colors.white.withValues(alpha: 0.55),
-              selected: selected,
+            excludeSemantics: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _tapGroup(group.rank),
+              child: _RankTray(
+                width: groupW + trayPad * 2,
+                height: cardH + trayPad * 2 + labelH,
+                labelHeight: labelH,
+                rank: group.rank,
+                count: group.cards.length,
+                color: selected
+                    ? widget.style.selection
+                    : Colors.white.withValues(alpha: 0.55),
+                selected: selected,
+              ),
             ),
           ),
         ));
@@ -946,12 +1125,13 @@ class _GoFishTableState extends State<GoFishTable>
       children.add(_TableButton(
         label:
             rank == null ? 'Pick a rank to ask for' : 'Ask for ${rank.label}s',
+        spoken: rank == null ? null : 'Ask for ${rank.spokenPlural}',
         tone: rank == null ? _ButtonTone.disabled : _ButtonTone.gold,
         onTap: rank == null ? null : _ask,
       ));
-    } else {
+    } else if (!GameHostChrome.hostOwnsStatusOf(context)) {
       // Whose turn it is is a state, not an event: a static pill, never a
-      // notice.
+      // notice. A host that draws its own turn chrome says it already.
       children.add(GamePill(
         text: '${widget.style.seatLabel(s.currentIndex)} to ask',
       ));
@@ -1021,9 +1201,12 @@ class _GoFishTableState extends State<GoFishTable>
     final style = widget.style;
     final a = s.books[0].length;
     final b = s.books[1].length;
-    final headline = outcome.isDraw
-        ? '$a — $b · dead level'
-        : '${style.seatLabel(a > b ? 0 : 1)} wins $a — $b';
+    // Under host chrome the host says who won; the table keeps the books.
+    final headline = GameHostChrome.hostOwnsStatusOf(context)
+        ? '$a — $b'
+        : outcome.isDraw
+            ? '$a — $b · dead level'
+            : '${style.seatLabel(a > b ? 0 : 1)} wins $a — $b';
     final reason = s.booksMade >= kGoFishBookCount
         ? 'All 13 books are made'
         : 'The pond is empty and nothing is left to trade';
@@ -1106,48 +1289,51 @@ class _GoFishTableState extends State<GoFishTable>
     final table = widget.style.resolveTable(scheme);
     final label = widget.style.seatLabel(s.currentIndex);
     return Positioned.fill(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _dismissCover,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.3),
-              radius: 1.4,
-              colors: [
-                Color.lerp(table, Colors.black, 0.25)!,
-                Color.lerp(table, Colors.black, 0.58)!,
-              ],
+      child: BlockSemantics(
+        // Modal: VoiceOver must not read or play the hand under it.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _dismissCover,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.3),
+                radius: 1.4,
+                colors: [
+                  Color.lerp(table, Colors.black, 0.25)!,
+                  Color.lerp(table, Colors.black, 0.58)!,
+                ],
+              ),
             ),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.swap_vert_rounded,
-                  color: Colors.white70,
-                  size: 42,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Pass to $label',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.swap_vert_rounded,
+                    color: Colors.white70,
+                    size: 42,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Tap to continue',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.7),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                  const SizedBox(height: 12),
+                  Text(
+                    'Pass to $label',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 22,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    'Tap to continue',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1488,10 +1674,15 @@ class _TableButton extends StatelessWidget {
   final VoidCallback? onTap;
   final _ButtonTone tone;
 
+  /// What a screen reader says when the painted [label] is shorthand that
+  /// doesn't read well aloud ("Ask for Qs").
+  final String? spoken;
+
   const _TableButton({
     required this.label,
     required this.onTap,
     this.tone = _ButtonTone.primary,
+    this.spoken,
   });
 
   @override
@@ -1507,20 +1698,27 @@ class _TableButton extends StatelessWidget {
           Colors.white.withValues(alpha: 0.40),
         ),
     };
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(11),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: fg,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: spoken,
+      onTap: spoken == null ? null : onTap,
+      excludeSemantics: spoken != null,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
       ),

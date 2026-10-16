@@ -320,7 +320,7 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
     if (outcome.isWin) {
       style.sounds.onWin?.call();
       if (style.haptics) HapticFeedback.heavyImpact();
-      if (style.confetti) {
+      if (style.confetti && !GameMotion.reduced(context)) {
         _confetti = _spawnConfetti();
         _confettiCtrl.forward(from: 0);
       }
@@ -590,10 +590,45 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
         ),
       ));
     }
+    // The backs are decoration; the hand is one fact. One label over the row
+    // rather than a node per face-down card.
+    final held = state.hands[topSeat].length;
+    final span = backW + spacing * math.max(0, count - 1);
+    widgets.add(Positioned(
+      left: size.width / 2 - span / 2,
+      top: rowY - backW * 0.7,
+      width: span,
+      height: backW * 1.4,
+      child: Semantics(
+        container: true,
+        label: '${widget.style.seatLabel(topSeat)} has '
+            '${held == 0 ? 'no cards' : held == 1 ? '1 card' : '$held cards'}',
+        child: const SizedBox.expand(),
+      ),
+    ));
     return widgets;
   }
 
   // -- center piles ---------------------------------------------------------
+
+  /// The stock is drawn as a few offset backs; only the top one is a target,
+  /// so only it speaks — the others stay silent instead of reading the pile
+  /// three times.
+  Widget _semanticPile({
+    required bool top,
+    required String label,
+    required Widget child,
+  }) {
+    if (!top) return child;
+    return Semantics(
+      button: true,
+      enabled: _bottomActs,
+      label: label,
+      onTap: _tapStock,
+      excludeSemantics: true,
+      child: child,
+    );
+  }
 
   List<Widget> _buildCenterPiles(
     Size size,
@@ -612,14 +647,18 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
       Positioned(
         left: stockC.dx - cardW / 2,
         top: stockC.dy - cardH / 2,
-        child: Container(
-          width: cardW,
-          height: cardH,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(cardW * 0.13),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.25),
-              width: 1.5,
+        child: Semantics(
+          container: state.stock.isEmpty,
+          label: state.stock.isEmpty ? 'Draw pile, empty' : null,
+          child: Container(
+            width: cardW,
+            height: cardH,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(cardW * 0.13),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.25),
+                width: 1.5,
+              ),
             ),
           ),
         ),
@@ -634,14 +673,19 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
         widgets.add(Positioned(
           left: stockC.dx - cardW / 2 - off,
           top: stockC.dy - cardH / 2 - off,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: i == layers - 1 ? _tapStock : null,
-            child: PlayingCardView(
-              card: null,
-              faceUp: false,
-              width: cardW,
-              shadow: i == 0,
+          child: _semanticPile(
+            top: i == layers - 1,
+            label: 'Draw pile, ${state.stock.length} '
+                '${state.stock.length == 1 ? 'card' : 'cards'}',
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: i == layers - 1 ? _tapStock : null,
+              child: PlayingCardView(
+                card: null,
+                faceUp: false,
+                width: cardW,
+                shadow: i == 0,
+              ),
             ),
           ),
         ));
@@ -660,10 +704,18 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
         scale: 0.85 + 0.15 * enter,
         child: Opacity(
           opacity: enter.clamp(0.0, 1.0),
-          child: PlayingCardView(
-            card: topCard,
-            width: cardW,
-            declaredSuit: _playAnim == null ? declared : null,
+          child: Semantics(
+            container: true,
+            label: 'Discard pile, ${CrazyEightsCards.spokenName(topCard)} '
+                'on top'
+                '${declared != null && _playAnim == null ? ', '
+                    '${CrazyEightsCards.suitSpoken[declared]} called' : ''}',
+            excludeSemantics: true,
+            child: PlayingCardView(
+              card: topCard,
+              width: cardW,
+              declaredSuit: _playAnim == null ? declared : null,
+            ),
           ),
         ),
       ),
@@ -757,13 +809,21 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
         top: at.dy - cardH / 2,
         child: Transform.rotate(
           angle: angle,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
+          child: Semantics(
+            button: true,
+            label: playable
+                ? '${CrazyEightsCards.spokenName(card)}, playable'
+                : CrazyEightsCards.spokenName(card),
             onTap: () => _tapHandCard(card),
-            child: PlayingCardView(
-              card: card,
-              width: cardW,
-              highlighted: playable,
+            excludeSemantics: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _tapHandCard(card),
+              child: PlayingCardView(
+                card: card,
+                width: cardW,
+                highlighted: playable,
+              ),
             ),
           ),
         ),
@@ -881,21 +941,28 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
       right: 0,
       top: size.height * _kSeatChipY - 46,
       child: Center(
-        child: GestureDetector(
+        child: Semantics(
+          button: true,
+          label: 'Pass',
           onTap: _tapPass,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.58),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Text(
-              'PASS',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-                letterSpacing: 1.1,
+          excludeSemantics: true,
+          child: GestureDetector(
+            onTap: _tapPass,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.58),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'PASS',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  letterSpacing: 1.1,
+                ),
               ),
             ),
           ),
@@ -913,32 +980,47 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
   /// [GameNotice] animates a single node and queues instead.
   Widget _buildNotice(Size size, CrazyEightsState state) {
     final outcome = _outcome;
+    // The host draws who won; the board keeps only what the cards on the
+    // table cannot say, which is that a points count decided it.
+    final hostOwns = GameHostChrome.hostOwnsStatusOf(context);
     String? msg = _notice;
     var tone = _noticeTone;
     if (outcome != null) {
-      tone = GameNoticeTone.win;
-      if (outcome.isDraw) {
-        msg = 'Draw — equal points';
+      if (hostOwns) {
+        final emptied = !outcome.isDraw &&
+            state.hands[state.playerIds.indexOf(outcome.winnerId!)].isEmpty;
+        msg = emptied
+            ? null
+            : outcome.isDraw
+                ? 'Equal points'
+                : 'Fewer points';
+        tone = GameNoticeTone.info;
       } else {
-        final seat = state.playerIds.indexOf(outcome.winnerId!);
-        final label = widget.style.seatLabel(seat);
-        msg = state.hands[seat].isEmpty
-            ? '$label wins'
-            : '$label wins — fewer points';
+        tone = GameNoticeTone.win;
+        if (outcome.isDraw) {
+          msg = 'Draw — equal points';
+        } else {
+          final seat = state.playerIds.indexOf(outcome.winnerId!);
+          final label = widget.style.seatLabel(seat);
+          msg = state.hands[seat].isEmpty
+              ? '$label wins'
+              : '$label wins — fewer points';
+        }
       }
     }
+    final endLine = outcome != null && !hostOwns;
     // The endgame line stays; everything else retracts on its own so the
     // table is not left carrying a stale sentence.
     return Positioned(
       left: 16,
       right: 16,
-      top: outcome != null ? size.height * 0.44 : size.height * _kNoticeY,
+      top: endLine ? size.height * 0.44 : size.height * _kNoticeY,
       child: IgnorePointer(
         child: Center(
           child: GameNotice(
             message: msg,
             tone: tone,
-            strong: outcome != null,
+            strong: endLine,
             autoDismiss: outcome == null ? _kNoticeLife : null,
             // The endgame line is a state, not an occurrence, so it carries no
             // token — nothing should re-fire it.
@@ -951,37 +1033,57 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
 
   Widget _buildSuitPicker(Size size) {
     final d = math.min(52.0, size.width * 0.13);
+    void cancel() => setState(() => _pickerCard = null);
     return Positioned.fill(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _pickerCard = null),
-        child: ColoredBox(
-          color: Colors.black.withValues(alpha: 0.45),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const GamePill(text: 'Choose a suit', strong: true),
-                const SizedBox(height: 14),
-                Row(
+      child: BlockSemantics(
+        // Modal: the hand and piles under the scrim are out of reach.
+        child: Semantics(
+          container: true,
+          // Announced as it opens: a VoiceOver player who plays an 8 otherwise
+          // hears nothing and has no idea a choice is waiting.
+          liveRegion: true,
+          label: 'Choose a suit',
+          // VoiceOver's two-finger scrub: back out of the choice without having
+          // to name a suit.
+          onDismiss: cancel,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: cancel,
+            child: ColoredBox(
+              color: Colors.black.withValues(alpha: 0.45),
+              child: Center(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (var suit = 0; suit < 4; suit++) ...[
-                      if (suit > 0) const SizedBox(width: 12),
-                      GestureDetector(
-                        onTap: () => _pickSuit(suit),
-                        child: SizedBox(
-                          width: d,
-                          height: d,
-                          child: CustomPaint(
-                            painter: _SuitBadgePainter(suit: suit),
+                    const GamePill(text: 'Choose a suit', strong: true),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var suit = 0; suit < 4; suit++) ...[
+                          if (suit > 0) const SizedBox(width: 12),
+                          Semantics(
+                            button: true,
+                            label: _kSuitNames[suit],
+                            onTap: () => _pickSuit(suit),
+                            excludeSemantics: true,
+                            child: GestureDetector(
+                              onTap: () => _pickSuit(suit),
+                              child: SizedBox(
+                                width: d,
+                                height: d,
+                                child: CustomPaint(
+                                  painter: _SuitBadgePainter(suit: suit),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
+                        ],
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -994,48 +1096,51 @@ class _CrazyEightsTableState extends State<CrazyEightsTable>
     final table = widget.style.resolveTable(scheme);
     final label = widget.style.seatLabel(state.currentIndex);
     return Positioned.fill(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _dismissCover,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: const Alignment(0, -0.3),
-              radius: 1.4,
-              colors: [
-                Color.lerp(table, Colors.black, 0.25)!,
-                Color.lerp(table, Colors.black, 0.55)!,
-              ],
+      child: BlockSemantics(
+        // Modal: VoiceOver must not read or play the hand under it.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _dismissCover,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.3),
+                radius: 1.4,
+                colors: [
+                  Color.lerp(table, Colors.black, 0.25)!,
+                  Color.lerp(table, Colors.black, 0.55)!,
+                ],
+              ),
             ),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.swap_vert_rounded,
-                  color: Colors.white70,
-                  size: 42,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Pass to $label',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.swap_vert_rounded,
+                    color: Colors.white70,
+                    size: 42,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Tap to continue',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.7),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                  const SizedBox(height: 12),
+                  Text(
+                    'Pass to $label',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 22,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    'Tap to continue',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
